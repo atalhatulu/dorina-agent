@@ -1,0 +1,70 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+
+# Environment (secrets)
+.env
+.env.local
+.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project data (runtime-generated)
+data/
+.backup/
+export/
+
+# Downloads / temp files
+Downloads/
+*.csv
+*.bak
+*.zip
+*.tar.gz
+
+# Test artifacts
+test.md
+test2.md
+.verify_cache.json
+ornek.csv
+
+# Test / cache directories
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+
+# Logs
+*.log
+
+# Documentation / archives
+docs/
+*.zip
+*.tar.gz
+*.backup
+
+# Docker
+docker-compose.override.yml
+
+# Node (if any)
+node_modules/

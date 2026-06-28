@@ -1,0 +1,349 @@
+"""
+MCP Client — Model Context Protocol istemcisi.
+
+Model Context Protocol (MCP), AI ajanlarının dış araçlara ve veri kaynaklarına
+standart bir protokolle bağlanmasını sağlar. Bu modül, MCP sunucularına
+bağlanıp tool'larını keşfetmeyi ve çağırmayı sağlar.
+
+Referans: https://github.com/modelcontextprotocol/python-sdk
+Adaptasyon: python-sdk/src/mcp/client/ (MIT License)
+"""
+
+from __future__ import annotations
+import asyncio
+import json
+import logging
+import subprocess
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from core.logger import log
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MCPToolDef:
+    """MCP sunucusundan gelen tool tanımı."""
+    name: str
+    description: str
+    input_schema: dict
+    server_name: str
+
+
+@dataclass
+class MCPServerConfig:
+    """MCP sunucu yapılandırması."""
+    name: str
+    command: str
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] | None = None
+    enabled: bool = True
+
+
+class MCPClient:
+    """
+    Bir MCP sunucusuna bağlanır, tool'larını keşfeder ve çağırır.
+    
+    Kullanım:
+        client = MCPClient(config)
+        await client.connect()
+        tools = await client.list_tools()
+        result = await client.call_tool("tool_name", {"param": "value"})
+        await client.disconnect()
+    """
+
+    def __init__(self, config: MCPServerConfig):
+        self.config = config
+        self.process: subprocess.Popen | None = None
+        self.reader: asyncio.StreamReader | None = None
+        self.writer: asyncio.StreamWriter | None = None
+        self._request_id = 0
+        self._pending: dict[str, asyncio.Future] = {}
+        self._reader_task: asyncio.Task | None = None
+        self._connected = False
+        self._server_info: dict = {}
+
+    async def connect(self):
+        """MCP sunucusuna bağlan (stdio transport ile)."""
+        if self._connected:
+            return
+
+        try:
+            # Start subprocess
+            self.process = await asyncio.create_subprocess_exec(
+                self.config.command,
+                *self.config.args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self.config.env,
+            )
+
+            # Reader and writer
+            loop = asyncio.get_event_loop()
+            self.reader = asyncio.StreamReader()
+            protocol = asyncio.StreamReaderProtocol(self.reader)
+            await loop.connect_read_pipe(lambda: protocol, self.process.stdout)
+
+            transport, _ = await loop.connect_write_pipe(
+                asyncio.Protocol, self.process.stdin
+            )
+            self.writer = asyncio.StreamWriter(transport, protocol, None, loop)
+
+            # JSON-RPC reader task
+            self._reader_task = asyncio.create_task(self._read_loop())
+
+            # Start communication — send initialize request
+            result = await self._request("initialize", {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "dorina-agent",
+                    "version": "1.0.0",
+                },
+            })
+
+            initialized = json.loads(result)
+            self._server_info = initialized
+            self._connected = True
+
+            # Initialized notification
+            await self._notify("notifications/initialized")
+
+            log.info(f"MCP bağlandı: {self.config.name} ({self.config.command})")
+
+        except Exception as e:
+            log.error(f"MCP bağlantı hatası [{self.config.name}]: {e}")
+            await self.disconnect()
+            raise
+
+    async def disconnect(self):
+        """MCP sunucusundan bağlantıyı kes."""
+        self._connected = False
+
+        if self._reader_task:
+            self._reader_task.cancel()
+            self._reader_task = None
+
+        if self.writer:
+            try:
+                self.writer.close()
+                await self.writer.wait_closed()
+            except:
+                pass
+            self.writer = None
+
+        if self.process:
+            try:
+                self.process.terminate()
+                await asyncio.sleep(0.5)
+                if self.process.returncode is None:
+                    self.process.kill()
+                await self.process.wait()
+            except:
+                pass
+            self.process = None
+
+        log.info(f"MCP bağlantı kesildi: {self.config.name}")
+
+    async def list_tools(self) -> list[MCPToolDef]:
+        """Sunucudaki tool'ları listele."""
+        if not self._connected:
+            return []
+
+        try:
+            result = await self._request("tools/list", {})
+            data = json.loads(result)
+            tools_data = data.get("tools", data.get("result", {}).get("tools", []))
+
+            return [
+                MCPToolDef(
+                    name=t.get("name"),
+                    description=t.get("description", ""),
+                    input_schema=t.get("inputSchema", {}),
+                    server_name=self.config.name,
+                )
+                for t in tools_data
+            ]
+
+        except Exception as e:
+            log.error(f"MCP tool listeleme hatası: {e}")
+            return []
+
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
+        """MCP tool'unu çağır."""
+        if not self._connected:
+            return json.dumps({"error": "MCP sunucusuna bağlı değil"})
+
+        try:
+            result = await self._request("tools/call", {
+                "name": tool_name,
+                "arguments": arguments,
+            })
+            data = json.loads(result)
+
+            # Convert content to plain text
+            content_parts = []
+            result_data = data.get("result", data)
+            for item in result_data.get("content", []):
+                if item.get("type") == "text":
+                    content_parts.append(item.get("text", ""))
+                elif item.get("type") == "resource":
+                    content_parts.append(str(item.get("resource", "")))
+
+            return "\n".join(content_parts) if content_parts else json.dumps(data)
+
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    async def ping(self) -> bool:
+        """Sunucuya ping at."""
+        try:
+            await self._request("ping", {})
+            return True
+        except:
+            return False
+
+    async def _request(self, method: str, params: dict) -> str:
+        """JSON-RPC isteği gönder."""
+        self._request_id += 1
+        req_id = str(self._request_id)
+
+        request = {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": method,
+            "params": params,
+        }
+
+        future = asyncio.get_event_loop().create_future()
+        self._pending[req_id] = future
+
+        line = json.dumps(request, ensure_ascii=False) + "\n"
+        self.writer.write(line.encode("utf-8"))
+        await self.writer.drain()
+
+        try:
+            return await asyncio.wait_for(future, timeout=30)
+        except asyncio.TimeoutError:
+            self._pending.pop(req_id, None)
+            raise TimeoutError(f"MCP istek zaman aşımı: {method}")
+
+    async def _notify(self, method: str, params: dict | None = None):
+        """JSON-RPC notification gönder (yanıt beklenmez)."""
+        notification = {
+            "jsonrpc": "2.0",
+            "method": method,
+        }
+        if params:
+            notification["params"] = params
+
+        line = json.dumps(notification, ensure_ascii=False) + "\n"
+        self.writer.write(line.encode("utf-8"))
+        await self.writer.drain()
+
+    async def _read_loop(self):
+        """JSON-RPC yanıtlarını oku."""
+        buffer = ""
+        try:
+            while self._connected and self.reader:
+                char = await self.reader.read(1)
+                if not char:
+                    break
+                buffer += char.decode("utf-8", errors="replace")
+
+                if char == b"\n" and buffer.strip():
+                    try:
+                        message = json.loads(buffer.strip())
+                        self._handle_message(message)
+                    except json.JSONDecodeError:
+                        log.debug(f"MCP parse hatası: {buffer[:100]}")
+                    buffer = ""
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.debug(f"MCP okuma döngüsü sonu: {e}")
+
+    def _handle_message(self, message: dict):
+        """Gelen JSON-RPC mesajını işle."""
+        # Response?
+        if "id" in message:
+            req_id = str(message["id"])
+            future = self._pending.pop(req_id, None)
+            if future and not future.done():
+                future.set_result(json.dumps(message, ensure_ascii=False))
+
+        # Error?
+        elif "error" in message:
+            log.error(f"MCP hatası: {message['error']}")
+
+        # Notification?
+        elif "method" in message:
+            log.debug(f"MCP notification: {message['method']}")
+
+
+class MCPManager:
+    """
+    Birden çok MCP sunucusunu yönetir.
+    Tüm sunuculardaki tool'ları tek bir havuzda toplar.
+    """
+
+    def __init__(self):
+        self.servers: dict[str, MCPClient] = {}
+        self.configs: list[MCPServerConfig] = []
+
+    def add_server(self, config: MCPServerConfig):
+        """MCP sunucu ekle."""
+        self.configs.append(config)
+        self.servers[config.name] = MCPClient(config)
+
+    def remove_server(self, name: str):
+        """MCP sunucu kaldır."""
+        if name in self.servers:
+            client = self.servers.pop(name)
+            asyncio.create_task(client.disconnect())
+        self.configs = [c for c in self.configs if c.name != name]
+
+    async def connect_all(self):
+        """Tüm sunuculara bağlan."""
+        for client in self.servers.values():
+            try:
+                await client.connect()
+            except Exception as e:
+                log.warning(f"MCP [{client.config.name}] bağlanamadı: {e}")
+
+    async def disconnect_all(self):
+        """Tüm sunuculardan bağlantıyı kes."""
+        for client in self.servers.values():
+            await client.disconnect()
+
+    async def list_all_tools(self) -> list[MCPToolDef]:
+        """Tüm sunuculardaki tool'ları topla."""
+        all_tools = []
+        for client in self.servers.values():
+            if client._connected:
+                tools = await client.list_tools()
+                all_tools.extend(tools)
+        return all_tools
+
+    async def call_tool(self, tool_name: str, arguments: dict) -> str:
+        """Tool'u doğru sunucuda bul ve çağır."""
+        for client in self.servers.values():
+            if not client._connected:
+                continue
+            tools = await client.list_tools()
+            if any(t.name == tool_name for t in tools):
+                return await client.call_tool(tool_name, arguments)
+        return json.dumps({"error": f"Tool bulunamadı (MCP): {tool_name}"})
+
+    async def ping_all(self) -> dict[str, bool]:
+        """Tüm sunuculara ping at."""
+        results = {}
+        for name, client in self.servers.items():
+            results[name] = await client.ping()
+        return results
+
+
+# Default MCP manager
+mcp_manager = MCPManager()

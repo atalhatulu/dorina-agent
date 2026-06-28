@@ -1,0 +1,86 @@
+memory:
+  auto_extract: true
+  embedding_model: BAAI/bge-small-en-v1.5
+  enabled: true
+  max_working_messages: 20
+  vector_store: chroma
+model:
+  active_model: ''
+  context_length: 128000
+  default: deepseek/deepseek-v4-flash
+  fallback_providers:
+  - openrouter/openai/gpt-4o-mini
+  - ollama/llama3
+  max_tokens: 4096
+  pricing:
+    deepseek/deepseek-chat:
+      cached_input: 7.0e-05
+      input: 0.00014
+      output: 0.00028
+    deepseek/deepseek-v4-flash:
+      cached_input: 7.0e-05
+      input: 0.00014
+      output: 0.00028
+    default:
+      cached_input: 7.5e-05
+      input: 0.00015
+      output: 0.0006
+    groq/llama3-70b-8192:
+      cached_input: 0.0003
+      input: 0.00059
+      output: 0.00079
+    openrouter/anthropic/claude-sonnet-4:
+      cached_input: 0.00015
+      input: 0.003
+      output: 0.015
+  provider: deepseek
+security:
+  always_allow:
+  - read_file
+  - search_files
+  - list_directory
+  - get_weather
+  - get_time
+  - web_search
+  - get_python_info
+  - process_list
+  ask_always:
+  - delete_file
+  - rm
+  - batch_delete
+  - execute_code
+  - run_script
+  - db_execute
+  - container_exec
+  - bulk_execute_command
+  block_destructive_commands: true
+  max_code_execution_time: 30
+  redact_secrets: true
+session:
+  auto_save: true
+  max_sessions: 100
+  storage: sqlite
+skills:
+  auto_detect: true
+  enabled: true
+  store_dir: skills/store
+language: tr  # Default UI language (tr, en)
+
+soul:
+  file: soul.md
+  language: tr
+terminal:
+  markdown: true
+  status_bar: true
+  theme: dark
+mail:
+  imap_server: imap.example.com
+  imap_port: 993
+  smtp_server: smtp.example.com
+  smtp_port: 587
+  email_addr: ""
+  email_pass: ""
+tools:
+  approval_mode: smart
+  mcp_enabled: true
+  sandbox: docker

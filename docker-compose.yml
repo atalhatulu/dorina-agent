@@ -1,0 +1,42 @@
+services:
+  dorina-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dorina-agent:latest
+    container_name: dorina-agent
+    hostname: dorina-agent
+    restart: unless-stopped
+    ports:
+      - "8080:8080"    # Gateway HTTP API
+      - "9090:9090"    # Metrics / Health
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+      - ./soul.md:/app/soul.md:ro
+      - /tmp/dorina_tts:/tmp/dorina_tts
+      - /tmp/dorina_audio:/tmp/dorina_audio
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1
+      - TERM=xterm-256color
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    networks:
+      - dorina-net
+
+networks:
+  dorina-net:
+    driver: bridge
