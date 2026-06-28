@@ -9,7 +9,7 @@ class Soul:
     """Dorina'nın kişiliği. soul.md'den yüklenir."""
 
     def __init__(self, path: str | None = None):
-        self.path = Path(path) if path else (Path.home() / ".dorina" / "soul.md")
+        self.path = Path(path) if path else (Path.home() / ".dorina" / "SOUL.md")
         self.raw: dict = {}
         self._load()
 
@@ -116,6 +116,36 @@ class Soul:
             except Exception:
                 pass
                 
+        # Kalici Hafiza (HERMES TARZI: ~/.dorina/memories/ altinda)
+        _mem_user = Path.home() / ".dorina" / "memories" / "USER.md"
+        _mem_memory = Path.home() / ".dorina" / "memories" / "MEMORY.md"
+        _mem_skill_dir = Path.home() / ".dorina" / "skills"
+        _mem_found = []
+        if _mem_user.exists():
+            _mem_found.append(("KULLANICI PROFILI", _mem_user.read_text(encoding="utf-8").strip()))
+        if _mem_memory.exists():
+            _mem_found.append(("AGENT NOTLARI", _mem_memory.read_text(encoding="utf-8").strip()))
+        if _mem_skill_dir.exists():
+            _skill_entries = []
+            for _skill_folder in sorted(_mem_skill_dir.iterdir()):
+                if _skill_folder.is_dir():
+                    _sk = _skill_folder / "SKILL.md"
+                    if _sk.exists():
+                        _content = _sk.read_text(encoding="utf-8").strip()
+                        _skill_entries.append(f"[{_skill_folder.name}]")
+                        _skill_entries.append(_content)
+            if _skill_entries:
+                _mem_found.append(("OGRENILEN BECERILER", "\n".join(_skill_entries)))
+        for title, content in _mem_found:
+            lines.append("")
+            lines.append(f"## {title}")
+            # Sadece ilk 10 satir enjekte et, fazlasi icin read_memory kullan
+            _mem_lines = content.split("\n")
+            for line in _mem_lines[:10]:
+                lines.append(line)
+            if len(_mem_lines) > 10:
+                lines.append(f"  *(+{len(_mem_lines)-10} satir daha — read_memory ile oku)*")
+
         # Prosedürel Hafıza (Kullanıcı Tercihleri)
         _pref_path = Path.home() / ".dorina" / "knowledge" / "learned" / "preferences.json"
         if _pref_path.exists():
@@ -147,7 +177,10 @@ class Soul:
         lines.append("- 'Once su sekilde baslayayim' deyip durma — basla VE devam et.")
         lines.append("- Sadece su durumlarda onay iste: dosya silme, sistem genelinde degisiklik, geri alinamaz islem.")
         lines.append("- Plan yaptiysan uygula. 'Simdi X yapayim' dedikten sonra X'i yap, input bekleme.")
+        lines.append("- **En iyi kod yazmadigindir (Ponytail).** Gereksiz paket/paket kurma. Browser'in hazir elementini kullan (`<input type='date'>` flatpickr yerine). Tek satirda coz. YAGNI: ihtiyacin olmayani ekleme.")
         lines.append("- Gorev bitmeden DONE'a gecme.")
+        lines.append("- **Gorev bittiginde ogrendigin kalibi save_memory ile kaydet.** Ornek: HTML oyun sitesi yaptiysan → `save_memory(target='skill', content='html-website: canvas + requestAnimationFrame + CSS grid')`. Spesifik degil, GENEL ve TEKRAR KULLANILABILIR olsun.")
+        lines.append("- **Arastirma yaptiysan ogrendiklerini kaydet.** web_search veya deep_research ile bir konuda bilgi topladiysan, cikardigin ozeti save_memory(target='skill') ile kaydet. Boylece bir daha ayni seyi arastirmazsin.")
         lines.append("")
         lines.append("## CONTEXT KULLANIMI")
         lines.append("- Bir dosyayi bir kere okudugunda, icerigi konusma gecmisinde var demektir.")
@@ -159,7 +192,8 @@ class Soul:
         lines.append("- write_file ile dosya yazdiktan sonra icerigi asistan mesajinda TEKRARLAMA. Sadece 'dosya olusturuldu' de.")
         lines.append("- read_file ile okudugunda dosyanin TAMAMINI cevabinda gosterme. Ozet gec veya sadece ilgili kisimlari belirt.")
         lines.append("- Tool call argumanlarinda buyuk icerikler gonderirsen cok token harcanir. Terminal ile python -c kullan.")
-        lines.append("- **Toplu taramalarda batch_python tool'unu kullan.** 20+ dosya tarayacaksan read_file ile tek tek okuma. batch_python ile tek script'te tumunu tara. Ornek: `batch_python(code='import os\\nfor root, dirs, files in os.walk(\\\".\\\"):\\\\n  for f in files:\\\\n    if f.endswith(\\\".py\\\"):\\\\n      print(f)')`")
+        lines.append("- **Toplu taramalarda batch_python tool'unu kullan.** 20+ dosya tarayacaksan read_file ile tek tek okuma. batch_python ile tek script'te tumunu tara.")
+        lines.append("- **Kalici hafiza:** Kullaniciyla ilgili kisisel bilgi (yas, isim, tercih) → target='user'. Kendi notlarin (tool, ortam) → target='memory'. Ogrendigin teknik kalip → target='skill'.")
         lines.append("")
         lines.append("## PATCH SONRASI KURAL")
         lines.append("- patch basarili dondurduyse verification alaninda degisen satirlar ve cevresi gelir.")

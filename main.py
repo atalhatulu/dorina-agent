@@ -14,6 +14,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from core.constants import DORINA_HOME
 
 # Add project root to PYTHONPATH
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -41,6 +42,9 @@ from tools.builtin import terminal_pro  # noqa: F401
 from tools.builtin import file_analytics  # noqa: F401
 from tools.builtin import workflow_tool  # noqa: F401
 from tools.builtin import git_tools  # noqa: F401
+from tools.builtin import clarify_tool  # noqa: F401
+from tools.builtin import cron_tools  # noqa: F401
+from tools.builtin import memory_tools  # noqa: F401
 from mail import tools as mail_tools  # noqa: F401
 from lsp import tools as lsp_tools  # noqa: F401
 from evolution import tools as evolution_tools  # noqa: F401
@@ -158,6 +162,20 @@ class DorinaApp:
                 mcp_status = "hazir (sunucu yok)"
             except Exception:
                 mcp_status = "yok"
+
+        # ~/.dorina/config.yaml'dan model ayarini oku
+        _cfg_path = DORINA_HOME / "config.yaml"
+        if _cfg_path.exists():
+            try:
+                import yaml as _yaml
+                _cfg = _yaml.safe_load(_cfg_path.read_text())
+                if _cfg and "model" in _cfg:
+                    if "provider" in _cfg["model"]:
+                        settings.model.provider = _cfg["model"]["provider"]
+                    if "default" in _cfg["model"]:
+                        settings.model.default = _cfg["model"]["default"]
+            except Exception:
+                pass
 
         # Start session
         model_info = f"{settings.model.provider}/{settings.model.default.split('/')[-1]}"

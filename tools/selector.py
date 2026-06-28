@@ -10,24 +10,24 @@ Architecture:
 """
 
 from __future__ import annotations
-from typing import Optional
+import time as _time
+from pathlib import Path
 from core.logger import log
 
-# Critical tools always included regardless of context
 ALWAYS_INCLUDE = frozenset({
     "read_file", "write_file", "patch", "terminal", "search_files",
     "web_search", "web_fetch",
 })
 
-# Tools that should never be auto-selected (internal/system)
 NEVER_SELECT = frozenset({
     "delegate_task", "mcp_call_tool", "plan_and_execute",
 })
 
-# Max tools to return per query
 DEFAULT_TOP_K = 7
 
 _sem_instance = None
+_cache = {"time": 0, "tools": [], "context": ""}
+_CACHE_TTL = 60  # 60 saniye cache
 
 
 def _get_sem():
@@ -79,15 +79,40 @@ class ToolSelector:
 
         self._indexed = True
         log.info(f"ToolSelector indexed {count}/{self._total_tools} tools")
+        
+        # Skills index
+        self._index_skills(sem)
+    
+    def _index_skills(self, sem):
+        """Index all learned skills into semantic memory."""
+        _skills_dir = Path.home() / ".dorina" / "skills"
+        if not _skills_dir.exists():
+            return
+        _sk_count = 0
+        for _folder in sorted(_skills_dir.iterdir()):
+            if _folder.is_dir():
+                _sk = _folder / "SKILL.md"
+                if _sk.exists():
+                    _content = _sk.read_text(encoding="utf-8").strip()
+                    sem.add(f"Skill: {_folder.name}. {_content}", {
+                        "skill_name": _folder.name,
+                        "type": "skill",
+                    }, doc_id=f"skill_{_folder.name}")
+                    _sk_count += 1
+        if _sk_count:
+            log.info(f"ToolSelector indexed {_sk_count} skills")
 
     async def select(self, context: str, top_k: int = DEFAULT_TOP_K) -> list[str]:
-        """Select relevant tool names for the given context."""
-        sem = _get_sem()
+        global _cache
+        now = _time.time()
+        if _cache["tools"] and _cache["context"] == context and (now - _cache["time"]) < _CACHE_TTL:
+            return _cache["tools"]
 
+        sem = _get_sem()
         selected = list(ALWAYS_INCLUDE)
 
         if not self._indexed or not sem._ready:
-            log.debug("ToolSelector unavailable, returning all available tools as fallback")
+            log.debug("ToolSelector unavailable, fallback to all tools")
             from tools.registry import registry
             return registry.available_tools()
 
@@ -99,9 +124,26 @@ class ToolSelector:
             if name and name not in selected and name not in NEVER_SELECT:
                 selected.append(name)
 
-        log.debug(f"ToolSelector: selected {len(selected)} tools for '{context[:40]}...'")
+        _cache = {"time": now, "tools": selected, "context": context}
+        log.debug(f"ToolSelector: selected {len(selected)} tools")
         return selected
 
+    async def select_skills(self, context: str, top_k: int = 3) -> list[dict]:
+        """Context'e gore ilgili skill'leri sec. (tool seciminden bagimsiz)"""
+        sem = _get_sem()
+        if not self._indexed or not sem._ready:
+            return []
+        results = sem.search(context, n_results=top_k)
+        skills = []
+        for item in results:
+            meta = item.get("metadata", {})
+            if meta.get("type") == "skill":
+                skills.append({
+                    "name": meta.get("skill_name", ""),
+                    "content": item.get("content", ""),
+                })
+        return skills
+    
     def schemas_for(self, tool_names: list[str]) -> list[dict]:
         """Build schema dicts for the given tool names."""
         from tools.registry import registry

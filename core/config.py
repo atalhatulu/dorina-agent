@@ -100,7 +100,7 @@ class Settings(BaseSettings):
             init_settings,
             env_settings,
             dotenv_settings,
-            YamlConfigSettingsSource(settings_cls),
+            YamlConfigSettingsSource(settings_cls, yaml_file=str(DORINA_HOME / "config.yaml")),
             file_secret_settings,
         )
 

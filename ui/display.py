@@ -8,10 +8,13 @@ from rich import box
 import re as _re
 import json as _json
 import threading as _threading
+import time as _time
+
+_RE_FILE_LINE = _re.compile(r'File "([^"]+)", line (\d+)')
+_RE_FILE_LINE2 = _re.compile(r'[-\s]+File "([^"]+)", line (\d+)')
 
 console = Console()
 
-# Renk paleti (#D4622A turuncu tema)
 ORANGE = "#D4622A"
 TEXT   = "#F0EAD8"
 USER   = "#E08F5A"
@@ -28,7 +31,10 @@ _emoji = {
     "tree": "\U0001F333", "ping": "\U0001F4E1", "weather": "\U0001F324",
     "deep research": "\U0001F52C", "backup": "\U0001F4BF", "timer": "\u23F1",
     "save preference": "\u2699", "list tools": "\U0001F9F0",
+    "batch python": "\U0001F9E9",
 }
+
+_ARG_LABEL_KEYS = {"path","code","command","query","question","prompt","message","pattern","text","url"}
 
 
 def _icon(name: str) -> str:
@@ -43,8 +49,6 @@ def _safe_str(s: str, max_len: int = 120) -> str:
     return str(s or "").strip()[:max_len]
 
 
-# ── Kullanici / Asistan ──────────────────────────────
-
 def print_user(message: str):
     t = Text()
     t.append("> ", style=f"bold {USER}")
@@ -58,37 +62,50 @@ def print_assistant(message: str):
     if not message:
         return
     console.print()
-    console.print(f"[bold {ORANGE}]# Dorina #[/bold {ORANGE}]")
+    console.print(f"[bold {ORANGE}]> Dorina :[/bold {ORANGE}]")
     console.print(Markdown(message), justify="left")
     console.print()
 
 
 def print_assistant_stream(chunk: str):
     global _stream_buffer
-    _stream_buffer += chunk
-    if (len(_stream_buffer) >= 40
-            or _stream_buffer.endswith(("\n", ". ", "! ", "? ", ": ", "; "))):
-        console.print(_stream_buffer, end="", highlight=False, markup=False)
-        _stream_buffer = ""
+    with _stream_lock:
+        _stream_buffer += chunk
+        if (len(_stream_buffer) >= 40
+                or _stream_buffer.endswith(("\n", ". ", "! ", "? ", ": ", "; "))):
+            console.print(_stream_buffer, end="", highlight=False, markup=False)
+            _stream_buffer = ""
 
 
 _stream_buffer = ""
+_stream_lock = _threading.Lock()
 
 
 def flush_stream():
     global _stream_buffer
-    if _stream_buffer:
-        console.print(_stream_buffer, end="", highlight=False, markup=False)
-        _stream_buffer = ""
+    with _stream_lock:
+        if _stream_buffer:
+            console.print(_stream_buffer, end="", highlight=False, markup=False)
+            _stream_buffer = ""
 
 
-# ── Tool ciktilari ───────────────────────────────────
-
-def print_tool_start(name: str):
+def print_tool_start(name: str, args: dict | None = None):
+    global _tool_start_time
+    _tool_start_time = _time.time()
     console.print()
     t = Text()
     t.append(f"  {_icon(name)} ", style=GREEN)
     t.append(name.replace("_", " ").title(), style="bold")
+    if args:
+        matched = {k for k in args if k in _ARG_LABEL_KEYS}
+        if matched:
+            key = matched.pop()
+            val = str(args.get(key, ""))
+            if key == "code":
+                val = val.replace("\n", "\\n")
+            _label = _safe_str(val, 60)
+            if _label:
+                t.append(f": {_label}", style=DIM)
     t.append("...", style=DIM)
     console.print(t)
 
@@ -117,7 +134,10 @@ def print_tool_done(name: str, result: str):
                     t.append(item.get("title", "")[:60], style=USER)
                     console.print(t)
                 if len(r) > 3:
-                    console.print(f"      [{DIM}](+{len(r)-3} daha)[/{DIM}]")
+                    t = Text()
+                    t.append(f"(+{len(r)-3} daha)", style=DIM)
+                    console.print("      ", end="")
+                    console.print(t)
                 return
             summary = f"{len(r)} sonuc"
         elif "note" in data:
@@ -145,22 +165,71 @@ def print_tool_done(name: str, result: str):
 
 
 def print_tool_error(name: str, error: str):
-    msg = _safe_str(error, 120)
-    if str(error or "").strip().startswith("{"):
+    raw = str(error or "")
+    msg = raw[:120]
+    if raw.strip().startswith("{"):
         try:
-            p = _json.loads(str(error))
-            e = p.get("error", "") or p.get("message", "")
-            if e:
-                msg = _safe_str(e, 120)
-                msg = msg.replace("[Errno 13] Permission denied", "Izin reddedildi")
-                msg = msg.replace("[Errno 21] Is a directory", "Bu bir dizin, dosya degil")
-                msg = msg.replace("[Errno 2] No such file or directory", "Dosya/dizin bulunamadi")
+            p = _json.loads(raw)
+            msg = p.get("error", "") or p.get("message", "") or msg
         except Exception:
             pass
+    user_msg = _friendly_error(msg)
+    import logging as _logging
+    _logging.getLogger("dorina").debug(f"Tool hatasi [{name}]: {raw[:300]}")
+    location = _find_error_location(raw)
     t = Text()
     t.append("    \u2717 ", style=ORANGE)
-    t.append(msg)
+    t.append(user_msg or msg)
+    if location:
+        t.append(" ", style="")
+        t.append(location, style=DIM)
     console.print(t)
+
+
+def _find_error_location(raw: str) -> str | None:
+    m = _RE_FILE_LINE.search(raw)
+    if m:
+        fname = m.group(1).split("/")[-1]
+        return f"{fname}:{m.group(2)}"
+    m = _RE_FILE_LINE2.search(raw)
+    if m:
+        fname = m.group(1).split("/")[-1]
+        return f"{fname}:{m.group(2)}"
+    return None
+
+
+def _friendly_error(msg: str) -> str | None:
+    msg = msg[:120]
+    if "closing tag" in msg and "doesn't match" in msg:
+        return "Arayuz bileseni hatasi (Detay: log)"
+    if "MarkupError" in msg:
+        return "Goruntu bileseni hatasi (Detay: log)"
+    if "JSONDecodeError" in msg or "Expecting value" in msg:
+        return "Beklenmeyen yanit formati (Detay: log)"
+    if "Errno 2" in msg or "No such file" in msg or "FileNotFoundError" in msg:
+        s = msg.rfind("/")
+        fname = msg[s:] if s > 0 else msg
+        return f"Dosya bulunamadi: ...{fname[:40]}"
+    if "Errno 13" in msg or "Permission denied" in msg or "PermissionError" in msg:
+        return "Erisim izni yok"
+    if "Errno 21" in msg or "Is a directory" in msg or "IsADirectoryError" in msg:
+        return "Bu bir dizin, dosya yolu belirtin"
+    if "timeout" in msg.lower() or "timed out" in msg.lower():
+        return "Baglanti zamani asti"
+    if "ConnectionError" in msg or "Connection refused" in msg:
+        return "Baglanti kurulamadi"
+    if "401" in msg or "Unauthorized" in msg or "API key" in msg.lower():
+        return "API anahtari gecersiz"
+    if "402" in msg or "Payment Required" in msg:
+        return "API kredisi tukendi"
+    if "429" in msg or "Rate limit" in msg or "Too Many Requests" in msg:
+        return "Cok fazla istek, bekleyin"
+    if "ModuleNotFoundError" in msg or "No module named" in msg:
+        m = msg.split("'")[1] if "'" in msg else "?"
+        return f"Eksik paket: {m}"
+    if "chromadb" in msg.lower() or "Expected embeddings" in msg:
+        return "Bellek sistemi hatasi (Detay: log)"
+    return None
 
 
 def print_status_bar(text: str):
@@ -168,8 +237,6 @@ def print_status_bar(text: str):
     t.append(f"  {text}", style=f"italic {DIM}")
     console.print(t)
 
-
-# ── Kisa fonksiyonlar ────────────────────────────────
 
 def print_divider():
     console.print()

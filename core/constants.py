@@ -29,7 +29,7 @@ def ensure_dorina_home():
     """~/.dorina/ altinda gerekli dizinleri olustur."""
     for d in [DORINA_HOME, DEFAULT_DATA_DIR, DEFAULT_SESSIONS_DIR, DEFAULT_EXPORT_DIR,
               DEFAULT_LOGS_DIR, DEFAULT_KNOWLEDGE_DIR, DEFAULT_CACHE_DIR, DEFAULT_CHROMA_DIR,
-              DEFAULT_BG_TOOLS_DIR]:
+              DEFAULT_BG_TOOLS_DIR, DORINA_HOME / "skills", DORINA_HOME / "memories"]:
         d.mkdir(parents=True, exist_ok=True)
     # config.yaml yoksa example'dan kopyala
     if not DEFAULT_CONFIG.exists():
@@ -38,7 +38,7 @@ def ensure_dorina_home():
             DEFAULT_CONFIG.write_text(example.read_text())
             print(f"  [info] Config olusturuldu: {DEFAULT_CONFIG}")
     # soul.md yoksa projedekinden kopyala
-    _soul_path = DORINA_HOME / "soul.md"
+    _soul_path = DORINA_HOME / "SOUL.md"
     if not _soul_path.exists():
         _soul_example = Path(__file__).resolve().parent.parent / "soul.md"
         if _soul_example.exists():

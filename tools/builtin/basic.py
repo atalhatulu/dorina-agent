@@ -326,14 +326,13 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
     if p.is_absolute() and str(p).startswith("/home/user"):
         p = Path(str(p).replace("/home/user", str(Path.home()), 1))
     
-    # Proje dizinine yazmayi engelle (veri sizdirma onlemi)
-    _proj_root = Path(__file__).resolve().parent.parent.parent
-    try:
-        p.resolve().relative_to(_proj_root.resolve())
-        return json.dumps({"error": "Proje dizinine dosya yazamazsin. Dosyayi ~/Desktop/ veya ~/Documents/ altina yaz."})
-    except ValueError:
-        pass  # proje dizini disinda, guvende
-        
+    # Sadece belirli dizinlere yazma izni ver, degilse Desktop'a yonlendir
+    if p.is_absolute():
+        _allowed = [Path.home() / d for d in ("Desktop", "Documents", "Downloads")]
+        _in_allowed = any(str(p).startswith(str(a)) for a in _allowed)
+        if not _in_allowed:
+            p = Path.home() / "Desktop" / p.name
+
     if p.exists() and not overwrite:
         return json.dumps({"error": f"Dosya zaten var: {path}. Üzerine yazmak için overwrite=true kullanın veya patch tool'unu deneyin."})
     

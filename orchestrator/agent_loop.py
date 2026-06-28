@@ -9,6 +9,7 @@ Skill injection (Superpowers session-start hook) ile session bootstrap.
 from __future__ import annotations
 from typing import Optional, Callable
 import asyncio
+import json
 
 from core.logger import log
 from core.event_bus import bus
@@ -207,7 +208,7 @@ class AgentLoop:
                 args = fn.get("arguments", "{}")
                 tool_call_id = tc.get("id", f"call_{name}")
                 status.add_tool_call()
-                display.print_tool_start(name)
+                display.print_tool_start(name, json.loads(args) if isinstance(args, str) else args)
                 try:
                     result = await asyncio.to_thread(executor.execute, name, args)
                     self.context.add_tool_result(name, result, tool_call_id)
@@ -224,7 +225,7 @@ class AgentLoop:
                 args = fn.get("arguments", "{}")
                 tool_call_id = tc.get("id", f"call_{name}")
                 status.add_tool_call()
-                display.print_tool_start(name)
+                display.print_tool_start(name, json.loads(args) if isinstance(args, str) else args)
                 try:
                     result = executor.execute(name, args)
                     self.context.add_tool_result(name, result, tool_call_id)
@@ -901,7 +902,7 @@ async def _handle_waiting_result(ctx: AgentContext):
         # Flush any remaining stream buffer before printing tool name
         from ui.display import flush_stream as _flush_stream
         _flush_stream()
-        _display.print_tool_start(name)
+        _display.print_tool_start(name, None)
         try:
             if name in READ_TOOLS:
                 result = await asyncio.to_thread(executor.execute, name, args)
@@ -917,6 +918,7 @@ async def _handle_waiting_result(ctx: AgentContext):
                 
                 # --- Self-Review & Auto-Testing ---
                 if name in ("write_file", "patch"):
+                    import os
                     import json
                     
                     # 1. Self-Review (Kontrol Katmanı)
