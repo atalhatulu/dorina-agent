@@ -100,30 +100,3 @@ class TestSessionManager:
         _dir = os.path.dirname(md_path)
         if _dir and not os.listdir(_dir):
             os.rmdir(_dir)
-
-    def test_session_indexer(self):
-        """Session indexer calisiyor mu?"""
-        from knowledge.session_indexer import index_session, search_learned, list_learned
-        import tempfile, os
-        
-        summary = index_session(
-            session_id="test_index_456",
-            messages=[{"role": "user", "content": "versiyon sistemi ekle"}],
-            summary="Versiyon sistemi eklendi",
-            title="Versiyon",
-            tool_calls_data=[{"name": "write_file", "args_preview": "version.py"}],
-            tags=["feature", "versioning"],
-        )
-        assert "Versiyon" in summary
-        
-        # Arama calisiyor mu?
-        results = search_learned("versiyon")
-        assert len(results) >= 1
-        
-        results = list_learned()
-        assert len(results) >= 1
-        
-        # Temizlik
-        learned_dir = Path.home() / ".dorina" / "knowledge" / "learned"
-        for f in learned_dir.glob("*test_index*"):
-            f.unlink(missing_ok=True)

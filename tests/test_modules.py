@@ -42,35 +42,6 @@ class TestBrowserClient:
         assert len(result) > 0
 
 
-# ═══════════════════════════════════════════════════════════════════
-# GATEWAY
-# ═══════════════════════════════════════════════════════════════════
-class TestGatewayServer:
-    def test_import(self):
-        from gateway.server import gateway, GatewayServer
-        assert gateway is not None
-        assert isinstance(gateway, GatewayServer)
-
-    def test_methods_exist(self):
-        from gateway.server import gateway
-        assert hasattr(gateway, "start")
-        assert hasattr(gateway, "stop")
-        assert hasattr(gateway, "is_running")
-        assert hasattr(gateway, "host")
-        assert hasattr(gateway, "port")
-
-    def test_start_stop(self):
-        """Gateway can be started and stopped without error."""
-        from gateway.server import GatewayServer
-        g = GatewayServer(port=18642)  # avoid conflict
-        msg = g.start()
-        assert "Gateway" in msg
-        time.sleep(0.3)
-        # Can't easily test HTTP from here without background thread lifecycle,
-        # but at least start() doesn't crash
-        g.stop()
-        assert True
-
 
 # ═══════════════════════════════════════════════════════════════════
 # SEARCH

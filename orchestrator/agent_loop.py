@@ -598,14 +598,7 @@ class AgentLoop:
                     token_total=token_total,
                 )
                 
-                # Index
-                from knowledge.session_indexer import index_session
-                index_session(
-                    session_id=manager.current_id,
-                    messages=messages,
-                    summary=getattr(self, '_last_summary', ''),
-                    tool_calls_data=tool_calls_data,
-                )
+                # Session indexing removed
             except Exception as e:
                 log.debug(f"Session export/index skipped: {e}")
         

@@ -52,14 +52,3 @@ class TestEpisodicMemory:
         assert len(session["messages"]) == 1
         em.delete_session("test123")
         assert em.load_session("test123") is None
-
-
-class TestAutoExtract:
-    def test_extract_preferences(self):
-        from memory.episodic import EpisodicMemory
-        from memory.auto_extract import AutoExtractor
-        em = EpisodicMemory()
-        ae = AutoExtractor(em)
-        ae.extract("Python kullanıyorum ve Docker severim", "tamam")
-        results = em.search_memories("python")
-        assert len(results) > 0

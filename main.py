@@ -110,7 +110,7 @@ def _init_api_keys():
 _init_api_keys()
 from memory.procedural import ProceduralMemory
 from memory.episodic import EpisodicMemory
-from memory.auto_extract import AutoExtractor
+
 from knowledge.rag_engine import rag
 from skills.manager import skills
 from security.auth import auth
@@ -262,7 +262,17 @@ class DorinaApp:
                 display.print_divider()
 
                 # Handle normal question
-                response = await loop.process(user_input)
+                gen_task = asyncio.create_task(loop.process(user_input))
+                try:
+                    response = await gen_task
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    gen_task.cancel()
+                    from ui.display import console, flush_stream
+                    flush_stream()
+                    console.print("\n  [dim]İşlem iptal edildi.[/dim]")
+                    # Let litellm finish cancelling
+                    await asyncio.sleep(0.1)
+                    continue
 
                 # Flush stream buffer (remaining chunks not yet displayed)
                 from ui.display import flush_stream as _fs
