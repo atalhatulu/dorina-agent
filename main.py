@@ -19,6 +19,15 @@ from core.constants import DORINA_HOME
 # Add project root to PYTHONPATH
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Suppress litellm/OpenAI noisy logs globally before any module imports litellm
+import os
+os.environ.setdefault("LITELLM_LOG", "WARNING")
+os.environ.setdefault("OPENAI_LOG_LEVEL", "WARNING")
+os.environ.setdefault("LITELLM_SUPPRESS_DEBUG_INFO", "1")
+os.environ.setdefault("LITELLM_VERBOSE", "False")
+os.environ.setdefault("LITELLM_DEBUG", "False")
+os.environ.setdefault("LITELLM_DISABLE_LOGS", "True")
+
 from core.logger import log, console
 from core.config import settings
 from core.constants import VERSION, NAME
@@ -222,7 +231,7 @@ class DorinaApp:
             api_keys=auth.list_providers(),
         )
         
-        console.print(f"  [dim]16 referans proje · 33 modul · 56 tool[/dim]")
+        console.print(f"  [dim]17 referans proje · 33 modul · 56 tool[/dim]")
         console.print(f"  [dim]/help yaz veya / ile baslayip Tab'a bas[/dim]\n")
 
         # ── Versiyon bilgisi ──
@@ -267,9 +276,11 @@ class DorinaApp:
                     response = await gen_task
                 except (KeyboardInterrupt, asyncio.CancelledError):
                     gen_task.cancel()
-                    from ui.display import console, flush_stream
+                    from ui.display import console as _ui_console, flush_stream
                     flush_stream()
-                    console.print("\n  [dim]İşlem iptal edildi.[/dim]")
+                    _ui_console.print("\n  [dim]İşlem iptal edildi.[/dim]")
+                    # Context'e kaydet (Autosave ile dosyaya da yazilacak)
+                    loop.context.messages.append({"role": "system", "content": "Kullanıcı işlemi (Ctrl+C) ile yarıda kesti. Son çıktı veya komut işlemi yarım kalmış olabilir."})
                     # Let litellm finish cancelling
                     await asyncio.sleep(0.1)
                     continue
@@ -317,16 +328,94 @@ class DorinaApp:
             self.running = False
 
         elif cmd == "/new" or cmd.startswith("/new "):
+            if not hasattr(self, 'godmode'):
+                self.godmode = False
             loop.reset()
             title = ""
             if len(command) > 5:
                 title = command[5:].strip().strip("\"'")
             session_id = manager.create(title=title, model=f"{settings.model.provider}/{settings.model.default.split('/')[-1]}")
             print_success(f"Yeni oturum: {title or session_id}")
-        elif cmd == "/model":
-            from ui.setup_wizard import run_setup_wizard, needs_setup
-            await run_setup_wizard()
-            print_success("Model güncellendi")
+        elif cmd == "/godmode":
+            from core.config import settings
+            from core import constants
+            import soul.personality as _sp
+            if not hasattr(settings.model, "godmode"):
+                settings.model.godmode = False
+            settings.model.godmode = not settings.model.godmode
+            godmode_active = settings.model.godmode
+            _sp.GODMODE = godmode_active
+
+            import os
+            from ui.repl import set_style
+            from ui.display import console as _gm_console
+
+            if godmode_active:
+                os.system("clear")
+                set_style(True)
+                settings.security.block_destructive_commands = False
+                constants.MAX_TURNS = 200
+                constants.MAX_TOOL_CALLS_PER_TURN = 999
+                banner = (
+                    "╔══════════════════════════════╗\n"
+                    "║      ⚡ GOD MODE AKTIF ⚡     ║\n"
+                    "║   Tüm kısıtlamalar kalktı   ║\n"
+                    "╚══════════════════════════════╝"
+                )
+                _gm_console.print(banner, style="bold red")
+                from prompt_toolkit import PromptSession
+                session = PromptSession()
+                pwd = await session.prompt_async("Sudo şifreniz (RAM'de tutulacak, boş geçmek için Enter): ", is_password=True)
+                if pwd:
+                    _sp.SUDO_PASSWORD = pwd
+            else:
+                _sp.SUDO_PASSWORD = None
+                os.system("clear")
+                set_style(False)
+                settings.security.block_destructive_commands = True
+                constants.MAX_TURNS = 50
+                constants.MAX_TOOL_CALLS_PER_TURN = 30
+                print_success("God Mode KAPALI")
+            return True
+        elif cmd == "/audit":
+            from ui.repl import set_style
+            import soul.personality as _sp
+            import os
+            from ui.display import console
+            _sp.AUDIT_MODE = not _sp.AUDIT_MODE
+            set_style("audit" if _sp.AUDIT_MODE else False)
+            os.system("clear")
+            if _sp.AUDIT_MODE:
+                banner = (
+                    "╔══════════════════════════════╗\n"
+                    "║      🔍 AUDIT MOD ACIK       ║\n"
+                    "║    Tüm kodlar mercek altında ║\n"
+                    "╚══════════════════════════════╝"
+                )
+                console.print(banner, style="bold #E06C75")
+                print_info("Örnek komutlar:\n  > self_check ile bu projeyi detaylıca tara\n  > lsp_diagnostics <dosya> ile hataları listele\n  > diff_history ile son değişiklikleri incele")
+            else:
+                print_success("Audit Mod KAPALI")
+            return True
+        elif cmd.startswith("/model"):
+            parts = command.split()
+            if len(parts) > 1:
+                model_str = parts[1].strip()
+                if "/" in model_str:
+                    provider, model_name = model_str.split("/", 1)
+                    from core.config import settings
+                    settings.model.provider = provider
+                    settings.model.default = model_str
+                    settings.save()
+                    from ui.status_bar import status
+                    status.model = model_str
+                    print_success(f"Model değiştirildi: {model_str}")
+                else:
+                    print_error("Hatalı format. Örnek: /model openai/gpt-4o")
+            else:
+                from ui.setup_wizard import run_setup_wizard
+                await run_setup_wizard()
+                print_success("Model güncellendi")
 
         elif cmd.startswith("/export "):
             fmt = cmd[8:].strip().lower()
@@ -473,9 +562,9 @@ class DorinaApp:
         elif cmd.startswith("/ara "):
             query = cmd[5:]
             results = manager.search(query)
-            from ui.display import print_table
+            from ui.display import print_table as _pt_search
             rows = [[r["id"][:20], r["title"], r.get("summary", "")[:50]] for r in results]
-            print_table("Arama Sonuçları", ["ID", "Başlık", "Özet"], rows)
+            _pt_search("Arama Sonuçları", ["ID", "Başlık", "Özet"], rows)
 
         elif cmd == "/skills":
             skill_list = skills.list_skills()
@@ -633,6 +722,33 @@ async def main():
             await app.run_interactive()
         except (KeyboardInterrupt, asyncio.CancelledError):
             pass
+
+    try:
+        import time
+        from ui.display import console
+        from rich.text import Text
+        from ui.status_bar import status
+        
+        dur = time.time() - getattr(status, "start_time", time.time())
+        if status.tokens_in > 0 or status.tokens_out > 0 or dur > 5:
+            turn = getattr(status, "turn", 0)
+            tokens_in = getattr(status, "tokens_in", 0)
+            tokens_out = getattr(status, "tokens_out", 0)
+            
+            elapsed = ""
+            if dur < 60:
+                elapsed = f"{dur:.0f}s"
+            elif dur < 3600:
+                elapsed = f"{dur // 60:.0f}m {dur % 60:.0f}s"
+            else:
+                elapsed = f"{dur // 3600:.0f}h {(dur % 3600) // 60:.0f}m"
+
+            t = Text()
+            t.append("  ▸ ", style="dim")
+            t.append(f"{elapsed}  │  {turn} tur  │  in: {tokens_in:,}  out: {tokens_out:,}", style="dim")
+            console.print(t)
+    except Exception:
+        pass
 
     # Cleanup: close DB connections, resources
     await loop.cleanup()

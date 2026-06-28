@@ -165,7 +165,7 @@ class SessionManager:
                 "summary": s.summary,
                 "model": s.model,
                 "token_count": s.token_count,
-                "message_count": len(json.loads(s.messages or "[]")),
+                "message_count": len([m for m in json.loads(s.messages or "[]") if m.get("role") == "user"]),
             })
         
         return result

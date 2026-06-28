@@ -52,6 +52,17 @@ def save_memory_tool(target: str, content: str, name: str | None = None) -> str:
         _skill_name = name or content.split(":")[0].strip() or content.split()[0].strip()
         _safe_name = _skill_name.replace(" ", "-").lower()[:40]
         _skill_dir = MEMORY_DIR.parent / "skills" / _safe_name
+        
+        # Mevcut skill'leri tara, benzer ad varsa onu guncelle
+        _skills_root = MEMORY_DIR.parent / "skills"
+        if not _skill_dir.exists() and _skills_root.exists():
+            _existing_skills = [d for d in _skills_root.iterdir() if d.is_dir()]
+            for _d in _existing_skills:
+                if _safe_name.startswith(_d.name[:10]) or _d.name.startswith(_safe_name[:10]):
+                    _skill_dir = _d
+                    _safe_name = _d.name
+                    break
+        
         _skill_dir.mkdir(parents=True, exist_ok=True)
         _path = _skill_dir / "SKILL.md"
         

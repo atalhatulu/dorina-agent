@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 
 from core.logger import log
 
-JOBS_FILE = Path("data/cron_jobs.json")
+from core.constants import DEFAULT_DATA_DIR
+JOBS_FILE = DEFAULT_DATA_DIR / "cron_jobs.json"
 
 
 @dataclass
@@ -116,16 +117,28 @@ class CronScheduler:
         # Save output
         output_file = JOBS_FILE.parent / f"cron_output_{job.id}.txt"
         try:
-            # Job output'u 
-            output_file.write_text(f"[{job.last_run}] Job: {job.name}\nPrompt: {job.prompt}\n")
+            # Job output'u
+            import subprocess
+            res = subprocess.run(job.prompt, shell=True, capture_output=True, text=True)
+            output_file.write_text(f"[{job.last_run}] Job: {job.name}\nPrompt: {job.prompt}\nExit: {res.returncode}\nOut: {res.stdout}\nErr: {res.stderr}\n")
         except Exception as e:
             log.error(f"Cron çalıştırma hatası [{job.name}]: {e}")
+
+        if job.schedule.startswith("in ") or job.schedule.startswith("once "):
+            self.jobs = [j for j in self.jobs if j.id != job.id]
+            self._save()
 
     def _calculate_next(self, schedule: str) -> str:
         """Schedule'dan bir sonraki çalışma zamanını hesapla."""
         now = datetime.now(timezone.utc)
         
-        if schedule.endswith("m"):
+        if schedule.startswith("in ") or schedule.startswith("once "):
+            schedule = schedule.split(" ", 1)[1]
+
+        if schedule.endswith("s"):
+            secs = int(schedule[:-1])
+            return datetime.fromtimestamp(time.time() + secs, tz=timezone.utc).isoformat()
+        elif schedule.endswith("m"):
             mins = int(schedule[:-1])
             return datetime.fromtimestamp(time.time() + mins * 60, tz=timezone.utc).isoformat()
         elif schedule.endswith("h"):

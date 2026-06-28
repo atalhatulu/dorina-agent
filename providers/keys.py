@@ -9,7 +9,6 @@ PROVIDERS = {
     'openrouter': {'env': 'OPENROUTER_API_KEY', 'url': 'https://openrouter.ai/api/v1', 'models': ['openai/gpt-4o-mini', 'openrouter/free', 'google/gemma-4-31b-it', 'qwen/qwen3-next-80b-a3b-instruct']},
     'openai': {'env': 'OPENAI_API_KEY', 'url': 'https://api.openai.com/v1', 'models': ['gpt-4o-mini', 'gpt-4o']},
     'anthropic': {'env': 'ANTHROPIC_API_KEY', 'url': 'https://api.anthropic.com/v1', 'models': ['claude-sonnet-4']},
-    'google': {'env': 'GOOGLE_API_KEY', 'url': 'https://generativelanguage.googleapis.com/v1beta', 'models': ['gemini-2.5-pro', 'gemini-2.0-flash']},
     'gemini': {'env': 'GOOGLE_API_KEY', 'url': 'https://generativelanguage.googleapis.com/v1beta', 'models': ['gemini-2.0-flash', 'gemini-2.5-pro']},
     'mistral': {'env': 'MISTRAL_API_KEY', 'url': 'https://api.mistral.ai/v1', 'models': ['mistral-large-latest', 'mistral-small-latest', 'open-mistral-nemo']},
     'xai': {'env': 'XAI_API_KEY', 'url': 'https://api.x.ai/v1', 'models': ['grok-2-latest']},

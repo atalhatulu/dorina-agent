@@ -11,6 +11,7 @@ from core.constants import DORINA_HOME
 class ModelConfig(BaseSettings):
     default: str = "deepseek/deepseek-chat"
     provider: str = "deepseek"
+    godmode: bool = False
     fallback_providers: List[str] = ["openrouter", "groq"]
     context_length: int = 128000
     max_tokens: int = 4096

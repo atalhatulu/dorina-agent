@@ -54,6 +54,7 @@ class AgentLoop:
         status.start_turn()
 
         if self.turn > MAX_TURNS:
+            status.set_status("idle")
             return "Maximum turns reached. Use /new to reset."
 
         # ── P0-05: Skill injection at session start (sadece ilk tur) ──
@@ -67,8 +68,13 @@ class AgentLoop:
             self._skills_injected = True
             self._enriched_system_prompt = enriched_prompt
         else:
-            self._enriched_system_prompt = getattr(self, '_enriched_system_prompt', soul.system_prompt)
+            # Her turda GODMODE vb. degisiklikleri yansit
+            if hasattr(self, '_cached_skills_text') and self._cached_skills_text:
+                self._enriched_system_prompt = f"{soul.system_prompt}\n\n---\n### Loaded Skills\n{self._cached_skills_text}"
+            else:
+                self._enriched_system_prompt = soul.system_prompt
 
+        
         # Use enriched system prompt if available
         effective_system_prompt = getattr(self, '_enriched_system_prompt', soul.system_prompt)
 
@@ -302,8 +308,8 @@ class AgentLoop:
         # Sadece selamlama kelimelerinden olusuyorsa (en fazla 3 kelime)
         _words = set(_user_lower.split())
         if _words and _words.issubset(_greeting_kelimeler | {"talha", "dorina"}) and len(_words) <= 3:
-            _status.set_status("hazir")
-            self.turn = max(0, self.turn - 1)  # Sayma bu turu
+            _status.set_status("idle")
+            self.turn = max(0, self.turn - 1)
             _ad = ""
             for _w in _words:
                 if _w.lower() not in _greeting_kelimeler and _w.lower() != "dorina":
@@ -314,20 +320,26 @@ class AgentLoop:
             self.context.add_assistant_message(_yanit)
             return _yanit
         if self.turn > MAX_TURNS:
+            _status.set_status("idle")
             return "Maximum turns reached. Use /new to reset."
 
         # P0-05: Skill injection at session start
         if not self._skills_injected:
-            enriched = skills.inject_skills_to_prompt(
-                session_context=user_input,
-                system_prompt=soul.system_prompt,
-            )
-            if enriched != soul.system_prompt:
-                log.info("Skills injected into system prompt at session start")
+            self._active_skills = skills.get_applicable_skills(user_input)
+            if self._active_skills:
+                skill_sections = [f"## Skill: {s['name']} ({s['trigger']})\n{s['content']}" for s in self._active_skills]
+                self._cached_skills_text = "\n\n".join(skill_sections)
+                self._enriched_system_prompt = f"{soul.system_prompt}\n\n---\n### Loaded Skills\n{self._cached_skills_text}"
+                log.info(f"Skills injected: {[s['name'] for s in self._active_skills]}")
+            else:
+                self._cached_skills_text = ""
+                self._enriched_system_prompt = soul.system_prompt
             self._skills_injected = True
-            self._enriched_system_prompt = enriched
         else:
-            self._enriched_system_prompt = getattr(self, '_enriched_system_prompt', soul.system_prompt)
+            if getattr(self, '_cached_skills_text', ""):
+                self._enriched_system_prompt = f"{soul.system_prompt}\n\n---\n### Loaded Skills\n{self._cached_skills_text}"
+            else:
+                self._enriched_system_prompt = soul.system_prompt
 
         # Context compression at 75% fill
         if self.compressor.should_compress(self.context.get_messages()):
@@ -356,6 +368,9 @@ class AgentLoop:
         }
 
         result = await self.sm.run(ctx, handlers)
+
+        from ui.status_bar import status
+        status.end_turn()
 
         # Handle error state
         if ctx.state == AgentState.ERROR:
@@ -757,7 +772,7 @@ async def _handle_thinking(ctx: AgentContext):
             effective_prompt += "Terminal hata verdiyse: sudo ile veya farkli bir yontemle dene. "
             effective_prompt += "Pes etme, alternatif bul."
         
-        _disp_stream.print_info("\u23f3 Dusunuyor...")
+        _disp_stream.print_info("\u23f3 Thinking...")
 
         def _on_chunk(chunk: str):
             _disp_stream.print_assistant_stream(chunk)

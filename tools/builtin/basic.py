@@ -37,6 +37,10 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
     _is_win = _platform.system() == "Windows"
     _shell = not _is_win
     
+    from soul.personality import GODMODE
+    if GODMODE:
+        timeout = 3600  # Godmode'da timeout 1 saat
+
     # .venv/bin PATH'e ekle (pytest vs. icin)
     _env = None
     _proj_root = Path(__file__).resolve().parent.parent.parent
@@ -103,6 +107,7 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
             )
             _os.close(slave_fd)
             
+            import time
             output = []
             deadline = time.time() + timeout
             while proc.poll() is None:
@@ -114,7 +119,15 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
                     try:
                         data = _os.read(master_fd, 4096)
                         if data:
-                            output.append(data.decode("utf-8", errors="replace"))
+                            chunk = data.decode("utf-8", errors="replace")
+                            output.append(chunk)
+                            if ("[sudo] password for" in chunk.lower() or "password:" in chunk.lower()) and not getattr(proc, "_pwd_sent", False):
+                                from soul.personality import GODMODE
+                                import soul.personality as _sp
+                                pwd = getattr(_sp, "SUDO_PASSWORD", None)
+                                if GODMODE and pwd:
+                                    _os.write(master_fd, (pwd + "\n").encode("utf-8"))
+                                    proc._pwd_sent = True
                     except OSError:
                         break
             
@@ -137,15 +150,25 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
             return redact_secrets(full)[:50000]
         else:
             # Normal mode
-            result = subprocess.run(
-                command,
-                shell=_shell,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
+            from soul.personality import GODMODE
+            import soul.personality as _sp
+            pwd = getattr(_sp, "SUDO_PASSWORD", None)
+            
+            run_kwargs = {
+                "shell": _shell,
+                "capture_output": True,
+                "text": True,
+                "timeout": timeout,
+            }
+
+            if GODMODE and pwd and command.strip().startswith("sudo "):
+                if " -S " not in command:
+                    command = command.replace("sudo ", "sudo -S ", 1)
+                run_kwargs["input"] = pwd + "\n"
+
+            result = subprocess.run(command, **run_kwargs)
             output = result.stdout or result.stderr
-            return output[:50000]
+            return redact_secrets(output)[:50000]
     except subprocess.TimeoutExpired:
         return json.dumps({"error": f"Komut zaman aşımı ({timeout}s)"})
     except Exception as e:
@@ -327,8 +350,9 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
         p = Path(str(p).replace("/home/user", str(Path.home()), 1))
     
     # Sadece belirli dizinlere yazma izni ver, degilse Desktop'a yonlendir
-    if p.is_absolute():
-        _allowed = [Path.home() / d for d in ("Desktop", "Documents", "Downloads")]
+    from soul.personality import GODMODE
+    if p.is_absolute() and not GODMODE:
+        _allowed = [Path.home() / d for d in ("Desktop", "Documents", "Downloads", ".dorina")]
         _in_allowed = any(str(p).startswith(str(a)) for a in _allowed)
         if not _in_allowed:
             p = Path.home() / "Desktop" / p.name

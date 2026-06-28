@@ -33,14 +33,10 @@ class ProviderRouter:
         return self.providers[self._current] if self.providers else {}
 
     def fallback(self, error: Optional[Exception] = None) -> Optional[dict]:
-        """Sonraki sağlayıcıya geç. error_classifier + error_db ile logla.
+        """Sonraki sağlayıcıya geç. Once 5sn bekle, sonra gec."""
+        import time
+        time.sleep(5)
 
-        Args:
-            error: Fallback'i tetikleyen hata (opsiyonel, log için).
-
-        Returns:
-            Sonraki sağlayıcı dict'i veya None (tükendiyse).
-        """
         prev = self.providers[self._current] if self._current < len(self.providers) else None
 
         self._current += 1

@@ -24,12 +24,16 @@ DEFAULT_CACHE_DIR = DORINA_HOME / "data" / "cache"
 DEFAULT_CHROMA_DIR = DORINA_HOME / "data" / "rag_knowledge"
 DEFAULT_BG_TOOLS_DIR = DORINA_HOME / "bg_tools"
 
+# Kullanici calisma alani
+DEFAULT_WORKSPACE = Path.home() / "Documents" / "DorinaProjects"
+
 
 def ensure_dorina_home():
     """~/.dorina/ altinda gerekli dizinleri olustur."""
     for d in [DORINA_HOME, DEFAULT_DATA_DIR, DEFAULT_SESSIONS_DIR, DEFAULT_EXPORT_DIR,
               DEFAULT_LOGS_DIR, DEFAULT_KNOWLEDGE_DIR, DEFAULT_CACHE_DIR, DEFAULT_CHROMA_DIR,
-              DEFAULT_BG_TOOLS_DIR, DORINA_HOME / "skills", DORINA_HOME / "memories"]:
+              DEFAULT_BG_TOOLS_DIR, DORINA_HOME / "skills", DORINA_HOME / "memories",
+              DEFAULT_WORKSPACE]:
         d.mkdir(parents=True, exist_ok=True)
     # config.yaml yoksa example'dan kopyala
     if not DEFAULT_CONFIG.exists():
@@ -44,6 +48,23 @@ def ensure_dorina_home():
         if _soul_example.exists():
             _soul_path.write_text(_soul_example.read_text())
             print(f"  [info] soul.md olusturuldu: {_soul_path}")
+
+    # Sistem dizinlerini tara (bir kere)
+    _sys_mem = DORINA_HOME / "memories" / "SYSTEM.md"
+    if not _sys_mem.exists():
+        _lines = []
+        for _dir_name, _path in [("MASAUSTU", Path.home() / "Desktop"),
+                                  ("BELGELER", Path.home() / "Documents"),
+                                  ("INDIRILENLER", Path.home() / "Downloads")]:
+            if _path.exists():
+                _items = [f.name for f in _path.iterdir()][:20]
+                _lines.append(f"- {_dir_name}: {_path} ({len(_items)} oge)")
+                if _items:
+                    _lines.append(f"  * {', '.join(_items[:8])}")
+        _lines.append(f"- DORINA_HOME: {DORINA_HOME}")
+        _lines.append(f"- PROJE: {Path(__file__).resolve().parent.parent}")
+        _sys_mem.write_text("\n".join(_lines) + "\n")
+        print(f"  [info] Sistem hafizasi olusturuldu: {_sys_mem}")
 
 
 # Version from VersionManager — dinamik, dosyadan okur

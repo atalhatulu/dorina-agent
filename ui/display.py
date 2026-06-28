@@ -13,7 +13,42 @@ import time as _time
 _RE_FILE_LINE = _re.compile(r'File "([^"]+)", line (\d+)')
 _RE_FILE_LINE2 = _re.compile(r'[-\s]+File "([^"]+)", line (\d+)')
 
-console = Console(highlight=False, soft_wrap=False)
+from prompt_toolkit.output import create_output
+from prompt_toolkit.patch_stdout import patch_stdout as _pt_patch
+
+console = Console(
+    highlight=False,
+)
+
+_tool_outputs: list[dict] = []
+
+def store_tool_output(name: str, result: str):
+    """Tool çıktısını sakla, ctrl+o ile expand edilebilir."""
+    _tool_outputs.append({
+        "name": name,
+        "result": result,
+        "expanded": False,
+        "index": len(_tool_outputs),
+    })
+
+def expand_last_tool():
+    """Son tool çıktısını ekrana bas."""
+    if not _tool_outputs:
+        return
+    last = _tool_outputs[-1]
+    console.print()
+    console.print(f"  [dim]── {last['name']} output ──[/dim]")
+    lines = last["result"].split("\n")[:50]
+    for line in lines:
+        console.print(f"  {line}", highlight=False, markup=False)
+    if len(last["result"].split("\n")) > 50:
+        console.print(f"  [dim]... ({len(last['result'].split(chr(10)))-50} satır daha)[/dim]")
+    console.print()
+
+def clear_tool_outputs():
+    """Yeni session başlangıcında temizle."""
+    _tool_outputs.clear()
+
 INDENT = "  "
 
 ORANGE = "#D4622A"
@@ -106,7 +141,10 @@ def print_tool_start(name: str, args: dict | None = None):
 
 
 def print_tool_done(name: str, result: str):
-    global _current_tool_text
+    store_tool_output(name, result)
+    global _tool_start_time, _current_tool_text
+    _duration = f" (~{max(0.0, _time.time() - _tool_start_time):.1f}s)" if _tool_start_time else ""
+    _tool_start_time = 0
     raw = str(result or "").strip()
     is_multi = "\n" in raw[:200]
     summary = raw[:120]
@@ -141,10 +179,10 @@ def print_tool_done(name: str, result: str):
         summary = f"{fl} ({raw.count(chr(10))+1} satır, {len(raw)} B)"
 
     if _current_tool_text:
-        console.print(f" → {_safe_str(summary, 120)}", style=DIM)
+        console.print(f" → {_safe_str(summary, 120)}{_duration}", style=DIM)
         _current_tool_text = None
     else:
-        console.print(f"{INDENT}→ {_safe_str(summary, 120)}", style=DIM)
+        console.print(f"{INDENT}→ {_safe_str(summary, 120)}{_duration}", style=DIM)
 
 
 def print_tool_error(name: str, error: str):
@@ -260,10 +298,51 @@ def print_success(text: str):
 
 
 def print_info(text: str):
+    from core.config import settings
+    import soul.personality as _sp
+    godmode = getattr(settings.model, "godmode", False)
+    
+    if godmode:
+        color = "#ff3333"
+    elif getattr(_sp, "AUDIT_MODE", False):
+        color = "#E06C75"
+    else:
+        color = USER
+    
     t = Text()
-    t.append(f"{INDENT}{text}", style=USER)
+    t.append(f"{INDENT}{text}", style=color)
     console.print(t)
 
 
 def print_panel(text: str, title: str = ""):
     console.print(Panel(Text(text), title=title, border_style=DIM, box=box.ROUNDED))
+
+def print_session_summary(duration_sec: float, turn_count: int, tokens_in: int, tokens_out: int, cost: float):
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.align import Align
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Value", style="yellow")
+    
+    mins = int(duration_sec // 60)
+    secs = int(duration_sec % 60)
+    time_str = f"{mins}dk {secs}sn" if mins > 0 else f"{secs} saniye"
+
+    table.add_row("⏱️  Süre:", time_str)
+    table.add_row("🔄 Tur Sayısı:", str(turn_count))
+    table.add_row("📥 Gelen Token:", f"{tokens_in:,}")
+    table.add_row("📤 Çıkan Token:", f"{tokens_out:,}")
+    if cost > 0:
+        table.add_row("💰 Maliyet:", f"${cost:.4f}")
+
+    panel = Panel(
+        Align.left(table),
+        title="[bold green]Oturum Özeti[/bold green]",
+        border_style="green",
+        expand=False
+    )
+    console.print()
+    console.print(panel)
+    console.print()

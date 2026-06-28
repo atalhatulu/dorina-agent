@@ -5,37 +5,32 @@ import sys
 from rich.console import Console
 from rich.text import Text
 
+from core.config import settings
 from core.constants import VERSION
 
-# ── Renk paleti (#D4622A turuncu tema) ─────────────
-V1    = "#D4622A"   # ana turuncu
-V2    = "#E08F5A"   # acik turuncu
-V3    = "#D4A03A"   # altin
+# ── Renk paleti ─────────────
 DIM   = "#8A8478"   # sicak gri
 HI    = "#F0EAD8"   # sicak beyaz
 GREEN = "#6BB05D"   # sicak yesil
 AMBER = "#D4A03A"   # altin
-CORAL = "#D4622A"   # turuncu
 TEAL  = "#5BA0A0"   # sicak teal
 
 console = Console()
 
-# ── ASCII art (6 satir, gradient) ───────────────────
-_ASCII_LINES = [
-    f"[{V1}]██████╗  ██████╗ ██████╗ ██╗███╗   ██╗ █████╗ [/{V1}]",
-    f"[{V2}]██╔══██╗██╔═══██╗██╔══██╗██║████╗  ██║██╔══██╗[/{V2}]",
-    f"[{V1}]██║  ██║██║   ██║██████╔╝██║██╔██╗ ██║███████║[/{V1}]",
-    f"[{V2}]██║  ██║██║   ██║██╔══██╗██║██║╚██╗██║██╔══██║[/{V2}]",
-    f"[{V1}]██████╔╝╚██████╔╝██║  ██║██║██║ ╚████║██║  ██║[/{V1}]",
-    f"[{V3}]╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝[/{V3}]",
-]
-
-_ASCII_HEIGHT = len(_ASCII_LINES)
+def get_ascii_lines(v1, v2, v3):
+    return [
+        f"[{v1}]██████╗  ██████╗ ██████╗ ██╗███╗   ██╗ █████╗ [/{v1}]",
+        f"[{v2}]██╔══██╗██╔═══██╗██╔══██╗██║████╗  ██║██╔══██╗[/{v2}]",
+        f"[{v1}]██║  ██║██║   ██║██████╔╝██║██╔██╗ ██║███████║[/{v1}]",
+        f"[{v2}]██║  ██║██║   ██║██╔══██╗██║██║╚██╗██║██╔══██║[/{v2}]",
+        f"[{v1}]██████╔╝╚██████╔╝██║  ██║██║██║ ╚████║██║  ██║[/{v1}]",
+        f"[{v3}]╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝[/{v3}]",
+    ]
 
 
-def _kv(key: str, val: str, key_w: int = 10) -> Text:
+def _kv(key: str, val: str, key_w: int = 10, v2: str = "#E08F5A") -> Text:
     t = Text()
-    t.append(f"{key:<{key_w}}", style=f"bold {V2}")
+    t.append(f"{key:<{key_w}}", style=f"bold {v2}")
     t.append(" ", style="")
     t.append_text(Text.from_markup(val))
     return t
@@ -60,54 +55,58 @@ def _build_info_lines(
     tools_all: list[tuple[str, str]],
     skills: list[tuple[str, str]],
     api_keys: list[str],
+    v1: str,
+    v2: str,
+    v3: str,
+    coral: str,
 ) -> list[Text]:
     lines: list[Text] = []
 
     header = Text()
-    header.append("DORINA", style=f"bold {V1}")
+    header.append("DORINA", style=f"bold {v1}")
     header.append("@", style=f"{DIM}")
-    header.append("studio", style=f"bold {V2}")
+    header.append("studio", style=f"bold {v2}")
     lines.append(header)
 
     sep = Text("\u2500" * 36, style=DIM)
     lines.append(sep)
 
     provider, _, model_name = model_info.partition("/")
-    lines.append(_kv("model", _hi(model_name) + " " + _dim("· " + provider)))
-    lines.append(_kv("session", _color(session_id[:8], V3) + " " + _dim("· auto-save")))
-    lines.append(_kv("cwd", _dim(os.getcwd()[-40:])))
+    lines.append(_kv("model", _hi(model_name) + " " + _dim("· " + provider), v2=v2))
+    lines.append(_kv("session", _color(session_id[:8], v3) + " " + _dim("· auto-save"), v2=v2))
+    lines.append(_kv("cwd", _dim(os.getcwd()[-40:]), v2=v2))
 
     if api_keys:
         keys_str = _color(", ".join(api_keys[:3]), TEAL)
         if len(api_keys) > 3:
             keys_str += _dim(" +" + str(len(api_keys) - 3))
-        lines.append(_kv("api keys", keys_str))
+        lines.append(_kv("api keys", keys_str, v2=v2))
     else:
-        lines.append(_kv("api keys", _color("yok", CORAL)))
+        lines.append(_kv("api keys", _color("yok", coral), v2=v2))
     lines.append(Text(""))
 
     tool_count = len(tools_available)
     cat_count = 15
-    lines.append(_kv("tools", _color(str(tool_count), GREEN) + " " + _dim("active · " + str(cat_count) + " categories")))
+    lines.append(_kv("tools", _color(str(tool_count), GREEN) + " " + _dim("active · " + str(cat_count) + " categories"), v2=v2))
     skill_count = len(skills)
     if skill_count:
         sk_str = _color(str(skill_count), AMBER) + " " + _dim("loaded")
     else:
         sk_str = _dim("henuz yok · ogrenmek icin kullan")
-    lines.append(_kv("skills", sk_str))
+    lines.append(_kv("skills", sk_str, v2=v2))
     lines.append(Text(""))
 
-    lines.append(_kv("state", _color("IDLE", GREEN) + " " + _dim("· 9-state machine")))
-    lines.append(_kv("memory", _hi("semantic") + " " + _dim("+ episodic + procedural")))
-    lines.append(_kv("rag", _color("chromadb", GREEN) + " " + _dim("· initialized")))
-    lines.append(_kv("version", _color("v" + VERSION, V3) + " " + _dim("· python " + sys.version.split()[0])))
+    lines.append(_kv("state", _color("IDLE", GREEN) + " " + _dim("· 9-state machine"), v2=v2))
+    lines.append(_kv("memory", _hi("semantic") + " " + _dim("+ episodic + procedural"), v2=v2))
+    lines.append(_kv("rag", _color("chromadb", GREEN) + " " + _dim("· initialized"), v2=v2))
+    lines.append(_kv("version", _color("v" + VERSION, v3) + " " + _dim("· python " + sys.version.split()[0]), v2=v2))
 
     uname = platform.uname()
     lines.append(_kv("platform", _dim(f"{uname.system} {uname.machine}")))
     lines.append(Text(""))
 
     swatches = Text()
-    for color in [V1, V2, V3, DIM, GREEN, AMBER, CORAL, TEAL]:
+    for color in [v1, v2, v3, DIM, GREEN, AMBER, coral, TEAL]:
         swatches.append("███", style=color)
     lines.append(swatches)
 
@@ -115,19 +114,37 @@ def _build_info_lines(
 
 
 def print_startup_banner(
-    model_info: str,
-    session_id: str,
-    tools_available: list[str],
-    tools_all: list[tuple[str, str]],
-    skills: list[tuple[str, str]],
-    api_keys: list[str],
+    model_info: str = "deepseek/deepseek-v4-flash",
+    session_id: str = "",
+    tools_available: list[str] = None,
+    tools_all: list[tuple[str, str]] = None,
+    skills: list[tuple[str, str]] = None,
+    api_keys: list[str] = None,
 ):
+    """Ekrani temizle ve gradient ASCII + infos bas."""
+    os.system("clear" if os.name == "posix" else "cls")
+
+    if tools_available is None: tools_available = []
+    if tools_all is None: tools_all = []
+    if skills is None: skills = []
+    if api_keys is None: api_keys = []
+    
+    godmode = getattr(settings.model, "godmode", False)
+    ACCENT = "#ff3333" if godmode else "#D4622A"
+    V1 = ACCENT
+    V2 = "#ff6666" if godmode else "#E08F5A"
+    V3 = "#cc2222" if godmode else "#D4A03A"
+    CORAL = ACCENT
+
+    ascii_lines = get_ascii_lines(V1, V2, V3)
+
     info_lines = _build_info_lines(
-        model_info, session_id, tools_available, tools_all, skills, api_keys
+        model_info, session_id, tools_available, tools_all, skills, api_keys,
+        V1, V2, V3, CORAL
     )
 
-    total = max(_ASCII_HEIGHT, len(info_lines))
-    ascii_padded = _ASCII_LINES + [""] * (total - _ASCII_HEIGHT)
+    total = max(len(ascii_lines), len(info_lines))
+    ascii_padded = ascii_lines + [""] * (total - len(ascii_lines))
     info_padded = info_lines + [Text("")] * (total - len(info_lines))
 
     console.print()

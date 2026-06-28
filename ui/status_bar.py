@@ -12,6 +12,7 @@ import time
 import asyncio
 
 from core.constants import NAME, VERSION
+from soul.personality import GODMODE, AUDIT_MODE
 
 DORINA_ORANGE = "#E06C75"
 TEXT_MAIN = "#ABB2BF"
@@ -38,6 +39,8 @@ class StatusBar:
         self.turn_start_time = time.time()
         self.cost = 0.0
         self.context_pct = 0
+        self.turn_tokens_in = 0
+        self.turn_tokens_out = 0
         self._status_text = "idle"
 
     def _ensure_lock(self):
@@ -47,35 +50,39 @@ class StatusBar:
     def start_turn(self):
         self.turn += 1
         self.tool_calls = 0
+        self.turn_tokens_in = 0
+        self.turn_tokens_out = 0
         self.turn_start_time = time.time()
-        self.set_status("thinking")
+        self.set_status("Thinking")
 
     def add_tokens(self, prompt_tokens: int = 0, completion_tokens: int = 0, cost: float = 0.0):
         self._ensure_lock()
         self.tokens_in += prompt_tokens
         self.tokens_out += completion_tokens
+        self.turn_tokens_in += prompt_tokens
+        self.turn_tokens_out += completion_tokens
         self.cost += cost
 
-        if completion_tokens > 0:
-            from ui.display import console, flush_stream
-            flush_stream()
-            console.print()
-            from rich.text import Text
-            
-            # Calculate turn duration
-            e = time.time() - getattr(self, 'turn_start_time', self.start_time)
-            if e < 60:
-                dur_str = f"{e:.0f}s"
-            elif e < 3600:
-                dur_str = f"{e // 60:.0f}m {e % 60:.0f}s"
-            else:
-                dur_str = f"{e // 3600:.0f}h {(e % 3600) // 60:.0f}m"
+    def end_turn(self):
+        import time
+        from ui.display import console, flush_stream
+        flush_stream()
+        console.print()
+        from rich.text import Text
+        
+        # Calculate turn duration
+        e = time.time() - getattr(self, 'turn_start_time', self.start_time)
+        if e < 60:
+            dur_str = f"{e:.1f}s"
+        elif e < 3600:
+            dur_str = f"{e // 60:.0f}m {e % 60:.0f}s"
+        else:
+            dur_str = f"{e // 3600:.0f}h {(e % 3600) // 60:.0f}m"
 
-            t = Text()
-            t.append("▸ ", style="dim")
-            t.append(f"Thought for {dur_str}, {completion_tokens} tokens", style="dim")
-            console.print(t)
-            console.print()
+        t = Text()
+        t.append(f"  ▸ Thought for {dur_str}  │  in: {self.turn_tokens_in:,}  out: {self.turn_tokens_out:,}  ", style="dim on #1a1a1a")
+        console.print(t)
+        console.print()
 
     def add_tool_call(self):
         self.tool_calls += 1
@@ -85,6 +92,7 @@ class StatusBar:
 
     @property
     def elapsed(self) -> str:
+        import time
         e = time.time() - self.start_time
         if e < 60:
             return f"{e:.0f}s"
@@ -93,25 +101,70 @@ class StatusBar:
         return f"{e // 3600:.0f}h {(e % 3600) // 60:.0f}m"
 
     def get_toolbar_tokens(self) -> list[tuple[str, str]]:
-        status = self._status_text
-        tin = self.tokens_in
-        tout = self.tokens_out
-        t = self.turn
-        t_str = self.elapsed
-        mdl = self.model or "?"
+        from soul.personality import GODMODE, AUDIT_MODE
 
-        return [
-            ("class:orange", " ⟳ "),
-            ("class:main", status),
-            ("class:dim", f" {mdl}"),
-            ("class:dim", "  │  "),
-            ("class:green", f"in: {tin:,}"),
-            ("class:main", f"  out: {tout:,}"),
-            ("class:dim", "  │  "),
-            ("class:main", t_str),
-            ("class:dim", "  │  "),
-            ("class:dim", f"tur: {t}"),
-        ]
+        tokens = []
+        if GODMODE:
+            tokens.append(("class:godmode", " ⚡ GOD MODE "))
+            tokens.append(("class:godmode_dim", "  │  "))
+            tokens.extend([
+                ("class:godmode_dim", f"{self.model or 'deepseek'}"),
+                ("class:godmode_dim", "  │  "),
+                ("class:godmode_dim", f"in: {self.tokens_in:,}  out: {self.tokens_out:,}"),
+                ("class:godmode_dim", "  │  tur: "),
+                ("class:godmode_dim", str(self.turn)),
+            ])
+        elif AUDIT_MODE:
+            tokens.append(("class:audit", " 🔍 AUDIT "))
+            tokens.append(("class:dim", "  │  "))
+            tokens.extend([
+                ("class:dim", f" {self.model or 'deepseek'}"),
+                ("class:dim", "  │  "),
+                ("class:green", f"in: {self.tokens_in:,}"),
+                ("class:dim", f"  out: {self.tokens_out:,}"),
+                ("class:dim", "  │  tur: "),
+                ("class:dim", str(self.turn)),
+                ("class:dim", f"  │  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
+            ])
+        else:
+            tokens.extend([
+                ("class:dim", f" {self.model or 'deepseek'}"),
+                ("class:dim", "  │  "),
+                ("class:green", f"in: {self.tokens_in:,}"),
+                ("class:dim", f"  out: {self.tokens_out:,}"),
+                ("class:dim", "  │  tur: "),
+                ("class:dim", str(self.turn)),
+                ("class:dim", f"  │  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
+            ])
+        return tokens
+
+    def _get_cron_count(self) -> int:
+        try:
+            from cron.scheduler import cron
+            return len(cron.jobs)
+        except Exception:
+            return 0
+            
+    def _get_sub_count(self) -> int:
+        try:
+            from agents.crew import crew
+            return len([f for f in crew.list_forks() if f.get("status") == "running"])
+        except Exception:
+            return 0
+
+    def show_waiting(self):
+        """AI calisirken gosterilecek bekleme mesaji."""
+        mdl = self.model or "?"
+        if GODMODE:
+            print(f"\r\x1b[38;5;208m⟳ {self._status_text} {mdl}\x1b[0m  │  tur: {self.turn}  ", end="", flush=True)
+        else:
+            print(f"\r⟳ {self._status_text} {mdl}  │  tur: {self.turn}  ", end="", flush=True)
+        print(f"\r\033[2K⟳ {self._status_text} {mdl}  │  tur: {self.turn}  ", end="", flush=True)
+
+    def hide_waiting(self):
+        """Bekleme mesajini temizle."""
+        # Clear line completely
+        print("\r\033[2K", end="", flush=True)
 
     # No-op methods for backwards compatibility with existing callers
     def start_live(self):
@@ -132,6 +185,8 @@ class StatusBar:
     def reset(self):
         self.tokens_in = 0
         self.tokens_out = 0
+        self.turn_tokens_in = 0
+        self.turn_tokens_out = 0
         self.tool_calls = 0
         self.turn = 0
         self.cost = 0.0

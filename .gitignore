@@ -1,3 +1,31 @@
+# ─── KÖK DİZİN (ROOT) KISITLAMASI ───
+# Kök dizindeki her şeyi yoksay (sadece klasörler ve izin verilen dosyalar hariç)
+/*
+!/*/
+
+# İzin verilen kök dizin dosyaları (Whitelist)
+!.dockerignore
+!.env.example
+!.gitignore
+!CONTRIBUTING.md
+!Dockerfile
+!LICENSE
+!README.md
+!config.yaml.example
+!docker-compose.prod.yml
+!docker-compose.yml
+!install.ps1
+!install.sh
+!main.py
+!pyproject.toml
+!requirements.txt
+!run_all_tests.py
+!self_restart.py
+!setup.py
+!soul.md
+!start-dorina.sh
+
+# ─── STANDART YOKSAYMALAR ───
 # Python
 __pycache__/
 *.py[cod]

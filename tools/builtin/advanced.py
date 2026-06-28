@@ -106,12 +106,12 @@ def delegate_batch_tool(tasks: list[dict]) -> str:
     },
     toolset="research",
 )
-def deep_research_tool(question: str) -> str:
-    """Iteratif deep research başlat (sync)."""
+async def deep_research_tool(question: str) -> str:
+    """Iteratif deep research başlat (async)."""
     from knowledge.deep_research import DeepResearcher
 
     researcher = DeepResearcher()
-    report = researcher.research(question)
+    report = await researcher.research(question)
     stats = researcher.get_stats()
 
     result = {
