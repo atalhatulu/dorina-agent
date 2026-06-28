@@ -25,7 +25,7 @@ class WebSearch:
                 from ddgs import DDGS
                 self._search = DDGS()
             except ImportError:
-                log.warning("ddgs (duckduckgo_search) yüklenemedi")
+                log.debug("ddgs (duckduckgo_search) yuklenemedi, web_fetch fallback kullanilacak")
                 self._search = False
 
     def search_web(

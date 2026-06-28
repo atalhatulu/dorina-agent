@@ -17,8 +17,12 @@ import sys
 import threading
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
-from rich.logging import RichHandler
 from rich.console import Console
+from rich.logging import RichHandler
+from rich.highlighter import NullHighlighter
+
+# Log console'u markup=False ile ayri tanimla (display.py'den bagimsiz)
+_log_console = Console(markup=False, highlight=False, stderr=True)
 
 
 # ── Log dizini ─────────────────────────────────────────────
@@ -130,11 +134,13 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
 
     # ── Console handler (Rich) — standalone console ──
     console_handler = RichHandler(
-        console=console,
+        console=_log_console,
+        markup=False,
+        highlighter=NullHighlighter(),
+        keywords=[],
+        rich_tracebacks=True,
         show_time=True,
         show_path=True,
-        markup=True,
-        rich_tracebacks=True,
     )
     console_handler.setLevel(level)
     console_handler.setFormatter(SessionInjector("%(message)s", datefmt=_DATE_FORMAT))

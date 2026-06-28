@@ -470,6 +470,10 @@ class DorinaApp:
             )
             print_assistant("**Review:** Self-review kaldirildi, sadece test sonuclarina guven.")
 
+        elif cmd == "/dashboard":
+            from monitoring.dashboard import print_dashboard
+            print_dashboard()
+        
         elif cmd == "/tools":
             print_info(f"Kayıtlı tool: {registry.count()}")
             for t in registry.list():
@@ -542,6 +546,7 @@ class DorinaApp:
                 ("/clear", "Ekranı temizle"),
                 ("/exit", "Çıkış"),
                 ("/export <fmt>", "Sohbeti disa aktar(json/md/html)"),
+                ("/dashboard", "Metrik dashboard"),
             ]:
                 tbl.add_row(cmd_name, desc)
             console.print(tbl)

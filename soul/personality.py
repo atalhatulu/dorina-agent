@@ -8,8 +8,8 @@ import yaml
 class Soul:
     """Dorina'nın kişiliği. soul.md'den yüklenir."""
 
-    def __init__(self, path: str | Path | None = None):
-        self.path = Path(path) if path else Path("soul.md")
+    def __init__(self, path: str | None = None):
+        self.path = Path(path) if path else (Path.home() / ".dorina" / "soul.md")
         self.raw: dict = {}
         self._load()
 
@@ -159,6 +159,7 @@ class Soul:
         lines.append("- write_file ile dosya yazdiktan sonra icerigi asistan mesajinda TEKRARLAMA. Sadece 'dosya olusturuldu' de.")
         lines.append("- read_file ile okudugunda dosyanin TAMAMINI cevabinda gosterme. Ozet gec veya sadece ilgili kisimlari belirt.")
         lines.append("- Tool call argumanlarinda buyuk icerikler gonderirsen cok token harcanir. Terminal ile python -c kullan.")
+        lines.append("- **Toplu taramalarda batch_python tool'unu kullan.** 20+ dosya tarayacaksan read_file ile tek tek okuma. batch_python ile tek script'te tumunu tara. Ornek: `batch_python(code='import os\\nfor root, dirs, files in os.walk(\\\".\\\"):\\\\n  for f in files:\\\\n    if f.endswith(\\\".py\\\"):\\\\n      print(f)')`")
         lines.append("")
         lines.append("## PATCH SONRASI KURAL")
         lines.append("- patch basarili dondurduyse verification alaninda degisen satirlar ve cevresi gelir.")

@@ -70,20 +70,17 @@ class StatusBar:
         return f"{e // 3600:.0f}h {(e % 3600) // 60:.0f}m"
 
     def get_toolbar_tokens(self) -> list[tuple[str, str]]:
-        """Return toolbar tokens for prompt_toolkit bottom_toolbar.
-        
-        Format: [("class:stil", "metin"), ...]
-        Called by prompt_toolkit on every render cycle.
-        """
         status = self._status_text
         tin = self.tokens_in
         tout = self.tokens_out
         t = self.turn
         t_str = self.elapsed
+        mdl = self.model or "?"
 
         return [
             ("class:orange", " ⟳ "),
             ("class:main", status),
+            ("class:dim", f" {mdl}"),
             ("class:dim", "  │  "),
             ("class:green", f"in: {tin:,}"),
             ("class:main", f"  out: {tout:,}"),

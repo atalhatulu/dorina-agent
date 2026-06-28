@@ -91,16 +91,6 @@ def git_diff_tool(staged: bool = False, path: str = "") -> str:
     },
     toolset="git",
 )
-def git_push_tool(remote: str = "origin", branch: str = "main") -> str:
-    try:
-        r = subprocess.run(["git", "push", remote, branch], capture_output=True, text=True, timeout=60)
-        if r.returncode == 0:
-            return json.dumps({"success": True, "message": f"Push yapildi: {remote}/{branch}"})
-        return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
-
 @register_tool(
     name="git_branch",
     description="Git branch — dal listele, olustur veya sil.",

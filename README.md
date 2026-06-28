@@ -26,6 +26,19 @@
 
 ## Quick Start
 
+### Tek komut (Linux/Mac)
+```bash
+curl -fsSL https://raw.githubusercontent.com/atalhatulu/dorina-agent/main/install.sh | bash
+dorina
+```
+
+### Tek komut (Windows PowerShell)
+```powershell
+iex (irm https://raw.githubusercontent.com/atalhatulu/dorina-agent/main/install.ps1)
+dorina
+```
+
+### Elle kurulum
 ```bash
 # 1. Clone
 git clone https://github.com/atalhatulu/dorina-agent.git
@@ -33,18 +46,19 @@ cd dorina-agent
 
 # 2. Install
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+source .venv/bin/activate  # Linux/Mac
+# .venv\Scripts\activate    # Windows
+pip install -e .
 
-# 3. Configure
-cp .env.example .env
-# Edit .env: add your API keys (DEEPSEEK_API_KEY, GROQ_API_KEY, etc.)
+# 3. Configure API keys
+nano ~/.dorina/keys.json
+# {"deepseek": "sk-...", "openrouter": "sk-or-..."}
 
 # 4. Run
-python main.py
+dorina
 ```
 
-Or simply: `./start-dorina.sh`
+İlk çalıştırmada profil wizard'ı açılır, `~/.dorina/` dizini otomatik oluşur.
 
 ## Prerequisites
 

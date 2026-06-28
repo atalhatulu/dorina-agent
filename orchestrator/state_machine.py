@@ -177,7 +177,8 @@ class StateMachine:
                 except Exception as e:
                     context.state = AgentState.ERROR
                     context.error = str(e)
-                    log.error(f"State handler hatası [{context.state}]: {e}")
+                    from rich.markup import escape as _esc
+                    log.error("State handler hatasi [%s]: %s", _esc(str(context.state)), _esc(str(e)))
                     # Doğrudan ERROR state'i için next_state'i hesapla
                     pass
 

@@ -381,9 +381,13 @@ class AgentLoop:
         from core.error_classifier import classify_api_error, sanitize_tool_error
         from core.error_db import log_tool_error
         from ui import display as _display
+        from rich.markup import escape as _esc
         classified = classify_api_error(error)
-        log.error(f"Tool execution error [{name}]: {classified.reason} — {error}")
-        _display.print_tool_error(name, f"{classified.reason}: {error}")
+        _safe_name = _esc(str(name))
+        _safe_reason = _esc(str(classified.reason))
+        _safe_error = _esc(str(error))
+        log.error("Tool execution error [%s]: %s — %s", _safe_name, _safe_reason, _safe_error)
+        _display.print_tool_error(_safe_name, _safe_reason + ": " + _safe_error)
         self.context.add_tool_result(name, sanitize_tool_error(str(error)), tool_call_id)
         log_tool_error(
             tool_name=name, message=str(error),
@@ -729,7 +733,7 @@ async def _handle_thinking(ctx: AgentContext):
             effective_prompt += "Terminal hata verdiyse: sudo ile veya farkli bir yontemle dene. "
             effective_prompt += "Pes etme, alternatif bul."
         
-        _disp_stream.print_info("Düsünüyor...")
+        _disp_stream.print_info("\u23f3 Dusunuyor...")
 
         def _on_chunk(chunk: str):
             _disp_stream.print_assistant_stream(chunk)
@@ -752,13 +756,13 @@ async def _handle_thinking(ctx: AgentContext):
 
     loop._update_status(response)
     
-    # Iteration Budget — sadece tool cagrisi yapildiginda say
+    # Iteration Budget — cok yuksek limit, sadece gercek sonsuz donguleri kirmak icin
     _tc = response.get("tool_calls", [])
     if _tc:
         ctx.iterations_used += 1
-        if ctx.iterations_used >= ctx.iteration_budget:
+        if ctx.iterations_used >= 500:
             from ui import display as _disp_budget
-            _disp_budget.print_error(f"Bütçe Tükendi! (Maksimum {ctx.iteration_budget} iterasyon)")
+            _disp_budget.print_error(f"Bütçe Tükendi! (Maksimum 500 iterasyon)")
             log.warning("Iteration budget exhausted, forcing exit.")
             ctx.metadata["has_tools"] = False
             ctx.metadata["finalized"] = True

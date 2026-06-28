@@ -37,6 +37,13 @@ def ensure_dorina_home():
         if example.exists():
             DEFAULT_CONFIG.write_text(example.read_text())
             print(f"  [info] Config olusturuldu: {DEFAULT_CONFIG}")
+    # soul.md yoksa projedekinden kopyala
+    _soul_path = DORINA_HOME / "soul.md"
+    if not _soul_path.exists():
+        _soul_example = Path(__file__).resolve().parent.parent / "soul.md"
+        if _soul_example.exists():
+            _soul_path.write_text(_soul_example.read_text())
+            print(f"  [info] soul.md olusturuldu: {_soul_path}")
 
 
 # Version from VersionManager — dinamik, dosyadan okur

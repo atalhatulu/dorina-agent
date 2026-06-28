@@ -22,11 +22,11 @@ class TestGitTools:
         assert isinstance(r, str)
         assert len(r) > 0
 
-    def test_git_push_no_error(self):
-        from tools.builtin.git_tools import git_push_tool
-        r = json.loads(git_push_tool())
-        # Remote baglanamasa bile error doner, exception degil
-        assert "error" in r or "success" in r
+    def test_git_push_removed(self):
+        """git_push_tool kaldirildi, import edilememeli."""
+        import importlib
+        mod = importlib.import_module("tools.builtin.git_tools")
+        assert not hasattr(mod, "git_push_tool")
 
     def test_git_commit_no_message(self):
         from tools.builtin.git_tools import git_commit_tool

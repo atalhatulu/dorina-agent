@@ -35,7 +35,19 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
     """Shell komutu çalıştır. PTY, cwd ve background desteği."""
     import platform as _platform
     _is_win = _platform.system() == "Windows"
-    _shell = not _is_win  # Linux'ta shell=True, Windows'ta False (powershell kullan)
+    _shell = not _is_win
+    
+    # .venv/bin PATH'e ekle (pytest vs. icin)
+    _env = None
+    _proj_root = Path(__file__).resolve().parent.parent.parent
+    _venv_bin = _proj_root / ".venv" / "bin"
+    if _venv_bin.exists():
+        _env = os.environ.copy()
+        _env["PATH"] = str(_venv_bin) + ":" + _env.get("PATH", "")
+    
+    # git push/pull engelle
+    if command.strip().startswith("git push") or command.strip().startswith("git pull"):
+        return json.dumps({"error": "git push/pull engellendi. Sadece local git komutlarina izin var."})
     
     if is_destructive(command):
         return json.dumps({"error": "Bu komut engellendi (destructive pattern)"})
@@ -940,3 +952,41 @@ def save_preference_tool(key: str, value: str) -> str:
     data[key] = value
     pref_file.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     return json.dumps({"success": True, "message": f"Tercih kaydedildi: {key} = {value}"}, ensure_ascii=False)
+
+
+@register_tool(
+    name="batch_python",
+    description="Python script'ini calistir ve ciktiyi getir. 20+ dosya taramasi, toplu veri analizi, regex taramalari icin IDEAL. Tek seferde calisir, cok daha hizli.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "description": "Calistirilacak Python kodu. print() ile cikti al."},
+            "timeout": {"type": "integer", "description": "Zaman asimi (saniye)", "default": 30},
+        },
+        "required": ["code"],
+    },
+    toolset="development",
+)
+def batch_python_tool(code: str, timeout: int = 30) -> str:
+    """Python script'ini calistir. Toplu taramalar icin (import, dosya, regex)."""
+    import subprocess, sys, tempfile, os
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
+        f.write(code)
+        f.flush()
+        try:
+            r = subprocess.run(
+                [sys.executable, f.name],
+                capture_output=True, text=True, timeout=timeout,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            out = (r.stdout or "")[:10000]
+            err = (r.stderr or "")[:2000]
+            if r.returncode != 0:
+                return json.dumps({"error": f"Cikis kodu {r.returncode}", "stderr": err, "stdout": out})
+            return out or "Basarili (cikti yok)"
+        except subprocess.TimeoutExpired:
+            return json.dumps({"error": f"Zaman asimi ({timeout}sn)"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            os.unlink(f.name)

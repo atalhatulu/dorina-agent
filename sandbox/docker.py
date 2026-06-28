@@ -16,7 +16,7 @@ class Sandbox:
 
     def run_python(self, code: str, timeout: int = 15) -> str:
         if not self.available:
-            return "Sandbox kullanilamiyor (Docker yok)"
+            return "Sandbox kullanilamiyor (Docker yok). Kurulum: sudo pacman -S docker && sudo systemctl start docker"
         try:
             import subprocess
             import uuid

@@ -93,7 +93,7 @@ class ToolExecutor:
                 f"Eksik zorunlu parametreler: {', '.join(missing)}. "
                 f"Tool '{tool_name}' için şu parametreler zorunludur: {tool.parameters.get('required', [])}"
             )
-            log.warning(f"Parameter validation failed [{tool_name}]: missing={missing}")
+            log.debug(f"Parameter validation failed [{tool_name}]: missing={missing}")
             bus.publish("tool:error", name=tool_name, error=error_msg)
             return json.dumps({"error": error_msg, "missing_params": missing})
 
@@ -254,7 +254,7 @@ class ToolExecutor:
                 f"Eksik zorunlu parametreler: {', '.join(missing)}. "
                 f"Tool '{tool_name}' için şu parametreler zorunludur: {tool.parameters.get('required', [])}"
             )
-            log.warning(f"Parameter validation failed [{tool_name}]: missing={missing}")
+            log.debug(f"Parameter validation failed [{tool_name}]: missing={missing}")
             bus.publish("tool:error", name=tool_name, error=error_msg)
             return json.dumps({"error": error_msg, "missing_params": missing})
 
