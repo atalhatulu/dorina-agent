@@ -85,6 +85,7 @@ def create_session() -> PromptSession:
         enable_history_search=True,
         # Bottom toolbar from status bar
         bottom_toolbar=status.get_toolbar_tokens,
+        wrap_lines=True
     )
     return _session
 

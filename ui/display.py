@@ -13,7 +13,8 @@ import time as _time
 _RE_FILE_LINE = _re.compile(r'File "([^"]+)", line (\d+)')
 _RE_FILE_LINE2 = _re.compile(r'[-\s]+File "([^"]+)", line (\d+)')
 
-console = Console()
+console = Console(highlight=False, soft_wrap=False)
+INDENT = "  "
 
 ORANGE = "#D4622A"
 TEXT   = "#F0EAD8"
@@ -21,29 +22,7 @@ USER   = "#E08F5A"
 DIM    = "#8A8478"
 GREEN  = "#6BB05D"
 
-_emoji = {
-    "read file": "\U0001F4D6", "write file": "\U0001F4C4", "patch": "\U0001F527",
-    "terminal": "\U0001F4BB", "web search": "\U0001F50D", "web fetch": "\U0001F310",
-    "search files": "\U0001F50E", "browser": "\U0001F30D", "delegate": "\U0001F9E0",
-    "git add": "\u2795", "git commit": "\U0001F4DD", "git diff": "\U0001F4CA", "git push": "\u2B06",
-    "git branch": "\U0001F33F", "git log": "\U0001F4CB", "git status": "\U0001F4CC",
-    "system info": "\U0001F5A5", "ps": "\U0001F4CA", "disk usage": "\U0001F4BE",
-    "tree": "\U0001F333", "ping": "\U0001F4E1", "weather": "\U0001F324",
-    "deep research": "\U0001F52C", "backup": "\U0001F4BF", "timer": "\u23F1",
-    "save preference": "\u2699", "list tools": "\U0001F9F0",
-    "batch python": "\U0001F9E9",
-}
-
-_ARG_LABEL_KEYS = {"path","code","command","query","question","prompt","message","pattern","text","url"}
-
-
-def _icon(name: str) -> str:
-    nl = name.lower().replace("_", " ")
-    for k, v in _emoji.items():
-        if k in nl:
-            return v
-    return "\u26A1"
-
+_stream_started = False
 
 def _safe_str(s: str, max_len: int = 120) -> str:
     return str(s or "").strip()[:max_len]
@@ -51,7 +30,7 @@ def _safe_str(s: str, max_len: int = 120) -> str:
 
 def print_user(message: str):
     t = Text()
-    t.append("> ", style=f"bold {USER}")
+    t.append(INDENT + "> ", style=f"bold {USER}")
     t.append(message, style=f"italic {TEXT}")
     console.print(t)
 
@@ -62,15 +41,24 @@ def print_assistant(message: str):
     if not message:
         return
     console.print()
-    console.print(f"[bold {ORANGE}]> Dorina :[/bold {ORANGE}]")
-    console.print(Markdown(message), justify="left")
+    width = console.width - 4
+    md_console = Console(width=width, highlight=False, soft_wrap=False)
+    from rich.padding import Padding
+    padded_md = Padding(Markdown(message), (0, 0, 0, 2)) # Üst, Sağ, Alt, Sol
+    md_console.print(padded_md, justify="left")
     console.print()
 
 
 def print_assistant_stream(chunk: str):
-    global _stream_buffer
+    global _stream_buffer, _stream_started
     with _stream_lock:
-        _stream_buffer += chunk
+        if not _stream_started and chunk:
+            # İlk chunk'ta INDENT ekle
+            _stream_buffer += INDENT + chunk
+            _stream_started = True
+        else:
+            _stream_buffer += chunk
+
         if (len(_stream_buffer) >= 40
                 or _stream_buffer.endswith(("\n", ". ", "! ", "? ", ": ", "; "))):
             console.print(_stream_buffer, end="", highlight=False, markup=False)
@@ -82,35 +70,43 @@ _stream_lock = _threading.Lock()
 
 
 def flush_stream():
-    global _stream_buffer
+    global _stream_buffer, _stream_started
     with _stream_lock:
         if _stream_buffer:
             console.print(_stream_buffer, end="", highlight=False, markup=False)
             _stream_buffer = ""
+        _stream_started = False  # ← sonraki yanıt için sıfırla
 
+
+_current_tool_text = None
 
 def print_tool_start(name: str, args: dict | None = None):
-    global _tool_start_time
+    global _tool_start_time, _current_tool_text
     _tool_start_time = _time.time()
-    console.print()
-    t = Text()
-    t.append(f"  {_icon(name)} ", style=GREEN)
-    t.append(name.replace("_", " ").title(), style="bold")
+    
+    pascal_name = "".join(word.capitalize() for word in name.split("_"))
+    arg_str = ""
     if args:
-        matched = {k for k in args if k in _ARG_LABEL_KEYS}
+        matched = {k for k in args if k in {"path","code","command","query","question","prompt","message","pattern","text","url"}}
         if matched:
             key = matched.pop()
             val = str(args.get(key, ""))
             if key == "code":
                 val = val.replace("\n", "\\n")
-            _label = _safe_str(val, 60)
-            if _label:
-                t.append(f": {_label}", style=DIM)
-    t.append("...", style=DIM)
-    console.print(t)
+            arg_str = _safe_str(val, 60)
+            
+    t = Text()
+    t.append(INDENT)
+    t.append("● ", style=DIM)
+    t.append(f"{pascal_name}", style="bold")
+    t.append(f"({arg_str})", style=DIM)
+    
+    _current_tool_text = t
+    console.print(t, end="")
 
 
 def print_tool_done(name: str, result: str):
+    global _current_tool_text
     raw = str(result or "").strip()
     is_multi = "\n" in raw[:200]
     summary = raw[:120]
@@ -118,50 +114,37 @@ def print_tool_done(name: str, result: str):
     try:
         data = _json.loads(result) if result.startswith("{") else {}
         if "error" in data:
-            t = Text()
-            t.append("    \u2717 ", style=ORANGE)
-            t.append(_safe_str(data["error"], 100))
-            console.print(t)
+            err_msg = _safe_str(data["error"], 100)
+            if _current_tool_text:
+                console.print(f" → [italic {ORANGE}]Error: {err_msg}[/italic {ORANGE}]")
+                _current_tool_text = None
+            else:
+                console.print(f"{INDENT}→ [italic {ORANGE}]Error: {err_msg}[/italic {ORANGE}]")
             return
         if "path" in data:
             summary = f"{data['path']} ({data.get('bytes','?')} B)"
         elif "results" in data:
             r = data["results"]
             if r and isinstance(r[0], dict) and "title" in r[0]:
-                for item in r[:3]:
-                    t = Text()
-                    t.append("    \u2713 ", style=GREEN)
-                    t.append(item.get("title", "")[:60], style=USER)
-                    console.print(t)
-                if len(r) > 3:
-                    t = Text()
-                    t.append(f"(+{len(r)-3} daha)", style=DIM)
-                    console.print("      ", end="")
-                    console.print(t)
-                return
-            summary = f"{len(r)} sonuc"
+                summary = f"{len(r)} sonuç"
+            else:
+                summary = f"{len(r)} sonuç"
         elif "note" in data:
             summary = data["note"][:150]
         elif data.get("success"):
-            summary = data.get("message", "Basarili")
-        is_multi = False
+            summary = data.get("message", "Başarılı")
     except Exception:
         pass
 
     if is_multi:
         fl = _safe_str(raw.split("\n")[0], 100)
-        t = Text()
-        t.append("    \u2713 ", style=GREEN)
-        t.append(fl)
-        console.print(t)
-        t2 = Text()
-        t2.append(f"      ({raw.count(chr(10))+1} satir, {len(raw)} B)", style=DIM)
-        console.print(t2)
+        summary = f"{fl} ({raw.count(chr(10))+1} satır, {len(raw)} B)"
+
+    if _current_tool_text:
+        console.print(f" → {_safe_str(summary, 120)}", style=DIM)
+        _current_tool_text = None
     else:
-        t = Text()
-        t.append("    \u2713 ", style=GREEN)
-        t.append(_safe_str(summary, 120))
-        console.print(t)
+        console.print(f"{INDENT}→ {_safe_str(summary, 120)}", style=DIM)
 
 
 def print_tool_error(name: str, error: str):
@@ -178,7 +161,7 @@ def print_tool_error(name: str, error: str):
     _logging.getLogger("dorina").debug(f"Tool hatasi [{name}]: {raw[:300]}")
     location = _find_error_location(raw)
     t = Text()
-    t.append("    \u2717 ", style=ORANGE)
+    t.append(INDENT + "\u2717 ", style=ORANGE)
     t.append(user_msg or msg)
     if location:
         t.append(" ", style="")
@@ -234,7 +217,7 @@ def _friendly_error(msg: str) -> str | None:
 
 def print_status_bar(text: str):
     t = Text()
-    t.append(f"  {text}", style=f"italic {DIM}")
+    t.append(f"{INDENT}{text}", style=f"italic {DIM}")
     console.print(t)
 
 
@@ -263,7 +246,7 @@ def print_table(title: str, columns: list[str], rows: list[list[str]]):
 
 def print_error(text: str):
     t = Text()
-    t.append("  \u2717 ", style=ORANGE)
+    t.append(INDENT + "\u2717 ", style=ORANGE)
     t.append("Hata: ", style="bold")
     t.append(str(text))
     console.print(t)
@@ -271,14 +254,14 @@ def print_error(text: str):
 
 def print_success(text: str):
     t = Text()
-    t.append("  \u2713 ", style=GREEN)
+    t.append(INDENT + "\u2713 ", style=GREEN)
     t.append(str(text))
     console.print(t)
 
 
 def print_info(text: str):
     t = Text()
-    t.append(f"  {text}", style=USER)
+    t.append(f"{INDENT}{text}", style=USER)
     console.print(t)
 
 

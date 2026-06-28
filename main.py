@@ -127,7 +127,6 @@ class DorinaApp:
 
     def __init__(self):
         self.repl = create_session()
-        self.semantic = SemanticMemory()
         self.procedural = ProceduralMemory()
         self.running = False
 
@@ -145,11 +144,15 @@ class DorinaApp:
         import subprocess
         subprocess.run(["cmd", "/c", "cls"] if sys.platform == "win32" else ["clear"], check=False)
 
-        # Initialize RAG
-        await rag.initialize()
+        from ui.display import console
+        console.print("\n  [dim]Hazırlanıyor... (Bellek ve Araçlar indeksleniyor)[/dim]")
 
-        # Initialize semantic memory
-        await self.semantic.initialize()
+        # Eager initialization at startup
+        await rag.initialize()
+        from tools.selector import selector as _sel
+        await _sel.initialize()
+
+        console.print("  [dim]Hazır.[/dim]")
 
         # Try Docker sandbox
         sandbox.initialize()

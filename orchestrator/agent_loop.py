@@ -98,10 +98,12 @@ class AgentLoop:
                     log.warning(f"FIXING invalid assistant msg at idx {i}")
                     ctx[i] = {"role": "assistant", "content": "(continuing...)"}
             try:
+                from tools.selector import selector as _sel
+                _schemas = await _sel.schemas_for_context(user_input, top_k=15)
                 response = await self.reasoning.think(
                     effective_system_prompt,
                     self.context.get_messages(),
-                    registry.schemas(),
+                    _schemas,
                 )
             except Exception as e:
                 from core.error_classifier import classify_api_error, format_user_error
@@ -663,6 +665,26 @@ async def _handle_thinking(ctx: AgentContext):
     _has_task = any(w in _user_msg for w in ["oku", "yaz", "calistir", "duzelt", "guncelle", "bul", "ara", "goster", "listele", "read", "write", "run", "fix", "update", "find", "search", "show", "list"])
     _is_complex = any(w in _user_msg for w in ["proje", "uygulama", "sistem", "mimar", "yeniden", "refactor", "gelistir", "olustur", "project", "app", "system", "architect", "rewrite", "develop", "create"])
     
+    # Basit bilgi sorusu tespiti
+    _question_count = _user_msg.count("?")
+    _is_simple_info = (
+        any(w in _user_msg for w in ["nedir", "kimdir", "kaç", "kac", "nasil", "nasıl", "ne demek", "neden", "ne zaman", "kim", "nerede"])
+        and not _has_task
+        and not _is_complex
+        and len(_user_msg.split()) <= 20
+    ) or (
+        # Matematik soruları
+        any(op in _user_msg for op in ["+", "-", "*", "/", "kaçtır", "kactir", "topla", "çarp", "böl"])
+        and len(_user_msg.split()) <= 10
+    )
+
+    _is_simple_info = _is_simple_info or (
+        _question_count >= 2
+        and not _has_task
+        and not _is_complex
+        and len(_user_msg.split()) <= 25
+    )
+
     if _first_turn:
         if _is_complex:
             dynamic_injections.append("[SYSTEM: Bu karmaşık bir görev. Lütfen önce adım adım PLANINI (hangi dosyaları inceleyeceksin, hangi adımları izleyeceksin) normal metin (content) olarak yaz, ARDINDAN AYNI YANITTA planının İLK ADIMI için gereken aracı (tool_call) çalıştır.]")
@@ -708,20 +730,28 @@ async def _handle_thinking(ctx: AgentContext):
             msgs[i]["content"] = "(continuing...)"
 
     # P2-14: RAG-based tool selection — only pass relevant tools
-    tool_schemas = registry.schemas()  # fallback: all tools
-    try:
-        from tools.selector import selector as _sel
-        if not getattr(_sel, '_indexed', False):
-            await _sel.initialize()
-        ctx_input = ctx.user_input or ""
-        filtered = await _sel.schemas_for_context(ctx_input, top_k=15)
-        if filtered:
-            tool_schemas = filtered
-            log.debug(f"ToolSelector: {len(filtered)} tools (from {len(registry.list())})")
-        else:
-            log.debug("ToolSelector returned empty, using all tools")
-    except Exception as _e:
-        log.debug(f"Tool selection unavailable, using all tools: {_e}")
+    tool_schemas = []
+    if _is_simple_info:
+        # dynamic_injections'a değil, doğrudan effective_prompt'a ekle
+        effective_prompt += "\n\n[KURAL: Bu soru doğrudan cevaplanabilir. Hiçbir tool çağırma, kendi bilgilerinle yanıtla.]"
+        tool_schemas = []  # tool gönderme
+        log.debug("Basit bilgi sorusu — tool yok")
+    else:
+        try:
+            from tools.selector import selector as _sel
+            if not getattr(_sel, '_indexed', False):
+                await _sel.initialize()
+            ctx_input = ctx.user_input or ""
+            filtered = await _sel.schemas_for_context(ctx_input, top_k=15)
+            if filtered:
+                tool_schemas = filtered
+                log.debug(f"ToolSelector: {len(filtered)} tools")
+            else:
+                log.debug("ToolSelector returned empty, using all tools")
+                tool_schemas = registry.schemas()
+        except Exception as _e:
+            log.debug(f"Tool selection unavailable, using all tools: {_e}")
+            tool_schemas = registry.schemas()
 
     try:
         from ui import display as _disp_stream

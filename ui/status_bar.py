@@ -35,6 +35,7 @@ class StatusBar:
         self.tool_calls = 0
         self.turn = 0
         self.start_time = time.time()
+        self.turn_start_time = time.time()
         self.cost = 0.0
         self.context_pct = 0
         self._status_text = "idle"
@@ -46,6 +47,7 @@ class StatusBar:
     def start_turn(self):
         self.turn += 1
         self.tool_calls = 0
+        self.turn_start_time = time.time()
         self.set_status("thinking")
 
     def add_tokens(self, prompt_tokens: int = 0, completion_tokens: int = 0, cost: float = 0.0):
@@ -53,6 +55,27 @@ class StatusBar:
         self.tokens_in += prompt_tokens
         self.tokens_out += completion_tokens
         self.cost += cost
+
+        if completion_tokens > 0:
+            from ui.display import console, flush_stream
+            flush_stream()
+            console.print()
+            from rich.text import Text
+            
+            # Calculate turn duration
+            e = time.time() - getattr(self, 'turn_start_time', self.start_time)
+            if e < 60:
+                dur_str = f"{e:.0f}s"
+            elif e < 3600:
+                dur_str = f"{e // 60:.0f}m {e % 60:.0f}s"
+            else:
+                dur_str = f"{e // 3600:.0f}h {(e % 3600) // 60:.0f}m"
+
+            t = Text()
+            t.append("▸ ", style="dim")
+            t.append(f"Thought for {dur_str}, {completion_tokens} tokens", style="dim")
+            console.print(t)
+            console.print()
 
     def add_tool_call(self):
         self.tool_calls += 1
