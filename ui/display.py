@@ -126,9 +126,15 @@ def print_tool_start(name: str, args: dict | None = None):
         if matched:
             key = matched.pop()
             val = str(args.get(key, ""))
-            if key == "code":
-                val = val.replace("\n", "\\n")
+            val = val.replace("\n", "\\n")
             arg_str = _safe_str(val, 60)
+        
+        if not arg_str:
+            import json as _json
+            try:
+                arg_str = _safe_str(_json.dumps(args, ensure_ascii=False), 60)
+            except:
+                arg_str = _safe_str(str(args), 60)
             
     t = Text()
     t.append(INDENT)

@@ -24,7 +24,7 @@ HISTORY_FILE = DEFAULT_DATA_DIR / "history.txt"
 SLASH_COMMANDS = sorted([
     "/ara", "/audit", "/clear", "/exit", "/export", "/godmode", "/help", "/load",
     "/model", "/new", "/personality", "/q", "/quit",
-    "/review", "/save", "/sessions", "/setup", "/skills", "/status", "/tools",
+    "/review", "/save", "/sessions", "/setup", "/skills", "/status", "/tools", "/tasks", "/crons"
 ])
 
 NORMAL_STYLE = Style.from_dict({
@@ -178,6 +178,8 @@ def create_session() -> PromptSession:
         "/setup": None,
         "/skills": None,
         "/status": None,
+        "/tasks": None,
+        "/crons": None,
         "/tools": None,
     })
     from ui.status_bar import status
@@ -211,6 +213,39 @@ async def get_input(session: PromptSession | None = None) -> str:
 
     try:
         with patch_stdout():
-            return (await s.prompt_async("> ", style=STYLE)).strip()
+            # Flush existing keyboard input buffer (so typing during AI response is discarded)
+            try:
+                import termios
+                termios.tcflush(sys.stdin, termios.TCIFLUSH)
+            except Exception:
+                pass
+            
+            import asyncio
+            async def _watch_notifications():
+                try:
+                    from bg_tools.task_manager import task_manager
+                    from prompt_toolkit import print_formatted_text
+                    from prompt_toolkit.formatted_text import FormattedText
+                    while True:
+                        await asyncio.sleep(0.5)
+                        for notif in task_manager.pop_notifications():
+                            # Use prompt_toolkit native print to avoid ANSI corruption via patch_stdout
+                            # ✓ for success, ✗ for fail, ▶ for start
+                            color = "class:orange"
+                            if "✓" in notif:
+                                color = "class:green"
+                            elif "✗" in notif or "⚠" in notif:
+                                color = "class:godmode"
+                            print_formatted_text(FormattedText([(color, f"  {notif}")]))
+                except asyncio.CancelledError:
+                    pass
+
+            watcher_task = asyncio.create_task(_watch_notifications())
+            try:
+                result = await s.prompt_async("> ", style=STYLE)
+            finally:
+                watcher_task.cancel()
+            
+            return result.strip()
     except (EOFError, KeyboardInterrupt):
         return "/exit"

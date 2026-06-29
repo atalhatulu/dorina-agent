@@ -104,6 +104,17 @@ class StatusBar:
         from soul.personality import GODMODE, AUDIT_MODE
 
         tokens = []
+        
+        # ─── Canlı Durum İndikatörü (Thinking / Idle) ───
+        if self._status_text.lower() == "thinking":
+            status_style = "class:godmode" if GODMODE else "class:orange"
+            tokens.append((status_style, f" ⟳ {self._status_text.upper()} "))
+        else:
+            status_style = "class:green"
+            tokens.append((status_style, f" ✓ {self._status_text.upper()} "))
+            
+        tokens.append(("class:dim", " │ "))
+
         if GODMODE:
             tokens.append(("class:godmode", " ⚡ GOD MODE "))
             tokens.append(("class:godmode_dim", "  │  "))
@@ -124,7 +135,7 @@ class StatusBar:
                 ("class:dim", f"  out: {self.tokens_out:,}"),
                 ("class:dim", "  │  tur: "),
                 ("class:dim", str(self.turn)),
-                ("class:dim", f"  │  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
+                ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
             ])
         else:
             tokens.extend([
@@ -134,9 +145,16 @@ class StatusBar:
                 ("class:dim", f"  out: {self.tokens_out:,}"),
                 ("class:dim", "  │  tur: "),
                 ("class:dim", str(self.turn)),
-                ("class:dim", f"  │  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
+                ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
             ])
         return tokens
+
+    def _get_task_count(self) -> int:
+        try:
+            from bg_tools.task_manager import task_manager
+            return len([t for t in task_manager.list_tasks() if t.status == "running"])
+        except Exception:
+            return 0
 
     def _get_cron_count(self) -> int:
         try:

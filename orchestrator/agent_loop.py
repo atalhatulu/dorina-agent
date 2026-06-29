@@ -772,7 +772,6 @@ async def _handle_thinking(ctx: AgentContext):
             effective_prompt += "Terminal hata verdiyse: sudo ile veya farkli bir yontemle dene. "
             effective_prompt += "Pes etme, alternatif bul."
         
-        _disp_stream.print_info("\u23f3 Thinking...")
 
         def _on_chunk(chunk: str):
             _disp_stream.print_assistant_stream(chunk)

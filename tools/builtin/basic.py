@@ -56,6 +56,9 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
     if is_destructive(command):
         return json.dumps({"error": "Bu komut engellendi (destructive pattern)"})
         
+    if not background and "sleep " in command:
+        return json.dumps({"error": "LUTFEN DIKKAT: 'sleep' komutu iceren zamanlayicilari/beklemeleri senkron olarak terminal'de CALISTIRMA! Arayuzu dondurursun. Bunun yerine KESINLIKLE 'task_create_bash' aracini kullan."})
+        
     if cwd:
         cwd_path = Path(cwd).expanduser()
         if not cwd_path.exists():
@@ -63,27 +66,11 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
         cwd = str(cwd_path)
 
     if background:
-        # Background mode: run in thread, return immediately
-        import threading
-        import uuid
-        bg_id = uuid.uuid4().hex[:8]
-        bg_tool_dir = Path.home() / ".dorina" / "bg_tools"
-        bg_tool_dir.mkdir(parents=True, exist_ok=True)
-        out_path = bg_tool_dir / f"{bg_id}.out"
-        err_path = bg_tool_dir / f"{bg_id}.err"
-        def _run_bg():
-            import subprocess as _sp
-            with open(out_path, 'w') as _out, open(err_path, 'w') as _err:
-                _sp.run(command, shell=_shell, stdout=_out, stderr=_err, cwd=cwd, timeout=max(timeout, 600))
-        t = threading.Thread(target=_run_bg, daemon=True)
-        t.start()
-        return json.dumps({
-            "background_id": bg_id,
-            "status": "running",
-            "note": f"Komut arka planda çalışıyor. Sonucu görmek için: cat {out_path}",
-            "output_path": str(out_path),
-            "error_path": str(err_path),
-        })
+        from tools.builtin.bg_task_tool import task_create_bash
+        # task_create_bash cwd destegi yoksa cd ile ekleyelim
+        if cwd:
+            command = f"cd {cwd} && {command}"
+        return task_create_bash(command, label=command[:30])
     
     try:
         if pty:

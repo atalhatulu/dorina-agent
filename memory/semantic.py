@@ -40,6 +40,8 @@ class SemanticMemory:
             try:
                 from fastembed import TextEmbedding
                 self.embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+                # Force download to complete BEFORE prompt appears
+                list(self.embedder.embed(["warmup"]))
             except Exception as e:
                 log.warning(f"FastEmbed yuklenemedi: {e}")
                 self.embedder = None

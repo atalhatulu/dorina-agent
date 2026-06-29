@@ -71,8 +71,8 @@ class CronScheduler:
         log.info(f"Cron eklendi: {name} ({schedule})")
         return job.id
 
-    def remove(self, job_id: str):
-        self.jobs = [j for j in self.jobs if j.id != job_id]
+    def remove(self, job_id_or_name: str):
+        self.jobs = [j for j in self.jobs if j.id != job_id_or_name and j.name != job_id_or_name]
         self._save()
 
     def add_job(self, name: str, schedule: str, prompt: str) -> str:

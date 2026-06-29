@@ -14,11 +14,11 @@ from tools.registry import register_tool
 
 @register_tool(
     name="task_create",
-    description="Yeni task oluştur. Tip: local_bash, local_agent, local_workflow, monitor, dev_session, dev_task.",
+    description="SADECE subagent/workflow işlemleri içindir. Normal Linux/Bash arka plan komutları (sleep, ping, vs.) için KESİNLİKLE 'task_create_bash' aracını kullanın!",
     parameters={
         "type": "object",
         "properties": {
-            "type": {"type": "string", "description": "Task tipi (local_bash, local_agent, local_workflow, monitor, dev_session, dev_task)"},
+            "type": {"type": "string", "description": "Task tipi (local_agent, local_workflow, vb.)"},
             "goal": {"type": "string", "description": "Task hedefi / komut"},
             "parent_id": {"type": "string", "description": "Üst task ID (opsiyonel)", "default": ""},
         },

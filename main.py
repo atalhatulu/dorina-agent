@@ -54,6 +54,7 @@ from tools.builtin import git_tools  # noqa: F401
 from tools.builtin import clarify_tool  # noqa: F401
 from tools.builtin import cron_tools  # noqa: F401
 from tools.builtin import memory_tools  # noqa: F401
+from tools.builtin import bg_task_tool  # noqa: F401
 from mail import tools as mail_tools  # noqa: F401
 from lsp import tools as lsp_tools  # noqa: F401
 from evolution import tools as evolution_tools  # noqa: F401
@@ -251,6 +252,14 @@ class DorinaApp:
         
         while self.running:
             try:
+                # Check background tasks notifications
+                from bg_tools.task_manager import task_manager
+                notifs = task_manager.pop_notifications()
+                if notifs:
+                    from ui.display import print_info
+                    for notif in notifs:
+                        print_info(notif)
+                
                 # ─── > prompt (Live kapalı, terminal özgür) ───
                 from ui.status_bar import status as _sb_status
                 _sb_status.pause()
@@ -270,20 +279,33 @@ class DorinaApp:
                 _sb_status.resume()
                 display.print_divider()
 
-                # Handle normal question
-                gen_task = asyncio.create_task(loop.process(user_input))
+                # Disable terminal echo while AI is working
+                import termios
+                import sys
+                fd = sys.stdin.fileno()
+                old_attr = termios.tcgetattr(fd)
                 try:
-                    response = await gen_task
-                except (KeyboardInterrupt, asyncio.CancelledError):
-                    gen_task.cancel()
-                    from ui.display import console as _ui_console, flush_stream
-                    flush_stream()
-                    _ui_console.print("\n  [dim]İşlem iptal edildi.[/dim]")
-                    # Context'e kaydet (Autosave ile dosyaya da yazilacak)
-                    loop.context.messages.append({"role": "system", "content": "Kullanıcı işlemi (Ctrl+C) ile yarıda kesti. Son çıktı veya komut işlemi yarım kalmış olabilir."})
-                    # Let litellm finish cancelling
-                    await asyncio.sleep(0.1)
-                    continue
+                    new_attr = termios.tcgetattr(fd)
+                    new_attr[3] = new_attr[3] & ~termios.ECHO & ~termios.ICANON
+                    termios.tcsetattr(fd, termios.TCSANOW, new_attr)
+
+                    gen_task = asyncio.create_task(loop.process(user_input))
+                    try:
+                        response = await gen_task
+                    except (KeyboardInterrupt, asyncio.CancelledError):
+                        gen_task.cancel()
+                        from ui.display import console as _ui_console, flush_stream
+                        flush_stream()
+                        _ui_console.print("\n[dim]İptal edildi. (Ctrl+C)[/dim]")
+                        # Context'e kaydet (Autosave ile dosyaya da yazilacak)
+                        loop.context.messages.append({"role": "system", "content": "Kullanıcı işlemi (Ctrl+C) ile yarıda kesti. Son çıktı veya komut işlemi yarım kalmış olabilir."})
+                        # Let litellm finish cancelling
+                        await asyncio.sleep(0.1)
+                        continue
+                finally:
+                    # Restore and flush any keys typed during generation
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+                    termios.tcflush(fd, termios.TCIFLUSH)
 
                 # Flush stream buffer (remaining chunks not yet displayed)
                 from ui.display import flush_stream as _fs
@@ -337,7 +359,6 @@ class DorinaApp:
             session_id = manager.create(title=title, model=f"{settings.model.provider}/{settings.model.default.split('/')[-1]}")
             print_success(f"Yeni oturum: {title or session_id}")
         elif cmd == "/godmode":
-            from core.config import settings
             from core import constants
             import soul.personality as _sp
             if not hasattr(settings.model, "godmode"):
@@ -594,10 +615,41 @@ class DorinaApp:
             from monitoring.dashboard import print_dashboard
             print_dashboard()
         
+        elif cmd == "/crons":
+            from ui.display import console
+            from rich.table import Table
+            from rich import box
+            from cron.scheduler import cron
+            jobs = cron.list_jobs()
+            
+            if not jobs:
+                console.print("  [dim]Aktif cron görevi bulunmuyor.[/dim]")
+            else:
+                tbl = Table(title="Zamanlanmış Görevler (Crons)", border_style="#D4622A", box=box.ROUNDED)
+                tbl.add_column("ID", style="cyan")
+                tbl.add_column("Görev Adı", style="bold white")
+                tbl.add_column("Zamanlama", style="magenta")
+                tbl.add_column("Sıradaki Çalışma", style="green")
+                
+                for j in jobs:
+                    tbl.add_row(j.id[:8], j.name, j.schedule, str(j.next_run or "Bilinmiyor"))
+                
+                console.print(tbl)
+                
         elif cmd == "/tools":
             print_info(f"Kayıtlı tool: {registry.count()}")
             for t in registry.list():
                 console.print(f"  [cyan]{t.name}[/cyan] [{t.toolset}] — {t.description}")
+
+        elif cmd == "/tasks":
+            from bg_tools.task_manager import task_manager
+            from ui.display import print_table as _pt_tasks
+            tasks = task_manager.list_tasks()
+            if tasks:
+                rows = [[t.id, t.name, t.status, t.elapsed] for t in tasks]
+                _pt_tasks("Arka Plan Görevleri", ["ID", "Görev", "Durum", "Süre"], rows)
+            else:
+                print_info("Arka planda çalışan görev yok.")
 
         elif cmd.startswith("/verify "):
             arg = cmd[8:].strip()
@@ -646,6 +698,7 @@ class DorinaApp:
             await run_setup_wizard()
 
         elif cmd == "/help":
+            from ui.display import console
             from rich.table import Table
             from rich import box
             tbl = Table(title="Komutlar", border_style="#D4622A", box=box.ROUNDED)
@@ -656,6 +709,8 @@ class DorinaApp:
                 ("/save <ad>", "Oturumu kaydet"),
                 ("/load <id>", "Oturum yükle"),
                 ("/sessions", "Oturumları listele"),
+                ("/tasks", "Arka plan görevleri"),
+                ("/crons", "Zamanlanmış görevler"),
                 ("/ara <sorgu>", "Geçmiş konuşmalarda ara"),
                 ("/skills", "Skill listesi"),
                 ("/tools", "Tool listesi"),
@@ -672,6 +727,7 @@ class DorinaApp:
             console.print(tbl)
 
         elif cmd == "/personality":
+            from ui.display import console
             spath = Path("soul.md")
             if spath.exists():
                 console.print(spath.read_text())
