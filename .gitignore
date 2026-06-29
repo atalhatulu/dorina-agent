@@ -75,3 +75,8 @@ docker-compose.override.yml
 *.bak
 *.backup
 .env.local
+
+# Graphify
+graphify-out/
+.graphify_*.json
+chunk_*.json
