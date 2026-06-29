@@ -46,6 +46,7 @@ class ToolExecutor:
 
     def __init__(self):
         self.call_count = 0
+        self._graph_data_available = False  # graphify_query basarili oldu mu?
 
     def execute(self, tool_name: str, arguments: dict | str, timeout: int = 30) -> str:
         """Bir tool'u senkron çağır. Sonucu JSON string döndür.
@@ -66,6 +67,13 @@ class ToolExecutor:
         tool = registry.get(tool_name)
         if not tool:
             raise ToolError(f"Tool bulunamadı: {tool_name}", tool_name)
+
+        # ── Graph verisi varken batch_python blokajı ────────────────────
+        if self._graph_data_available and tool_name in ("batch_python",):
+            msg = "Graphify verisi zaten alindi. batch_python ile tekrar dosya tarama."
+            log.debug(f"Graph blokajı: {tool_name} engellendi (graphify zaten calisti)")
+            bus.publish("tool:aborted", name=tool_name, reason="graph_data_available")
+            return json.dumps({"error": msg, "aborted": True, "hint": "graphify_query sonucunu kullan, ek dosya tarama gerekmez"})
 
         # Resolve parameters: ensure arguments is a dict with JSON repair
         resolved_args: dict = {}
@@ -227,6 +235,13 @@ class ToolExecutor:
         tool = registry.get(tool_name)
         if not tool:
             raise ToolError(f"Tool bulunamadı: {tool_name}", tool_name)
+
+        # ── Graph verisi varken batch_python blokajı ────────────────────
+        if self._graph_data_available and tool_name in ("batch_python",):
+            msg = "Graphify verisi zaten alindi. batch_python ile tekrar dosya tarama."
+            log.debug(f"Graph blokajı: {tool_name} engellendi (graphify zaten calisti)")
+            bus.publish("tool:aborted", name=tool_name, reason="graph_data_available")
+            return json.dumps({"error": msg, "aborted": True, "hint": "graphify_query sonucunu kullan, ek dosya tarama gerekmez"})
 
         # Resolve parameters: ensure arguments is a dict with JSON repair
         resolved_args: dict = {}

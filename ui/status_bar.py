@@ -105,16 +105,6 @@ class StatusBar:
 
         tokens = []
         
-        # ─── Canlı Durum İndikatörü (Thinking / Idle) ───
-        if self._status_text.lower() == "thinking":
-            status_style = "class:godmode" if GODMODE else "class:orange"
-            tokens.append((status_style, f" ⟳ {self._status_text.upper()} "))
-        else:
-            status_style = "class:green"
-            tokens.append((status_style, f" ✓ {self._status_text.upper()} "))
-            
-        tokens.append(("class:dim", " │ "))
-
         if GODMODE:
             tokens.append(("class:godmode", " ⚡ GOD MODE "))
             tokens.append(("class:godmode_dim", "  │  "))

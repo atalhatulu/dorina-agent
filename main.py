@@ -27,6 +27,12 @@ os.environ.setdefault("LITELLM_SUPPRESS_DEBUG_INFO", "1")
 os.environ.setdefault("LITELLM_VERBOSE", "False")
 os.environ.setdefault("LITELLM_DEBUG", "False")
 os.environ.setdefault("LITELLM_DISABLE_LOGS", "True")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
+# Suppress HuggingFace Hub progress bar warning (harmless but ugly)
+import warnings
+warnings.filterwarnings("ignore", message="Cannot enable progress bars")
 
 from core.logger import log, console
 from core.config import settings
@@ -55,6 +61,7 @@ from tools.builtin import clarify_tool  # noqa: F401
 from tools.builtin import cron_tools  # noqa: F401
 from tools.builtin import memory_tools  # noqa: F401
 from tools.builtin import bg_task_tool  # noqa: F401
+from tools.builtin import graphify_tools  # noqa: F401
 from mail import tools as mail_tools  # noqa: F401
 from lsp import tools as lsp_tools  # noqa: F401
 from evolution import tools as evolution_tools  # noqa: F401

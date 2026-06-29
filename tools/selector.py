@@ -17,6 +17,8 @@ from core.logger import log
 ALWAYS_INCLUDE = frozenset({
     "read_file", "write_file", "patch", "terminal", "search_files",
     "web_search", "web_fetch",
+    # Graphify tools — her zaman sec, kod tabani sorgularinda alternativesiz olsun
+    "graphify_query", "graphify_path", "graphify_god_nodes", "graphify_stats",
 })
 
 NEVER_SELECT = frozenset({
