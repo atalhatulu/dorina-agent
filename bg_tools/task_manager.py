@@ -46,9 +46,7 @@ class TaskManager:
                     )
                     log.info(f"BG task done: {name} ({task.elapsed})")
             except asyncio.CancelledError:
-                task.status = "cancelled"
                 task.finished_at = time.time()
-                self._pending_notifications.append(f"⚠ [{name}] iptal edildi.")
                 log.info(f"BG task cancelled: {name}")
                 raise
             except Exception as e:
@@ -87,6 +85,8 @@ class TaskManager:
             return False
         
         task.status = "cancelled"
+        task.finished_at = time.time()
+        self._pending_notifications.append(f"⚠ [{task.name}] iptal edildi.")
         if task._process:
             try:
                 task._process.terminate()

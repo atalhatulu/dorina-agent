@@ -1,5 +1,6 @@
 """Güvenlik - tehlikeli komut kontrolü, risk skoru, Docker sandbox."""
 
+import asyncio
 import re
 import subprocess
 from pathlib import Path
@@ -52,10 +53,11 @@ def is_blocked_path(path: str) -> bool:
     return False
 
 
-def docker_available() -> bool:
+async def docker_available() -> bool:
     """Docker çalışıyor mu?"""
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["docker", "info"],
             capture_output=True, text=True, timeout=5,
         )
@@ -64,11 +66,12 @@ def docker_available() -> bool:
         return False
 
 
-def sandbox_terminal(command: str, timeout: int = 60) -> str:
+async def sandbox_terminal(command: str, timeout: int = 60) -> str:
     """Komutu Docker sandbox içinde çalıştır. İzole, güvenli."""
     import json
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["docker", "run", "--rm", "-i",
              "--network", "none",  # No network access
              "--read-only",        # Read-only filesystem

@@ -73,3 +73,4 @@ async def handle_done(loop, ctx: AgentContext):
 async def handle_fallback(loop, ctx: AgentContext):
     """FALLBACK: retry thinking after error/abort."""
     ctx.metadata["has_error"] = False
+    ctx.error = None

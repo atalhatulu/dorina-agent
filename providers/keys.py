@@ -1,7 +1,9 @@
-'''API Key Manager — supports all providers, auto-detects from env.'''
+'''API Key Manager — supports all providers, auto-detects from env and secrets.yaml.'''
 import os
 import json
 from pathlib import Path
+
+SECRETS_FILE = Path.home() / '.dorina' / 'secrets.yaml'
 
 PROVIDERS = {
     'deepseek': {'env': 'DEEPSEEK_API_KEY', 'url': 'https://api.deepseek.com', 'models': ['deepseek-chat', 'deepseek-v4-flash'], 'display': 'DeepSeek (V3, R1, coder, direct API)', 'needs_key': True},
@@ -44,21 +46,88 @@ PROVIDER_SETUP_LIST = [
 class KeyManager:
     def __init__(self):
         self._keys = {}
+        # Priority: .env > specific env var > DORINA_API_KEY env var > secrets.yaml > keys.json
+        self._load_dotenv()
         self._load_from_env()
+        self._load_dorina_api_key_fallback()
+        self._load_from_secrets_yaml()
         self._load_from_file()
     
+    def _load_dotenv(self):
+        """Load .env file if python-dotenv is available (optional dependency)."""
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            # Try manual .env parsing as fallback
+            dotenv_path = Path.cwd() / '.env'
+            if not dotenv_path.exists():
+                dotenv_path = Path.home() / '.dorina' / '.env'
+            if dotenv_path.exists():
+                for line in dotenv_path.read_text().splitlines():
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, _, value = line.partition('=')
+                    key = key.strip()
+                    value = value.strip()
+                    # Remove surrounding quotes
+                    if len(value) > 1 and value[0] == value[-1] and value[0] in ('"', "'"):
+                        value = value[1:-1]
+                    if key and value and not os.getenv(key):  # Don't override existing env
+                        os.environ[key] = value
+
     def _load_from_env(self):
         for name, info in PROVIDERS.items():
             env_key = info['env']
             if env_key and os.getenv(env_key):
                 self._keys[name] = os.getenv(env_key)
     
+    def _load_dorina_api_key_fallback(self):
+        """If DORINA_API_KEY is set, apply it to any provider that still has no key."""
+        dorina_key = os.getenv('DORINA_API_KEY')
+        if not dorina_key:
+            return
+        for name, info in PROVIDERS.items():
+            if info.get('needs_key', True) and name not in self._keys:
+                self._keys[name] = dorina_key
+
+    def _load_from_secrets_yaml(self):
+        """Read keys from ~/.dorina/secrets.yaml — lower priority than env vars, higher than keys.json."""
+        if not SECRETS_FILE.exists():
+            return
+        try:
+            import yaml
+            data = yaml.safe_load(SECRETS_FILE.read_text())
+            if not data or not isinstance(data, dict):
+                return
+            # Map flat keys like 'api_key' to the first 'needs_key' provider without a key
+            api_key = data.get('api_key')
+            if api_key:
+                for name, info in PROVIDERS.items():
+                    if info.get('needs_key', True) and name not in self._keys:
+                        self._keys[name] = api_key
+                        break  # Assign to first unmatched provider
+            # Also try per-provider keys (e.g. deepseek: sk-..., openai: sk-...)
+            for name, info in PROVIDERS.items():
+                if name not in self._keys and name in data:
+                    self._keys[name] = data[name]
+                env_key = info.get('env', '').lower().replace('_api_key', '')
+                if name not in self._keys and env_key and env_key in data:
+                    self._keys[name] = data[env_key]
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"secrets.yaml okunamadi: {e}")
+
     def _load_from_file(self):
         key_file = Path.home() / '.dorina' / 'keys.json'
         if key_file.exists():
             try:
                 data = json.loads(key_file.read_text())
-                self._keys.update(data)
+                # keys.json has lowest priority — only set keys not already configured
+                for k, v in data.items():
+                    if k not in self._keys:
+                        self._keys[k] = v
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"keys.json okunamadi: {e}")

@@ -97,7 +97,7 @@ DEFAULT_MODEL = "deepseek/deepseek-chat"
 DEFAULT_PROVIDER = "deepseek"
 
 # Token limitleri
-MAX_WORKING_MESSAGES = 20
+MAX_WORKING_MESSAGES = 8  # ~2-3 tur konusma, session zaten gecmisi tutuyor
 MAX_TOOL_CALLS_PER_TURN = 999  # tool_test_all icin limitsiz
 MAX_TURNS = 50
 
@@ -110,11 +110,22 @@ MEMORY_PROCEDURAL = "procedural"
 # ── P0-05: Skill Trigger Conditions ─────────────────────────────
 # Session başlangıcında skill injection için trigger condition'ları
 SKILL_TRIGGER_KEYWORDS = {
-    "code": {"python", "javascript", "rust", "go", "code", "yazılım", "program", "debug", "hata ayıkla", "refactor", "test yaz"},
-    "devops": {"docker", "kubernetes", "k8s", "deploy", "ci/cd", "pipeline", "nginx", "linux", "sunucu", "server"},
-    "data": {"veri", "data", "analiz", "analytics", "pandas", "sql", "database", "csv", "json", "api"},
-    "web": {"web", "frontend", "backend", "react", "vue", "api", "rest", "html", "css", "javascript"},
-    "research": {"araştır", "research", "doküman", "document", "wiki", "öğren", "learn", "nedir", "what is"},
+    "code": {"python", "javascript", "rust", "go", "code", "yazılım", "program", "debug", "hata ayıkla", "refactor", "test yaz",
+             "review", "testing", "implementation", "engineering", "security", "optimization", "simplification",
+             "maintain", "quality", "incremental", "interface", "design", "spec",
+             "error", "recovery", "triage", "branch", "task", "build", "vertical slice",
+             "test", "tests", "tester", "prove"},
+    "devops": {"docker", "kubernetes", "k8s", "deploy", "ci/cd", "pipeline", "nginx", "linux", "sunucu", "server",
+               "ci", "cd", "migration", "rollback", "release", "version", "git", "shipping", "automation",
+               "observability", "instrumentation", "monitoring"},
+    "data": {"veri", "data", "analiz", "analytics", "pandas", "sql", "database", "csv", "json", "api",
+             "integra", "interface", "observability", "instrumentation"},
+    "web": {"web", "frontend", "backend", "react", "vue", "api", "rest", "html", "css", "javascript",
+            "browser", "ui", "ux", "devtools", "performance", "responsive"},
+    "research": {"araştır", "research", "doküman", "document", "wiki", "öğren", "learn", "nedir", "what is",
+                 "documentation", "spec", "specification", "interview", "idea", "planning",
+                 "source", "doubt", "adr", "architecture",
+                 "refine", "explore", "convergent", "divergent", "meta", "guideline"},
 }
 
 # Session başlangıcında hangi skill'lerin otomatik yükleneceği

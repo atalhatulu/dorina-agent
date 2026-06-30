@@ -15,14 +15,6 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = Field(default=None, ge=1, le=128_000)
 
 
-class ChatCompletionResponse(BaseModel):
-    """Non-streaming chat completion response."""
-    id: str
-    object_: str = Field(default="chat.completion", alias="object")
-    choices: list[dict[str, Any]]
-    usage: dict[str, int] | None = None
-
-
 class ToolInfo(BaseModel):
     """Tool metadata exposed via API."""
     name: str
@@ -45,19 +37,3 @@ class SessionListResponse(BaseModel):
     """List of sessions."""
     sessions: list[SessionInfo]
     total: int
-
-
-class HealthStatus(BaseModel):
-    """System health status."""
-    status: str = "ok"  # ok, degraded, error
-    version: str
-    providers: dict[str, bool]
-    memory: dict[str, bool]
-    sandbox: bool
-    uptime_seconds: float | None = None
-
-
-class ErrorResponse(BaseModel):
-    """Standard error response."""
-    error: str
-    detail: str | None = None

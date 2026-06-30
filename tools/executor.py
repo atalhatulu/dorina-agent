@@ -11,6 +11,7 @@ from core.constants import MAX_TOOL_CALLS_PER_TURN
 from core.error_classifier import sanitize_tool_error
 from hooks.lifecycle import pipeline
 from security.approval import approval as _approval
+from tools.toolset import get_active_toolsets
 
 
 class ToolError(Exception):
@@ -145,6 +146,8 @@ class ToolExecutor:
     def _handle_error(self, tool_name: str, error: Exception) -> str:
         """Common error handling for both sync and async paths."""
         error_sanitized = sanitize_tool_error(str(error))
+        # Kullanici dostu hata mesaji — teknik detay log'da
+        user_msg = f"Bir hata olustu. Detaylar: /home/teha/.dorina/logs/error.log"
         bus.publish("tool:aborted", name=tool_name, error=str(error))
         bus.publish("tool:error", name=tool_name, error=str(error))
         bus.publish("monitoring:tool_error", name=tool_name, error=str(error))
@@ -161,7 +164,7 @@ class ToolExecutor:
             )
         except Exception:
             pass
-        return json.dumps({"error": error_sanitized})
+        return json.dumps({"error": user_msg})
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -171,6 +174,11 @@ class ToolExecutor:
         tool_name, tool, resolved_args, err = self._setup(tool_name, arguments)
         if err:
             return err
+
+        # Otomatik toolset aktiflestirme — tool bulundu ama toolset kapaliysa ac
+        if tool.toolset and tool.toolset not in get_active_toolsets():
+            from tools.toolset import ACTIVE_TOOLSETS
+            ACTIVE_TOOLSETS.add(tool.toolset)
 
         try:
             if tool.is_async:

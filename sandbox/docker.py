@@ -60,7 +60,7 @@ class Sandbox(SandboxInterface):
                 return f"Hata: {result.stderr.strip()[:300]}"
 
         except subprocess.TimeoutExpired:
-            return "Zaman asimi ({timeout}sn)"
+            return f"Zaman asimi ({timeout}sn)"
         except FileNotFoundError:
             self.available = False
             return "Docker komutu bulunamadi"
@@ -93,7 +93,7 @@ class Sandbox(SandboxInterface):
             return f"Hata: {result.stderr.strip()[:200]}"
 
         except subprocess.TimeoutExpired:
-            return "Zaman asimi ({timeout}sn)"
+            return f"Zaman asimi ({timeout}sn)"
         except FileNotFoundError:
             self.available = False
             return "Docker komutu bulunamadi"

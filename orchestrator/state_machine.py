@@ -177,10 +177,21 @@ class StateMachine:
                 except Exception as e:
                     context.state = AgentState.ERROR
                     context.error = str(e)
+                    context.metadata["has_error"] = True
                     from rich.markup import escape as _esc
                     log.error("State handler hatasi [%s]: %s", _esc(str(context.state)), _esc(str(e)))
-                    # Doğrudan ERROR state'i için next_state'i hesapla
-                    pass
+
+                    # Circuit breaker: track consecutive failures
+                    self._consecutive_failures = getattr(self, '_consecutive_failures', 0) + 1
+                    if self._consecutive_failures >= 3:
+                        log.error("Circuit breaker: %d consecutive handler failures, forcing DONE", self._consecutive_failures)
+                        context.state = AgentState.DONE
+                        context.error = f"Circuit breaker: {self._consecutive_failures} consecutive handler failures"
+                        # Skip next-state evaluation — we're done
+                        continue
+                else:
+                    # Reset consecutive failure counter on success
+                    self._consecutive_failures = 0
 
             # Hata oluştuğunda sonsuz döngüyü önlemek için
             if context.state == AgentState.ERROR and not self.transitions.get(AgentState.ERROR):
@@ -283,6 +294,7 @@ def create_default_machine() -> StateMachine:
 
     sm.add_transition(AgentState.IDLE, AgentState.THINKING, "start")
     sm.add_transition(AgentState.THINKING, AgentState.THINKING, "planning_only")
+    sm.add_transition(AgentState.THINKING, AgentState.THINKING, "truncated")
     sm.add_transition(AgentState.THINKING, AgentState.TOOL_CALLING, "has_tools")
     sm.add_transition(AgentState.THINKING, AgentState.DIRECT_REPLY, "no_tools")
     sm.add_transition(AgentState.THINKING, AgentState.DIRECT_REPLY, "finalized")

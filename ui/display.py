@@ -140,17 +140,28 @@ def print_tool_start(name: str, args: dict | None = None):
     t.append(INDENT)
     t.append("● ", style=DIM)
     t.append(f"{pascal_name}", style="bold")
-    t.append(f"({arg_str})", style=DIM)
-    
+    t.append(f"({arg_str})", style="#66BB6A")  # parametreler - yesil
+    # Parametre token tahmini
+    global _in_tokens
+    _in_tokens = 0
+    if args:
+        _in_tokens = len(str(args)) // 4
+
     _current_tool_text = t
     console.print(t, end="")
 
 
 def print_tool_done(name: str, result: str):
     store_tool_output(name, result)
-    global _tool_start_time, _current_tool_text
-    _duration = f" (~{max(0.0, _time.time() - _tool_start_time):.1f}s)" if _tool_start_time else ""
+    global _tool_start_time, _current_tool_text, _in_tokens
+    _duration = f" \n~{max(0.0, _time.time() - _tool_start_time):.1f}s" if _tool_start_time else ""
     _tool_start_time = 0
+    # Input/output token tahmini
+    _out_tokens = len(result or "") // 4
+    _in_str = f"  i: {_in_tokens}" if _in_tokens > 0 else ""
+    _out_str = f"  o: {_out_tokens}" if _out_tokens > 0 else ""
+    _io = _in_str + _out_str
+    _in_tokens = 0
     raw = str(result or "").strip()
     is_multi = "\n" in raw[:200]
     summary = raw[:120]
@@ -160,7 +171,7 @@ def print_tool_done(name: str, result: str):
         if "error" in data:
             err_msg = _safe_str(data["error"], 100)
             if _current_tool_text:
-                console.print(f" → [italic {ORANGE}]Error: {err_msg}[/italic {ORANGE}]")
+                console.print(f" →  [italic {ORANGE}]Error: {err_msg}[/italic {ORANGE}]")
                 _current_tool_text = None
             else:
                 console.print(f"{INDENT}→ [italic {ORANGE}]Error: {err_msg}[/italic {ORANGE}]")
@@ -185,10 +196,20 @@ def print_tool_done(name: str, result: str):
         summary = f"{fl} ({raw.count(chr(10))+1} satır, {len(raw)} B)"
 
     if _current_tool_text:
-        console.print(f" → {_safe_str(summary, 120)}{_duration}", style=DIM)
+        line = Text()
+        line.append(" →", style="bold #D4622A")
+        line.append(f" {_safe_str(summary, 120)}")
+        console.print(line)
+        if _duration or _io:
+            console.print(f"{INDENT} {_duration.strip()} {_io.strip()}", style="dim")
         _current_tool_text = None
     else:
-        console.print(f"{INDENT}→ {_safe_str(summary, 120)}{_duration}", style=DIM)
+        line = Text()
+        line.append(f"{INDENT}→", style="bold #D4622A")
+        line.append(f" {_safe_str(summary, 120)}")
+        console.print(line)
+        if _duration or _io:
+            console.print(f"{INDENT}{INDENT}{_duration.strip()} {_io.strip()}", style="dim")
 
 
 def print_tool_error(name: str, error: str):

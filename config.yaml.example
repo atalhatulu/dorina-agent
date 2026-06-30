@@ -63,7 +63,7 @@ session:
 skills:
   auto_detect: true
   enabled: true
-  store_dir: skills/store
+  store_dir: ~/.dorina/skills
 language: tr  # Default UI language (tr, en)
 
 soul:

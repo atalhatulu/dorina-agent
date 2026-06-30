@@ -67,7 +67,7 @@ class Context:
         Mesajları önce atomik gruplara ayır, ardından en eski grupları sil.
         Bir atomik grup asla bölünmez — ya tamamı silinir ya da hiçbiri.
         """
-        if len(self.messages) <= MAX_WORKING_MESSAGES * 2:
+        if len(self.messages) <= MAX_WORKING_MESSAGES + 2:
             return
 
         # Organize messages into atomic groups

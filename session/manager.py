@@ -27,6 +27,24 @@ def _get_fernet():
         log.warning("cryptography paketi yok — session şifrelemesi kapali")
         return None
 
+    # Try secrets.yaml first
+    secrets_file = Path.home() / ".dorina" / "secrets.yaml"
+    if secrets_file.exists():
+        try:
+            import yaml
+            with open(secrets_file) as f:
+                secrets = yaml.safe_load(f) or {}
+            key_str = secrets.get("session_key", "")
+            if key_str:
+                key = key_str.encode() if isinstance(key_str, str) else key_str
+                # If it's a valid Fernet key (32 base64-encoded bytes), use it
+                if len(key) == 44:  # standard Fernet key length
+                    _fernet_instance = Fernet(key)
+                    return _fernet_instance
+        except Exception:
+            pass
+
+    # Fallback: old .session_key file
     if _KEY_FILE.exists():
         key = _KEY_FILE.read_bytes()
     else:
@@ -202,8 +220,12 @@ class SessionManager:
         for s in sessions:
             if not s.messages or s.messages.strip() in ("", "[]", "{}"):
                 continue
-            decrypted = _decrypt(s.messages)
-            msgs = json.loads(decrypted)
+            try:
+                decrypted = _decrypt(s.messages)
+                msgs = json.loads(decrypted)
+            except Exception:
+                log.warning(f"Session {s.id}: decrypt failed, skipping")
+                continue
             if not msgs:
                 continue
             result.append({
@@ -241,15 +263,16 @@ class SessionManager:
             for s in sessions
         ]
 
-    def delete(self, session_id: str):
-        """Oturum sil."""
-        self.db.query(SessionModel).filter_by(id=session_id).delete()
+    def delete(self, session_id: str) -> bool:
+        """Silinen oturum. Returns True if a row was deleted."""
+        result = self.db.query(SessionModel).filter_by(id=session_id).delete()
         self.db.commit()
         if self.current_id == session_id:
             self.current_id = None
+        return result > 0
 
     def rename(self, session_id: str, title: str):
-        """Oturum adını değiştir."""
+        """Session başlığını değiştir."""
         session = self.db.query(SessionModel).filter_by(id=session_id).first()
         if session:
             session.title = title

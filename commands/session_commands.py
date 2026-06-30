@@ -22,6 +22,7 @@ async def cmd_new(app: "DorinaApp", cmd: str) -> None:
     if not hasattr(app, "godmode"):
         app.godmode = False
     loop.reset()
+    loop._temp_mode = False
     title = ""
     if len(cmd) > 5:
         title = cmd[5:].strip().strip("\"'")
@@ -30,6 +31,19 @@ async def cmd_new(app: "DorinaApp", cmd: str) -> None:
         model=f"{settings.model.provider}/{settings.model.default.split('/')[-1]}",
     )
     print_success(f"Yeni oturum: {title or session_id}")
+
+
+async def cmd_temp(app: "DorinaApp", cmd: str) -> None:
+    """Start a temp (no-save) session::
+
+        /temp
+    """
+    from orchestrator.agent_loop import loop
+    from ui.display import print_info
+
+    loop.reset()
+    loop._temp_mode = True
+    print_info("Geçici sohbet modu — hiçbir kayıt alınmaz.")
 
 
 async def cmd_save(app: "DorinaApp", cmd: str) -> None:
@@ -124,12 +138,12 @@ async def cmd_sessions(app: "DorinaApp", cmd: str) -> None:
 
     sessions = manager.list_sessions()
     console.print("\n[bold #D4622A]# Session List[/bold #D4622A]")
-    console.print(f"  [dim]{'#':<4} {'Title':<28} {'Preview':<33} {'Msgs':<5} {'Last Active':<12} ID[/dim]")
+    console.print(f"  [dim]{'#':<4} {'Title':<28} {'Preview':<33} {'Tur':<5} {'Last Active':<12} ID[/dim]")
     console.print(f"  [dim]{'─'*4:<4} {'─'*28:<28} {'─'*33:<33} {'─'*5:<5} {'─'*12:<12} ────────────[/dim]")
     for i, s in enumerate(sessions, 1):
         title = s["title"][:26] + ".." if len(s["title"]) > 26 else s["title"]
         preview = s.get("summary", "")[:31] + "..." if len(s.get("summary", "")) > 31 else s.get("summary", "")
-        msgs = s.get("message_count", 0)
+        tur = s.get("message_count", 0) // 2 + 1
         last_active_raw = s.get("updated_at", s.get("created_at", ""))
         if last_active_raw and len(last_active_raw) >= 16:
             dt = last_active_raw[:16].replace("T", "-").replace(":", "")
@@ -141,7 +155,7 @@ async def cmd_sessions(app: "DorinaApp", cmd: str) -> None:
         else:
             last_active = last_active_raw[:10] if last_active_raw else ""
         sid = s["id"][:12]
-        console.print(f"  {i:<4} {title:<28} {preview:<33} {msgs:<5} {last_active:<12} {sid}")
+        console.print(f"  {i:<4} {title:<28} {preview:<33} {tur:<5} {last_active:<12} {sid}")
 
 
 async def cmd_remove(app: "DorinaApp", cmd: str) -> None:

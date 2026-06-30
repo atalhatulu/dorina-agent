@@ -33,7 +33,7 @@ CommandHandler = Callable[..., Coroutine]
 def register_commands() -> dict[str, CommandHandler]:
     """Build the prefix → handler mapping for all slash commands."""
     from commands.session_commands import (
-        cmd_new, cmd_save, cmd_load, cmd_sessions,
+        cmd_new, cmd_temp, cmd_save, cmd_load, cmd_sessions,
         cmd_remove, cmd_clean, cmd_ara, cmd_export,
     )
     from commands.system_commands import (
@@ -46,12 +46,14 @@ def register_commands() -> dict[str, CommandHandler]:
         cmd_tools, cmd_tasks, cmd_crons, cmd_verify, cmd_review, cmd_skills,
     )
     from commands.data_commands import cmd_dashboard
+    from commands.debug_commands import cmd_debug, cmd_trace
 
     return {
         "/exit": cmd_exit,
         "/quit": cmd_quit,
         "/q": cmd_q,
         "/new": cmd_new,
+        "/temp": cmd_temp,
         "/godmode": cmd_godmode,
         "/audit": cmd_audit,
         "/model": cmd_model,
@@ -74,4 +76,6 @@ def register_commands() -> dict[str, CommandHandler]:
         "/help": cmd_help,
         "/personality": cmd_personality,
         "/clear": cmd_clear,
+        "/debug": cmd_debug,
+        "/trace": cmd_trace,
     }

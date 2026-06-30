@@ -37,6 +37,7 @@ async def cmd_help(app: "DorinaApp", cmd: str) -> None:
     tbl.add_column("İşlev", style="white")
     for cmd_name, desc in [
         ("/new", "Yeni oturum başlat"),
+        ("/temp", "Geçici sohbet (kayıtsız)"),
         ("/save <ad>", "Oturumu kaydet"),
         ("/load <id>", "Oturum yükle"),
         ("/sessions", "Oturumları listele"),

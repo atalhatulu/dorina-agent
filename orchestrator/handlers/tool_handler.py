@@ -20,11 +20,11 @@ async def handle_tool_calling(loop, ctx: AgentContext):
         "content": None,
         "tool_calls": [
             {
-                "id": tc.get("id", f"call_{tc['function']['name']}"),
+                "id": tc.get("id", ""),
                 "type": "function",
                 "function": {
-                    "name": tc["function"]["name"],
-                    "arguments": tc["function"]["arguments"],
+                    "name": tc.get("function", {}).get("name", "unknown_tool"),
+                    "arguments": tc.get("function", {}).get("arguments", "{}"),
                 },
             }
             for tc in tool_calls
@@ -67,7 +67,15 @@ async def handle_waiting_result(loop, ctx: AgentContext):
         _status.add_tool_call()
         from ui.display import flush_stream as _flush_stream
         _flush_stream()
-        _display.print_tool_start(name, None)
+        # Argumanlari coz ve goster (token tahmini icin)
+        _fn = tc.get("function", {})
+        _raw_args = _fn.get("arguments", "{}")
+        try:
+            _parsed = json.loads(_raw_args) if isinstance(_raw_args, str) else _raw_args
+        except Exception as _parse_e:
+            log.warning("Tool arg parse warning [%s]: %s", name, _parse_e)
+            _parsed = None
+        _display.print_tool_start(name, _parsed)
         try:
             result = await asyncio.to_thread(executor.execute, name, args)
             loop.context.add_tool_result(name, result, tool_call_id)
@@ -76,44 +84,18 @@ async def handle_waiting_result(loop, ctx: AgentContext):
                 fail_count += 1
             else:
                 _display.print_tool_done(name, result)
-                success_count += 1
-
-                # --- Self-Review & Auto-Testing ---
-                if name in ("write_file", "patch"):
-                    # 1. Self-Review (Kontrol Katmanı)
+                # Tool sonrasi session kaydet (temp modda kaydetme)
+                if not loop._temp_mode:
                     try:
-                        _needs_review = False
-                        _code_to_review = ""
-                        if name == "patch":
-                            res_obj = json.loads(result)
-                            _verif = res_obj.get("verification", {}).get("changed_lines", [])
-                            if len(_verif) >= 5:
-                                _needs_review = True
-                                _code_to_review = "\n".join(str(v) for v in _verif)
-                        elif name == "write_file":
-                            _args_obj = json.loads(args)
-                            _code_to_review = _args_obj.get("content", "")
-                            if len(_code_to_review.split("\n")) > 10:
-                                _needs_review = True
-                        if _needs_review and _code_to_review:
-                            _display.print_info("Büyük değişiklik tespit edildi, otomatik test çalıştırılıyor...")
+                        from session.manager import manager as _sm
+                        from core.config import settings as _st
+                        if _st.session.auto_save:
+                            _sm.save(loop.context.get_messages(), summary=f"[{name}] {result[:100]}")
                     except Exception:
                         pass
-
-                    # 2. Auto-Test
-                    _display.print_info("Otomatik test çalıştırılıyor...")
-                    test_cmd = "python -m pytest tests/ -q --tb=short 2>&1 | tail -n 15"
-                    test_args = json.dumps({"command": test_cmd})
-                    test_result = await asyncio.to_thread(executor.execute, "terminal", test_args)
-                    if "failed" in test_result.lower() or "error" in test_result.lower() or "traceback" in test_result.lower():
-                        loop.context.add_user_message(
-                            f"[OTOMATIK TEST BAŞARISIZ]\nAz önce yaptığın '{name}' işlemi testleri bozdu veya hata verdi. "
-                            f"Lütfen analiz edip hatayı düzelt:\n\n{test_result}"
-                        )
-                        _display.print_tool_error("auto_test", "Testler patladı! Otonom kurtarma başlıyor...")
-                    else:
-                        _display.print_success("Auto-Test: Başarılı 🚀")
+                success_count += 1
         except Exception as e:
+            ctx.metadata["has_error"] = True
             loop._handle_tool_error(name, e, tool_call_id)
             fail_count += 1
 

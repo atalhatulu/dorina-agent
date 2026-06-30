@@ -85,17 +85,6 @@ def _build_info_lines(
         lines.append(_kv("api keys", _color("yok", coral), v2=v2))
     lines.append(Text(""))
 
-    tool_count = len(tools_available)
-    cat_count = 15
-    lines.append(_kv("tools", _color(str(tool_count), GREEN) + " " + _dim("active · " + str(cat_count) + " categories"), v2=v2))
-    skill_count = len(skills)
-    if skill_count:
-        sk_str = _color(str(skill_count), AMBER) + " " + _dim("loaded")
-    else:
-        sk_str = _dim("henuz yok · ogrenmek icin kullan")
-    lines.append(_kv("skills", sk_str, v2=v2))
-    lines.append(Text(""))
-
     lines.append(_kv("state", _color("IDLE", GREEN) + " " + _dim("· 9-state machine"), v2=v2))
     lines.append(_kv("memory", _hi("semantic") + " " + _dim("+ episodic + procedural"), v2=v2))
     lines.append(_kv("rag", _color("chromadb", GREEN) + " " + _dim("· initialized"), v2=v2))

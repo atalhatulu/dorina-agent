@@ -14,34 +14,6 @@ class TestAgentLoopCore:
         assert loop.turn == 0
         assert loop.sm is not None
 
-    def test_planning_detection(self):
-        from orchestrator.agent_loop import AgentLoop
-        loop = AgentLoop()
-
-        # Should detect planning-only content
-        planning_text = "Önce dosyaları okuyup kontrol edeceğim, ardından analiz yapıp düzelteceğim"
-        assert loop._is_planning_only(planning_text) is True
-
-        # Short content with planning indicators
-        assert loop._is_planning_only("Önce bakalım") is True
-
-    def test_planning_short_content(self):
-        from orchestrator.agent_loop import AgentLoop
-        loop = AgentLoop()
-        # Short content WITHOUT planning indicators is now OK (not planning)
-        assert loop._is_planning_only("Hi there") is False
-        assert loop._is_planning_only("Dosya bulunamadi.") is False
-        # Empty content is not planning
-        assert loop._is_planning_only("") is False
-
-    def test_not_planning(self):
-        from orchestrator.agent_loop import AgentLoop
-        loop = AgentLoop()
-        # Normal content without planning indicators, longer than 80 chars
-        text = ("Here is the final result of the analysis. The file contains exactly "
-                "3 functions and they all work correctly without any issues whatsoever.")
-        assert loop._is_planning_only(text) is False
-
     def test_clean_content_removes_xml(self):
         from orchestrator.agent_loop import AgentLoop
         text = '<invoke name="read_file"><parameter name="path">/etc/passwd</parameter></invoke>'

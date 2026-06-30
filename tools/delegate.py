@@ -151,7 +151,7 @@ class DelegateManager:
             ids.append(aid)
         return ids
 
-    def submit_batch_and_wait(
+    async def submit_batch_and_wait(
         self, tasks: list[dict], timeout: int = 120
     ) -> list[dict]:
         ids = self.submit_batch(tasks)
@@ -159,7 +159,7 @@ class DelegateManager:
         results = []
         for aid in ids:
             remaining = max(0, int(deadline - time.time()))
-            result = self.get_result(aid, timeout=remaining)
+            result = await self.get_result(aid, timeout=remaining)
             with self._lock:
                 agent = self.active.get(aid)
             results.append({
@@ -171,14 +171,14 @@ class DelegateManager:
             })
         return results
 
-    def get_results_batch(
+    async def get_results_batch(
         self, agent_ids: list[str], timeout: int = 30
     ) -> list[dict]:
         deadline = time.time() + timeout
         results = []
         for aid in agent_ids:
             remaining = max(0, int(deadline - time.time()))
-            result = self.get_result(aid, timeout=remaining)
+            result = await self.get_result(aid, timeout=remaining)
             with self._lock:
                 agent = self.active.get(aid)
             results.append({
@@ -195,7 +195,7 @@ class DelegateManager:
         finally:
             exec_ref.shutdown(wait=False)
 
-    def get_result(self, agent_id: str, timeout: int = 120) -> Optional[str]:
+    async def get_result(self, agent_id: str, timeout: int = 120) -> Optional[str]:
         with self._lock:
             agent = self.active.get(agent_id)
         if not agent:
@@ -206,7 +206,7 @@ class DelegateManager:
             if time.time() - start > timeout:
                 agent.status = "timeout"
                 return json.dumps({"error": "timeout"})
-            time.sleep(0.1)
+            await asyncio.sleep(0.1)
 
         return agent.result
 

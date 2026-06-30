@@ -52,25 +52,6 @@ def switch_provider_tool(provider: str) -> str:
 
 # ─── SEARCH TOOL'LARI ───────────────────────────
 
-@register_tool(
-    name="web_search_multi",
-    description="Birden çok kaynaktan web araması yap.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Arama sorgusu"},
-            "max_results": {"type": "integer", "description": "Maksimum sonuç", "default": 5},
-        },
-        "required": ["query"],
-    },
-    toolset="web",
-)
-def web_search_multi_tool(query: str, max_results: int = 5) -> str:
-    from search.engine import SearchEngine
-    se = SearchEngine()
-    results = se.search(query, max_results)
-    return json.dumps(results, ensure_ascii=False)
-
 
 # ─── BROWSER TOOL'LARI ──────────────────────────
 
@@ -121,87 +102,46 @@ async def browser_navigate_tool(url: str, screenshot: bool = False,
     return "\n".join(result_parts)
 
 
-# ─── AGENTS TOOL'LARI ───────────────────────────
-
-@register_tool(
-    name="run_crew",
-    description="Multi-agent ekibi çalıştır. Planner + Researcher + Writer.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "task": {"type": "string", "description": "Yapılacak görev"},
-        },
-        "required": ["task"],
-    },
-    toolset="delegation",
-)
-def run_crew_tool(task: str) -> str:
-    from agents.crew import AgentCrew
-    crew = AgentCrew()
-    crew.add_member("planner", "Görevi planla")
-    crew.add_member("researcher", "Araştırma yap")
-    crew.add_member("writer", "Rapor yaz")
-    result = crew.run(task)
-    return result
-
-
 # ─── SANDBOX TOOL'U ─────────────────────────────
 
 @register_tool(
-    name="sandbox_python",
-    description="Python kodunu güvenli sandbox'ta çalıştır.",
+    name="sandbox_exec",
+    description="Python kodunu veya shell komutunu güvenli Docker sandbox'ta çalıştır — izole, güvenli, ağ yok, disk read-only. type='python' için Python sandbox, type='shell' için bash sandbox.",
     parameters={
         "type": "object",
         "properties": {
-            "code": {"type": "string", "description": "Çalıştırılacak Python kodu"},
+            "type": {
+                "type": "string",
+                "enum": ["python", "shell"],
+                "default": "shell",
+                "description": "Çalıştırma türü: 'python' veya 'shell'",
+            },
+            "code": {
+                "type": "string",
+                "description": "(python) Çalıştırılacak Python kodu",
+            },
+            "command": {
+                "type": "string",
+                "description": "(shell) Çalıştırılacak shell komutu",
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "Zaman aşımı (saniye)",
+                "default": 30,
+            },
         },
-        "required": ["code"],
+        "required": [],
     },
     toolset="development",
 )
-def sandbox_python_tool(code: str) -> str:
-    from sandbox.docker import sandbox
-    return sandbox.run_python(code)
-
-
-@register_tool(
-    name="sandbox_terminal",
-    description="Shell komutunu Docker sandbox'ta çalıştır — izole, güvenli, ağ yok, disk read-only.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "command": {"type": "string", "description": "Çalıştırılacak komut"},
-            "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 60},
-        },
-        "required": ["command"],
-    },
-    toolset="development",
-)
-def sandbox_terminal_tool(command: str, timeout: int = 60) -> str:
-    from tools.security import sandbox_terminal
-    return sandbox_terminal(command, timeout)
-
-
-# ─── MAIL TOOL'U ────────────────────────────────
-
-@register_tool(
-    name="send_email",
-    description="E-posta gönder.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "to": {"type": "string", "description": "Alıcı e-posta adresi"},
-            "subject": {"type": "string", "description": "Konu"},
-            "body": {"type": "string", "description": "Mesaj içeriği"},
-        },
-        "required": ["to", "subject", "body"],
-    },
-    toolset="communication",
-)
-def send_email_tool(to: str, subject: str, body: str) -> str:
-    from mail.client import email
-    ok = email.send(to, subject, body)
-    return json.dumps({"success": ok})
+async def sandbox_exec_tool(type_: str = "shell", code: str = "", command: str = "", timeout: int = 30) -> str:
+    """Merged sandbox tool — dispatches by type parameter."""
+    if type_ == "python":
+        from sandbox.docker import sandbox
+        return sandbox.run_python(code)
+    else:  # "shell"
+        from tools.security import sandbox_terminal
+        return await sandbox_terminal(command, timeout)
 
 
 # ─── VISION TOOL'U ──────────────────────────────
@@ -248,25 +188,4 @@ def analyze_image_tool(image_path: str) -> str:
         return json.dumps({"error": f"Analiz edilemedi: {e}"})
 
 
-# ─── WORKFLOW TOOL'U ────────────────────────────
 
-@register_tool(
-    name="run_workflow",
-    description="Çok adımlı iş akışı çalıştır.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "steps": {
-                "type": "array",
-                "items": {"type": "object"},
-                "description": "Adım listesi: [{\"name\": \"...\", \"action\": \"...\"}]",
-            },
-        },
-        "required": ["steps"],
-    },
-    toolset="development",
-)
-def run_workflow_tool(steps: list[dict]) -> str:
-    from workflows.runner import workflows
-    workflows.define(steps)
-    return workflows.run()

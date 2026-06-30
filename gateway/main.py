@@ -42,21 +42,27 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — allow all origins for local development
+    # CORS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=["http://localhost", "http://127.0.0.1"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+    # Rate limiting
+    from .ratelimit import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware, max_requests=60, window_seconds=60)
+
     # Global exception handler
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
+        import logging
+        logging.error(f"Unhandled exception on {request.url}: {exc}")
         return JSONResponse(
             status_code=500,
-            content={"error": "Internal server error", "detail": str(exc)},
+            content={"error": "Internal server error", "detail": "An unexpected error occurred. Check server logs for details."},
         )
 
     # Register routes

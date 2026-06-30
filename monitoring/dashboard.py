@@ -9,6 +9,7 @@
 """
 
 from __future__ import annotations
+import asyncio
 import time
 from typing import Optional
 
@@ -178,7 +179,7 @@ def print_dashboard(metrics_instance=None, insights_instance=None):
     console.print(build_insight_panel(recs))
 
 
-def live_dashboard(metrics_instance=None, insights_instance=None, refresh_sec: int = 2):
+async def live_dashboard(metrics_instance=None, insights_instance=None, refresh_sec: int = 2):
     """Canlı dashboard (sürekli güncellenir, Ctrl+C ile çık)."""
     from monitoring.metrics import metrics as default_metrics
     from monitoring.insights import insights as default_insights
@@ -196,7 +197,7 @@ def live_dashboard(metrics_instance=None, insights_instance=None, refresh_sec: i
 
                 layout = build_full_dashboard(metrics_data, tool_stats, provider_stats, recs)
                 live.update(layout)
-                time.sleep(refresh_sec)
+                await asyncio.sleep(refresh_sec)
     except KeyboardInterrupt:
         log.info("Dashboard closed by user")
     except Exception as e:

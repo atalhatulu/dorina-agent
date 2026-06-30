@@ -43,6 +43,8 @@ class AgentLoop:
         self.compressor = ContextCompressor()
         self.turn = 0
         self._skills_injected = False  # P0-05: sadece ilk turda skill injection
+        self._session_titled = False  # Otomatik title
+        self._temp_mode = False  # Gecici sohbet modu (kayit yok)
 
 
     async def process(self, user_input: str) -> str:
@@ -87,11 +89,30 @@ class AgentLoop:
             _status.set_status("idle")
             return "Maximum turns reached. Use /new to reset."
 
+        # P0-05: Otomatik session title — ilk mesajdan
+        if self.turn == 1 and not self._session_titled:
+            _title = (user_input or "").strip()[:60]
+            if _title:
+                from session.manager import manager
+                try:
+                    manager.rename(manager.current_id, _title)
+                    self._session_titled = True
+                except Exception:
+                    pass
+
         # P0-05: Skill injection at session start
         if not self._skills_injected:
             self._active_skills = skills.get_applicable_skills(user_input)
             if self._active_skills:
-                skill_sections = [f"## Skill: {s['name']} ({s['trigger']})\n{s['content']}" for s in self._active_skills]
+                skill_sections = []
+                for s in self._active_skills:
+                    content = s['content']
+                    if isinstance(content, dict):
+                        content = content.get('content', '') or str(content)
+                    # Skill icerigini kisitla: ilk 500 karakter yeterli
+                    if len(content) > 500:
+                        content = content[:500] + f"\n[...{len(content)-500} karakter daha, /skills {s['name']} ile tamami goruntulenebilir]"
+                    skill_sections.append(f"## Skill: {s['name']} ({s['trigger']})\n{content}")
                 self._cached_skills_text = "\n\n".join(skill_sections)
                 self._enriched_system_prompt = f"{soul.system_prompt}\n\n---\n### Loaded Skills\n{self._cached_skills_text}"
                 log.info(f"Skills injected: {[s['name'] for s in self._active_skills]}")
@@ -122,9 +143,6 @@ class AgentLoop:
         handlers = build_handlers(self)
 
         result = await self.sm.run(ctx, handlers)
-
-        from ui.status_bar import status
-        status.end_turn()
 
         # Handle error state
         if ctx.state == AgentState.ERROR:
@@ -181,8 +199,8 @@ class AgentLoop:
             if _past_lesson:
                 self.context.add_user_message(f"[HAFIZA] Benzer bir hatayı geçmişte yaşadık. İşte önceki ders:\n{_past_lesson}")
                 _display.print_info("Geçmişte benzer bir hata bulundu, hafıza uyandırıldı.")
-        except Exception:
-            pass
+        except Exception as _mem_e:
+            log.error("Memory layer lookup failed during error handling: %s", _mem_e)
         
         # 3+ same errors on same tool → force strategy change
         if prev[1] >= 3:
@@ -207,11 +225,14 @@ class AgentLoop:
         from ui.status_bar import status
         self.turn = 0
         self.context.clear()
+        log.info(f"Context reset: {len(self.context.messages)} messages, {self.context.estimated_tokens} tokens")
         self.sm.reset_history()
         self.compressor.reset()
         executor.reset_count()
         status.reset()
         self._skills_injected = False  # P0-05: yeni session'da tekrar injection
+        self._session_titled = False  # Yeni session'da yeni title
+        self._temp_mode = False  # Temp modu kapat
 
     def _repair_message_sequence(self):
         """Ensure strict role alternation: assistant(tool_calls) -> tool -> tool -> ...
@@ -289,26 +310,6 @@ class AgentLoop:
         "read", "write", "create", "run", "execute",
     ]
 
-    def _is_planning_only(self, content: str) -> bool:
-        """Check if content is just planning/talking without action."""
-        lower = content.lower()
-        # Very short responses could be valid (e.g. "Dosya bulunamadi.")
-        # Only flag if under 80 chars AND contains planning indicators
-        if len(content) < 80:
-            plan_count = sum(1 for p in self.PLANNING_PATTERNS if p in lower)
-            return plan_count >= 1
-        # Count planning indicators
-        plan_count = sum(1 for p in self.PLANNING_PATTERNS if p in lower)
-        # Long analysis text without tool calls is planning
-        if plan_count >= 2:
-            return True
-        # Also catch cases where model talks about reading/writing without doing it
-        if len(content) > 200:
-            force_count = sum(1 for p in self.FORCE_TOOL_PATTERNS if p in lower)
-            if force_count >= 2 and plan_count >= 1:
-                return True
-        return False
-
     @staticmethod
     def _clean_content(content: str) -> str:
         """Remove hallucinated XML tool call syntax from LLM text output."""
@@ -369,7 +370,7 @@ class AgentLoop:
                 
                 # Session indexing removed
             except Exception as e:
-                log.debug(f"Session export/index skipped: {e}")
+                log.error(f"Session export/index failed: {e}")
         
         if manager.db:
             manager.db.close()
@@ -380,8 +381,8 @@ class AgentLoop:
         try:
             import litellm
             await litellm.close_litellm_async_clients()
-        except Exception:
-            pass
+        except Exception as _lite_e:
+            log.warning("litellm close error: %s", _lite_e)
 
 
 loop = AgentLoop()

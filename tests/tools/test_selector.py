@@ -1,4 +1,4 @@
-"""Tool selector tests."""
+"""Toolset tests — aktif toolset sistemi."""
 import pytest
 import sys
 from pathlib import Path
@@ -6,43 +6,64 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 
-class TestToolSelector:
-    def test_always_include_constants(self):
-        """Always include tools set should exist."""
-        from tools.selector import ALWAYS_INCLUDE
-        assert len(ALWAYS_INCLUDE) >= 5
-        assert "read_file" in ALWAYS_INCLUDE
-        assert "write_file" in ALWAYS_INCLUDE
+class TestToolsetManager:
+    def test_default_toolsets(self):
+        """Default toolsets should include core categories."""
+        from tools.toolset import DEFAULT_TOOLSETS
+        assert "file" in DEFAULT_TOOLSETS
+        assert "web" in DEFAULT_TOOLSETS
+        assert "terminal" in DEFAULT_TOOLSETS
 
-    def test_never_select_constants(self):
-        """Never-select tools should exist."""
-        from tools.selector import NEVER_SELECT
-        assert "delegate_task" in NEVER_SELECT
+    def test_toolset_labels_exist(self):
+        """All categories should have labels."""
+        from tools.toolset import TOOLSET_LABELS
+        assert "file" in TOOLSET_LABELS
+        assert "git" in TOOLSET_LABELS
+        assert len(TOOLSET_LABELS) >= 10
 
-    def test_schemas_for_known_tool(self):
-        """schemas_for should return valid schema structure."""
-        from tools.selector import selector
-        schemas = selector.schemas_for(["read_file"])
-        # Registry may not have read_file in test context; check API shape
-        if schemas:
-            assert schemas[0]["type"] == "function"
-            assert "name" in schemas[0]["function"]
+    def test_tools_enable_valid_toolset(self):
+        """tools_enable with valid toolset should succeed."""
+        from tools.toolset import tools_enable, ACTIVE_TOOLSETS, DEFAULT_TOOLSETS
+        # Reset
+        ACTIVE_TOOLSETS.clear()
+        ACTIVE_TOOLSETS.update(DEFAULT_TOOLSETS)
+        
+        result = tools_enable("research")
+        assert "✅" in result
+        assert "research" in ACTIVE_TOOLSETS
 
-    def test_schemas_for_unknown_tool(self):
-        """schemas_for should silently skip unknown tools."""
-        from tools.selector import selector
-        schemas = selector.schemas_for(["nonexistent_tool_xyz"])
-        assert len(schemas) == 0
+    def test_tools_enable_invalid_toolset(self):
+        """tools_enable with invalid toolset should return error."""
+        from tools.toolset import tools_enable
+        result = tools_enable("nonexistent")
+        assert "❌" in result
 
-    def test_default_top_k(self):
-        """Default top_k should be reasonable."""
-        from tools.selector import DEFAULT_TOP_K
-        assert 5 <= DEFAULT_TOP_K <= 15
+    def test_tools_enable_already_active(self):
+        """Enabling an already active toolset should inform."""
+        from tools.toolset import tools_enable, ACTIVE_TOOLSETS, DEFAULT_TOOLSETS
+        ACTIVE_TOOLSETS.clear()
+        ACTIVE_TOOLSETS.update(DEFAULT_TOOLSETS)
+        
+        result = tools_enable("file")
+        assert "ℹ️" in result
 
-    def test_selector_reset(self):
-        """Reset should clear indexed state."""
-        from tools.selector import selector
-        selector._indexed = True
-        selector.reset()
-        assert selector._indexed is False
-        assert selector._total_tools == 0
+    def test_get_active_schemas(self):
+        """get_active_schemas should return schemas for active toolsets."""
+        from tools.toolset import get_active_schemas, ACTIVE_TOOLSETS, DEFAULT_TOOLSETS
+        # Load tools first
+        import tools.builtin.basic
+        ACTIVE_TOOLSETS.clear()
+        ACTIVE_TOOLSETS.update(DEFAULT_TOOLSETS)
+        
+        schemas = get_active_schemas()
+        assert len(schemas) >= 3
+        names = {s["function"]["name"] for s in schemas}
+        assert "read_file" in names or "terminal" in names
+
+    def test_toolset_summary(self):
+        """toolset_summary should return formatted string."""
+        from tools.toolset import toolset_summary
+        summary = toolset_summary()
+        assert "KULLANILABILIR" in summary
+        assert "FILE" in summary
+        assert "tools_enable" in summary

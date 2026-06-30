@@ -53,7 +53,7 @@ class SkillManager:
         return any(p in msg_lower for p in patterns)
 
     def create_skill(self, name: str, description: str, steps: list[str], pitfalls: list[str] | None = None):
-        """Skill oluştur ve kaydet (skills/store/ dizinine)."""
+        """Skill oluştur ve kaydet (ProceduralMemory'e)."""
         content = f"""---
 name: {name}
 description: "{description}"

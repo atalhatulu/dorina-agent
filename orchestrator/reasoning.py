@@ -213,7 +213,7 @@ class ReasoningEngine:
                 tc = m.get("tool_calls")
                 tci = m.get("tool_call_id", "")
                 log.error(f"  msg[-{len(last_msgs)-i}]: role={r} content={c} tc={bool(tc)} tcid={tci}")
-            if self.fallbacks:  # noqa: SIM103
+            if self.fallbacks and classified.reason not in ("BadRequestError", "AuthenticationError", "PermissionDeniedError"):
                 return await self._try_fallback(system_prompt, messages, tools)
             raise
 
@@ -306,7 +306,7 @@ class ReasoningEngine:
         self._router.reset()
 
         while True:
-            provider = self._router.fallback()
+            provider = await self._router.fallback()
             if not provider:
                 break
             try:

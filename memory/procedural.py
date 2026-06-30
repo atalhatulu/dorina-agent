@@ -5,13 +5,17 @@ from typing import Optional
 import yaml
 
 from core.logger import log
+from core.constants import DORINA_HOME
 
 
 class ProceduralMemory:
     """Skill'leri (SKILL.md) yükler ve yönetir."""
 
-    def __init__(self, skills_dir: str = "skills/store"):
-        self.skills_dir = Path(skills_dir)
+    def __init__(self, skills_dir: str | Path | None = None):
+        if skills_dir is None:
+            self.skills_dir = DORINA_HOME / "skills"
+        else:
+            self.skills_dir = Path(skills_dir)
         self.skills_dir.mkdir(parents=True, exist_ok=True)
 
     def list_skills(self) -> list[dict]:

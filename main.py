@@ -53,9 +53,6 @@ from tools.builtin import basic  # noqa: F401
 from tools.builtin import advanced  # noqa: F401
 from tools.builtin import modules  # noqa: F401
 from tools.builtin import terminal_utils  # noqa: F401
-from tools.builtin import terminal_pro  # noqa: F401
-from tools.builtin import file_analytics  # noqa: F401
-from tools.builtin import workflow_tool  # noqa: F401
 from tools.builtin import git_tools  # noqa: F401
 from tools.builtin import clarify_tool  # noqa: F401
 from tools.builtin import cron_tools  # noqa: F401
@@ -73,44 +70,6 @@ from memory.semantic import SemanticMemory
 from providers.keys import keys  # noqa: F401
 from providers.keys import PROVIDERS as _PROV
 import os as _os
-
-
-def ensure_package(package: str, pip_name: str | None = None, extra_check: callable | None = None):
-    """Eksik paketi otomatik kur. ChromaDB özel kontrolü ile."""
-    import importlib, subprocess, sys, os
-    name = pip_name or package
-
-    # ChromaDB: chromadb-client (http-only) kuruluysa kaldır, full chromadb kur
-    if package == "chromadb":
-        try:
-            importlib.import_module("chromadb")
-            # Check if it's the http-only client version
-            try:
-                import chromadb
-                # Try PersistentClient — fails on chromadb-client
-                getattr(chromadb, "PersistentClient", None)
-            except Exception:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "chromadb"],
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return
-        except ImportError:
-            try:
-                importlib.import_module("chromadb_client")
-                subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "chromadb-client"],
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except ImportError:
-                pass
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "chromadb"],
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return
-
-    try:
-        importlib.import_module(package)
-        if extra_check:
-            extra_check()
-    except (ImportError, Exception):
-        subprocess.check_call([sys.executable, "-m", "pip", "install", name],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _init_api_keys():
@@ -159,9 +118,6 @@ class DorinaApp:
         from core.constants import ensure_dorina_home
         ensure_dorina_home()
         
-        # Auto-install critical packages
-        ensure_package("chromadb")
-
         import subprocess
         subprocess.run(["cmd", "/c", "cls"] if sys.platform == "win32" else ["clear"], check=False)
 
@@ -170,8 +126,6 @@ class DorinaApp:
 
         # Eager initialization at startup
         await rag.initialize()
-        from tools.selector import selector as _sel
-        await _sel.initialize()
 
         console.print("  [dim]Hazır.[/dim]")
 
@@ -242,8 +196,7 @@ class DorinaApp:
             skills=skill_list,
             api_keys=auth.list_providers(),
         )
-        
-        console.print(f"  [dim]17 referans proje · 33 modul · 56 tool[/dim]")
+
         console.print(f"  [dim]/help yaz veya / ile baslayip Tab'a bas[/dim]\n")
 
         # ── Versiyon bilgisi ──
@@ -280,9 +233,18 @@ class DorinaApp:
                     continue
 
                 # Command processing
+                _trimmed = user_input.strip().lower()
                 if user_input.startswith("/"):
                     _sb_status.resume()
                     await self._handle_command(user_input)
+                    _sb_status.pause()
+                    continue
+
+                # Dogal dil komut yonlendirmesi
+                if _trimmed in ("bu konusmayi kaydet", "konusmayi kaydet", "kaydet", "save this conversation"):
+                    _sb_status.resume()
+                    _title = user_input.replace("kaydet", "").replace("save", "").replace("bu konusmayi", "").strip()
+                    await self._handle_command(f"/save {_title}" if _title else "/save")
                     _sb_status.pause()
                     continue
 
@@ -308,9 +270,22 @@ class DorinaApp:
                         from ui.display import console as _ui_console, flush_stream
                         flush_stream()
                         _ui_console.print("\n[dim]İptal edildi. (Ctrl+C)[/dim]")
-                        # Context'e kaydet (Autosave ile dosyaya da yazilacak)
-                        loop.context.messages.append({"role": "system", "content": "Kullanıcı işlemi (Ctrl+C) ile yarıda kesti. Son çıktı veya komut işlemi yarım kalmış olabilir."})
-                        # Let litellm finish cancelling
+                        # Temizlik: yarim kalmis tool_calls assistant msg'lerini sil
+                        # (DeepSeek: "assistant(tool_calls) sonrasi tool msg gelmeli" kurali)
+                        msgs = loop.context.messages
+                        cleaned = []
+                        for m in msgs:
+                            if m.get("role") == "assistant" and m.get("tool_calls") and not m.get("content"):
+                                continue  # yarim kalmis tool_calls msg'ini at
+                            if m.get("role") == "system" and "Ctrl+C" in (m.get("content") or ""):
+                                continue  # eski system msg'lerini de temizle
+                            cleaned.append(m)
+                        # Son mesaj tool ise onu da temizle (karsiligi olmayan tool result)
+                        while cleaned and cleaned[-1].get("role") == "tool":
+                            cleaned.pop()
+                        loop.context.messages = cleaned
+                        if not loop.context.messages or loop.context.messages[-1].get("role") != "user":
+                            loop.context.messages.append({"role": "user", "content": "Kullanıcı işlemi (Ctrl+C) ile yarıda kesti."})
                         await asyncio.sleep(0.1)
                         continue
                 finally:
@@ -329,14 +304,17 @@ class DorinaApp:
                 if not getattr(loop, '_streamed_this_turn', False):
                     display.print_assistant(response)
 
+                # ─── Turn summary (after response) ───
+                _sb_status.end_turn()
+
                 # ─── Spacing (shown at status bar loop start) ───
                 display.print_divider()
 
                 # Otomatik kaydet
-                if settings.session.auto_save:
+                if settings.session.auto_save and loop.context.get_messages() and not loop._temp_mode:
                     manager.save(
                         loop.context.get_messages(),
-                        summary=response[:200],
+                        summary=response[:200] if response else "",
                     )
             except KeyboardInterrupt:
                 print("\n")

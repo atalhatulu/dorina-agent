@@ -3,74 +3,6 @@ import json
 from tools.registry import register_tool
 from bg_tools.task_manager import task_manager
 
-@register_tool(
-    name="task_create_bash",
-    description="ZAMANLAYICI, geri sayım veya arka plan görevleri için KESİNLİKLE BUNA KULLAN. Normal Terminal aracında 'sleep' komutu kullanarak BEKLEME YAPMA (Sistemi kilitler)! Bu araç komutu arka planda (asenkron) başlatır.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "command": {"type": "string", "description": "The shell command to execute."},
-            "label": {"type": "string", "description": "A short, readable label for this task (e.g., 'Downloading ISO')."}
-        },
-        "required": ["command"]
-    }
-)
-def task_create_bash(command: str, label: str = "") -> str:
-    """Komutu arka planda çalıştır, bitmesini bekleme."""
-    import subprocess
-    import threading
-    import uuid
-    import time
-    
-    # Kendi task nesnemizi manuel olusturup task_manager'a kaydediyoruz.
-    task_id = uuid.uuid4().hex[:8]
-    name = label or command[:40]
-    
-    from bg_tools.task_manager import BackgroundTask
-    task = BackgroundTask(id=task_id, name=name)
-    task_manager._tasks[task_id] = task
-    
-    try:
-        proc = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-    except Exception as e:
-        task.status = "failed"
-        task.error = str(e)
-        return json.dumps({"status": "error", "message": str(e)})
-
-    # Iptal edilebilmesi icin process'i kaydediyoruz.
-    task._process = proc
-    task_manager._pending_notifications.append(f"▶ [{name}] basladi.")
-
-    def _waiter():
-        stdout, stderr = proc.communicate()
-        if task.status == "cancelled":
-            return
-            
-        task.finished_at = time.time()
-        if proc.returncode != 0:
-            task.status = "failed"
-            task.error = stderr[:500] or stdout[:500]
-            task_manager._pending_notifications.append(f"✗ [{name}] başarısız: {task.error[:80]}")
-        else:
-            task.status = "done"
-            task.result = stdout[:500] or "Tamamlandı"
-            task_manager._pending_notifications.append(f"✓ [{name}] tamamlandı: {task.result[:80]}")
-
-    t = threading.Thread(target=_waiter, daemon=True)
-    t.start()
-
-    return json.dumps({
-        "status": "success",
-        "task_id": task_id,
-        "message": f"Task '{label or command[:20]}' started in background."
-    })
-
 
 @register_tool(
     name="cancel_background",
@@ -113,3 +45,26 @@ def list_background() -> str:
             "error": t.error[:100] if t.error else ""
         })
     return json.dumps({"status": "success", "tasks": result})
+
+
+@register_tool(
+    name="task_create_bash",
+    description="Bir bash komutunu arka planda calistir. sleep, ping gibi uzun sureli komutlar icin.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "description": "Calistirilacak bash komutu"},
+            "label": {"type": "string", "description": "Task etiketi", "default": ""},
+        },
+        "required": ["command"]
+    }
+)
+def task_create_bash(command: str, label: str = "") -> str:
+    """Bir bash komutunu arka planda calistir."""
+    from bg_tools.task_manager import task_manager
+    task = task_manager.create(command, label=label or command[:30])
+    return json.dumps({
+        "status": "success",
+        "task_id": task.id,
+        "message": f"Task '{task.id}' baslatildi: {command[:100]}"
+    })

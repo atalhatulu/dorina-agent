@@ -44,6 +44,7 @@ class ToolsConfig(BaseSettings):
     sandbox: str = "docker"
     approval_mode: str = "smart"
     mcp_enabled: bool = True
+    default_toolsets: list[str] = []
 
 
 class SessionConfig(BaseSettings):
@@ -55,7 +56,7 @@ class SessionConfig(BaseSettings):
 class SkillsConfig(BaseSettings):
     enabled: bool = True
     auto_detect: bool = True
-    store_dir: str = "skills/store"
+    store_dir: str = "~/.dorina/skills"
 
 
 class SecurityConfig(BaseSettings):

@@ -81,10 +81,12 @@ class TestGraphifyToolsImport:
 
     def test_registered_in_registry(self):
         from tools.registry import registry
-        assert registry.get("graphify_query") is not None
-        assert registry.get("graphify_path") is not None
-        assert registry.get("graphify_god_nodes") is not None
-        assert registry.get("graphify_stats") is not None
+        # Eski ayri tool'lar kalkti, tek graphify tool'u var
+        assert registry.get("graphify") is not None
+        assert registry.get("graphify_query") is None
+        assert registry.get("graphify_path") is None
+        assert registry.get("graphify_god_nodes") is None
+        assert registry.get("graphify_stats") is None
         # explain kaldirildi
         assert registry.get("graphify_explain") is None
 
@@ -95,7 +97,7 @@ class TestGraphifyToolsDescriptions:
     def test_descriptions_turkce(self):
         from tools.registry import registry
         turkce_kelimeler = ["grafik", "sorgu", "kod", "node", "konsept", "baglanti", "modul", "tikla"]
-        for name in ["graphify_query", "graphify_path", "graphify_god_nodes", "graphify_stats"]:
+        for name in ["graphify"]:
             tool = registry.get(name)
             assert tool is not None
             desc = tool.description
@@ -106,7 +108,7 @@ class TestGraphifyToolsDescriptions:
     def test_her_tool_farkli_description(self):
         from tools.registry import registry
         descs = set()
-        for name in ["graphify_query", "graphify_path", "graphify_god_nodes", "graphify_stats"]:
+        for name in ["graphify"]:
             tool = registry.get(name)
             assert tool is not None
             assert tool.description not in descs, f"Duplicate description: {name}"

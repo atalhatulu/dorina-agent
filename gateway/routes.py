@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import re
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,8 +16,6 @@ from .models import (
     ToolInfo,
     SessionInfo,
     SessionListResponse,
-    HealthStatus,
-    ErrorResponse,
 )
 from .health import get_health
 from .auth import verify_key as verify_api_key
@@ -36,15 +35,23 @@ def get_api_key(request: Request) -> str | None:
 
 
 async def require_auth(request: Request) -> None:
-    """Dependency: verify API key or raise 401."""
-    # Disabled check — gateway only starts if auth is optional for now
-    # (admin key is generated and logged on first startup)
+    """Dependency: verify API key or raise 401.
+    
+    Dev mode: localhost'tan gelen isteklere izin ver, dışarıdan gelene key zorunlu.
+    """
     key = get_api_key(request)
-    if key is None:
-        # Allow through — will be enforced when gateway goes production
-        return
-    if not verify_api_key(key):
+    if key is not None:
+        if verify_api_key(key):
+            return
         raise HTTPException(status_code=401, detail="Invalid API key")
+    # key yok: sadece localhost'tan geleni kabul et
+    host = request.client.host if request.client else "unknown"
+    if host in ("127.0.0.1", "::1", "localhost"):
+        return
+    raise HTTPException(
+        status_code=401,
+        detail="API key required for external requests. Run gateway and check logs for admin key.",
+    )
 
 
 # ── Agent Loop instance (lazy) ─────────────────────────────
@@ -94,7 +101,9 @@ async def _stream_response(messages: list[dict], model: str | None = None) -> As
                 yield f"data: {json.dumps({'choices': [{'delta': {'content': content}}]})}\n\n"
         yield "data: [DONE]\n\n"
     except Exception as e:
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        from core.logger import log
+        log.error(f"Streaming error: {e}")
+        yield f"data: {json.dumps({'error': 'Streaming error occurred'})}\n\n"
 
 
 # ── Routes ─────────────────────────────────────────────────
@@ -180,6 +189,10 @@ async def get_session(session_id: str, _=Depends(require_auth)):
     """Get a specific session with full message history."""
     from session.manager import manager
 
+    # Validate session ID — path traversal protection
+    if not re.match(r'^[a-zA-Z0-9_\-]+$', session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID format")
+
     session = manager.load(session_id)
     if not session:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
@@ -199,11 +212,13 @@ async def delete_session(session_id: str, _=Depends(require_auth)):
     """Delete a session."""
     from session.manager import manager
 
-    session = manager.load(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    # Validate session ID — path traversal protection
+    if not re.match(r'^[a-zA-Z0-9_\-]+$', session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID format")
 
-    manager.delete(session_id)
+    result = manager.delete(session_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     return {"status": "deleted", "id": session_id}
 
 

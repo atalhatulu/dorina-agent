@@ -1,6 +1,7 @@
 """Dahili tool'lar - terminal, dosya, web, kod çalıştırma."""
 
 from __future__ import annotations
+import asyncio
 import subprocess
 import json
 import os
@@ -32,7 +33,7 @@ def _run_in_sandbox(command: str, timeout: int) -> str | None:
         if not docker_sandbox.available:
             log.warning("Docker sandbox istek edildi ama Docker kullanilamiyor")
             return None
-        return docker_sandbox.run_command(command, timeout=timeout)
+        return docker_sandbox.run_shell(command, timeout=timeout)
     except Exception as e:
         log.warning(f"Sandbox kullanilamadi: {e}")
         return None
@@ -55,16 +56,13 @@ def _run_python_in_sandbox(code: str, timeout: int) -> str | None:
 
 @register_tool(
     name="terminal",
-    description="Shell komutu çalıştır. Çıktıyı döndürür. "
-                "Interaktif komutlar (npm install, docker build vb.) için pty=True kullan — "
-                "böylece yes/no prompt'ları otomatik cevaplanır. "
-                "Guvenilmez komutlar icin sandbox=True kullan (Docker container'da calistirir).",
+    description="Shell komutu calistir. pty=True interaktif, sandbox=True guvenli.",
     parameters={
         "type": "object",
         "properties": {
             "command": {"type": "string", "description": "Çalıştırılacak komut"},
             "cwd": {"type": "string", "description": "Çalışma dizini (Opsiyonel)"},
-            "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 60},
+            "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 15},
             "pty": {"type": "boolean", "description": "PTY (pseudo-terminal) kullan. Interaktif prompt'lar için gerekli", "default": False},
             "background": {"type": "boolean", "description": "Arka planda çalıştır. Uzun süren komutlar için", "default": False},
             "sandbox": {"type": "boolean", "description": "Docker container'da calistir (guvenlik). Varsayilan: config.yaml tools.sandbox ayarina gore", "default": None},
@@ -73,7 +71,7 @@ def _run_python_in_sandbox(code: str, timeout: int) -> str | None:
     },
     toolset="terminal",
 )
-def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = False, background: bool = False, sandbox: bool = None) -> str:
+async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = False, background: bool = False, sandbox: bool = None) -> str:
     """Shell komutu çalıştır. PTY, cwd ve background desteği."""
     # ── Sandbox routing ────────────────────────────────────
     if sandbox is None:
@@ -89,8 +87,16 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
     _shell = not _is_win
 
     from soul.personality import GODMODE
+    import soul.personality as _sp
+    SUDO_PWD = getattr(_sp, "SUDO_PASSWORD", None)
+    HAS_SUDO = "sudo" in command.split() if command else False
+
     if GODMODE:
         timeout = 3600  # Godmode'da timeout 1 saat
+        # Sudo varsa -S ekle ve PTY'ye zorla (sifre stdin'den okunsun)
+        if SUDO_PWD and HAS_SUDO and " -S " not in command:
+            command = command.replace("sudo", "sudo -S ", 1)
+            pty = True  # PTY sart
 
     # .venv/bin PATH'e ekle (pytest vs. icin)
     _env = None
@@ -148,10 +154,17 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
             import time
             output = []
             deadline = time.time() + timeout
+            large_output = False
             while proc.poll() is None:
                 if time.time() > deadline:
                     proc.kill()
-                    return json.dumps({"error": f"Komut zaman aşımı ({timeout}s)", "partial": "".join(output)[:10000]})
+                    # Buyuk ciktiyi dosyaya yaz, context'i sisirme
+                    full_out = "".join(output)
+                    if len(full_out) > 5000:
+                        _out_path = f"/tmp/dorina_out_{int(time.time())}.txt"
+                        Path(_out_path).write_text(full_out)
+                        return json.dumps({"partial": True, "path": _out_path, "size": len(full_out), "preview": full_out[:200]})
+                    return json.dumps({"error": f"Komut zaman aşımı ({timeout}s)", "partial": full_out[:10000]})
                 r, _, _ = _select.select([master_fd], [], [], 0.1)
                 if r:
                     try:
@@ -199,12 +212,13 @@ def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = 
                 "timeout": timeout,
             }
 
-            if GODMODE and pwd and command.strip().startswith("sudo "):
+            # GODMODE + sudo: komutun herhangi bir yerinde "sudo" varsa -S ekle ve sifreyi gonder
+            if GODMODE and pwd and "sudo" in command.split():
                 if " -S " not in command:
-                    command = command.replace("sudo ", "sudo -S ", 1)
+                    command = command.replace("sudo", "sudo -S", 1)
                 run_kwargs["input"] = pwd + "\n"
 
-            result = subprocess.run(command, **run_kwargs)
+            result = await asyncio.to_thread(subprocess.run, command, **run_kwargs)
             output = result.stdout or result.stderr
             return redact_secrets(output)[:50000]
     except subprocess.TimeoutExpired:
@@ -261,8 +275,7 @@ def _search_file_broad(filename: str, limit_hits: int = 5) -> list:
 
 @register_tool(
     name="read_file",
-    description="Dosya içeriğini oku. Satır numaralarıyla okur. "
-                "start_line ve end_line ile belirli bir aralığı hedefleyebilirsin.",
+    description="Dosya oku. offset/limit ile sayfalama.",
     parameters={
         "type": "object",
         "properties": {
@@ -362,10 +375,7 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
 
 @register_tool(
     name="write_file",
-    description="Write content to a file. Creates parent directories if needed. "
-                "TÜM dosyayi degistirir. Sadece belirli bir parcayi degistireceksen "
-                "bunun yerine 'patch' tool'unu kullan — cok daha az token harcar. "
-                "Eger dosya zaten varsa ve overwrite=false ise hata verir (yanlislikla silmeleri onler).",
+    description="Dosya yaz. Parent dizinleri otomatik olusturur.",
     parameters={
         "type": "object",
         "properties": {
@@ -415,25 +425,19 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
 
 @register_tool(
     name="search_files",
-    description="Dosya icinde (grep) veya dosya adinda ara. "
-                "pattern: aranacak kelime veya regex. "
-                "file_glob: sadece belli dosyalarda ara (orn: *.py). "
-                ".venv, node_modules, __pycache__, .git otomatik atlanir.",
+    description="Dosya icinde (grep) veya dosya adinda ara.",
     parameters={
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Aranacak desen"},
-            "path": {"type": "string", "description": "Dizin (default: . = current dir). SADECE gecerli bir yol ver. Yoksa '.' birak, kendin yol UYDURMA.", "default": "."},
-            "file_glob": {"type": "string", "description": "Dosya filtresi (örn: *.py)", "default": ""},
+            "path": {"type": "string", "description": "Dizin (default: .)", "default": "."},
+            "file_glob": {"type": "string", "description": "Dosya filtresi (orn: *.py)", "default": ""},
         },
         "required": ["pattern"],
     },
     toolset="file",
 )
-def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str:
-    """Dosya içinde veya dosya isminde ara. ripgrep kullanir (varsa).
-    .venv, node_modules, __pycache__, .git gibi klasörler otomatik atlanir.
-    .gitignore kurallarina saygi duyar."""
+async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str:
     import subprocess
     import shlex
     from pathlib import Path as _Path
@@ -441,7 +445,7 @@ def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str
     # Ripgrep varsa kullan, yoksa fallback
     has_rg = False
     try:
-        subprocess.run(["rg", "--version"], capture_output=True, timeout=5)
+        await asyncio.to_thread(subprocess.run, ["rg", "--version"], capture_output=True, timeout=5)
         has_rg = True
     except:
         pass
@@ -474,7 +478,7 @@ def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str
         # Mode 1: find by filename
         try:
             find_cmd = ["rg", "--files", "--max-depth=10", "-g", f"*{pattern}*"] + [f"-g={eg}" for eg in exclude_globs] + search_dirs
-            find_result = subprocess.run(find_cmd, capture_output=True, text=True, timeout=30)
+            find_result = await asyncio.to_thread(subprocess.run, find_cmd, capture_output=True, text=True, timeout=30)
             if find_result.stdout.strip():
                 lines = find_result.stdout.strip().split("\n")[:30]
                 return json.dumps({
@@ -495,7 +499,7 @@ def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str
             for eg in exclude_globs:
                 content_cmd.append(f"-g={eg}")
             content_cmd.extend([pattern] + search_dirs)
-            result = subprocess.run(content_cmd, capture_output=True, text=True, timeout=30)
+            result = await asyncio.to_thread(subprocess.run, content_cmd, capture_output=True, text=True, timeout=30)
             if result.stdout.strip():
                 lines = result.stdout.strip().split("\n")[:30]
                 return "\n".join(lines)
@@ -507,7 +511,7 @@ def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str
         # Mode 1: find by name
         try:
             find_cmd = ["find"] + search_dirs + ["-maxdepth", "6", "-iname", f"*{shlex.quote(pattern)}*", "-type", "f"]
-            find_result = subprocess.run(
+            find_result = await asyncio.to_thread(subprocess.run,
                 " ".join(find_cmd) if not isinstance(find_cmd, str) else find_cmd,
                 shell=True, capture_output=True, text=True, timeout=30
             )
@@ -539,7 +543,7 @@ def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str
                 if file_glob:
                     cmd.append(f"--include={file_glob}")
                 cmd.extend([pattern, sd])
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                result = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
                 if result.stdout.strip():
                     for line in result.stdout.strip().split("\n")[:10]:
                         all_results[line] = True
@@ -557,7 +561,7 @@ def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str
 
 @register_tool(
     name="web_search",
-    description="Web'de ara. DuckDuckGo kullanır. Güvenli arama ve dil filtresi desteği.",
+    description="Web'de ara. DuckDuckGo kullanir.",
     parameters={
         "type": "object",
         "properties": {
@@ -570,7 +574,7 @@ def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str
     },
     toolset="web",
 )
-def web_search_tool(query: str, max_results: int = 5, safe_search: bool = True, language: str = "") -> str:
+async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = True, language: str = "") -> str:
     """Web araması yap. DuckDuckGo kullanır. Hata alırsa alternatif dener."""
     from knowledge.web_search import web_search
     
@@ -611,7 +615,7 @@ def web_search_tool(query: str, max_results: int = 5, safe_search: bool = True, 
             from tools.builtin.basic import web_fetch_tool
             _alt_query = query.replace(" ", "+")
             _url = f"https://html.duckduckgo.com/html/?q={_alt_query}"
-            _alt_result = web_fetch_tool(_url)
+            _alt_result = await web_fetch_tool(_url)
             return json.dumps({
                 "success": True,
                 "query": query,
@@ -627,7 +631,7 @@ def web_search_tool(query: str, max_results: int = 5, safe_search: bool = True, 
 
 @register_tool(
     name="web_fetch",
-    description="URLden içerik çek. Ek parametrelerle özelleştirilebilir (method, headers, veri, seçici vb.).",
+    description="URL'den icerik cek. method, headers, css_selector ile ozellestir.",
     parameters={
         "type": "object",
         "properties": {
@@ -636,7 +640,7 @@ def web_search_tool(query: str, max_results: int = 5, safe_search: bool = True, 
             "extract_text": {"type": "boolean", "description": "HTML'den metin çıkarma (varsayılan True)", "default": True},
             "css_selector": {"type": "string", "description": "Sadece belirtilen CSS seçicisine uyan içeriği çıkar", "default": ""},
             "headers": {"type": "string", "description": "Özel HTTP başlıkları (JSON string)", "default": ""},
-            "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 60},
+            "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 15},
             "raw": {"type": "boolean", "description": "İçeriği parse etmeden ham olarak döndür", "default": False},
             "method": {"type": "string", "description": "HTTP metodu (GET, POST vb.)", "default": "GET"},
             "data": {"type": "string", "description": "POST isteği için veri/gövde", "default": ""},
@@ -645,7 +649,7 @@ def web_search_tool(query: str, max_results: int = 5, safe_search: bool = True, 
     },
     toolset="web",
 )
-def web_fetch_tool(
+async def web_fetch_tool(
     url: str,
     max_size: int = 5000,
     extract_text: bool = True,
@@ -656,7 +660,7 @@ def web_fetch_tool(
     method: str = "GET",
     data: str = ""
 ) -> str:
-    """URLden içerik çek (sync). Gelişmiş seçeneklerle."""
+    """URLden içerik çek (async). Gelişmiş seçeneklerle."""
     import httpx
     import json
     import time
@@ -701,9 +705,12 @@ def web_fetch_tool(
             break
         except Exception as e:
             err_msg = str(e)
+            # Network unreachable gibi kalici hatalarda retry yapma
+            if "Network is unreachable" in err_msg or "getaddrinfo" in err_msg or "Name or service" in err_msg:
+                return json.dumps({"error": f"🌐 Ağ hatası — siteye erişilemiyor: {err_msg[:150]}", "truncated": False})
             if attempt == retries:
                 break
-            time.sleep(1)
+            await asyncio.sleep(1)
 
     if not resp:
         return json.dumps({"error": err_msg, "truncated": False})
@@ -764,8 +771,7 @@ def web_fetch_tool(
 
 @register_tool(
     name="patch",
-    description="Dosyada bul-değiştir yap. Tekli veya çoklu (batch) değişiklik destekler. "
-                "start_line ve end_line ile sadece belirli satırlar arasında arama yapabilirsin (çok daha güvenli).",
+    description="Dosyada bul-değiştir. Tekli veya batch. start_line/end_line ile hedefli arama.",
     parameters={
         "type": "object",
         "properties": {
@@ -905,115 +911,6 @@ def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: l
         return json.dumps({"error": str(e)})
 
 
-# ─── DATE/TIME ──────────────────────────────────────────
-
-@register_tool(
-    name="get_time",
-    description="Şu anki tarih ve saati göster. İsteğe bağlı zaman dilimi (timezone), format (iso, unix, human) destekler ve add_days, add_hours ile hesaplama yapabilir.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "timezone": {"type": "string", "description": "Zaman dilimi (örn: 'UTC', 'Europe/Istanbul'). Boşsa yerel zaman.", "default": ""},
-            "format": {"type": "string", "description": "Çıktı formatı ('iso', 'unix', 'human').", "default": "iso"},
-            "add_days": {"type": "integer", "description": "Eklenecek gün sayısı", "default": 0},
-            "add_hours": {"type": "integer", "description": "Eklenecek saat sayısı", "default": 0},
-        },
-    },
-    toolset="data",
-)
-def get_time_tool(timezone: str = "", format: str = "iso", add_days: int = 0, add_hours: int = 0) -> str:
-    import json
-    from datetime import datetime, timedelta
-    
-    if timezone:
-        try:
-            try:
-                import zoneinfo
-                tz = zoneinfo.ZoneInfo(timezone)
-            except ImportError:
-                import pytz
-                tz = pytz.timezone(timezone)
-            dt = datetime.now(tz)
-        except Exception as e:
-            return json.dumps({"error": f"Geçersiz zaman dilimi ({timezone}): {str(e)}"})
-    else:
-        dt = datetime.now().astimezone()
-
-    if add_days or add_hours:
-        dt += timedelta(days=add_days, hours=add_hours)
-
-    if format == 'unix':
-        return str(dt.timestamp())
-    elif format == 'human':
-        return dt.strftime('%A, %B %d, %Y %H:%M:%S')
-    
-    # Return JSON for default 'iso' format
-    data = {
-        "iso": dt.isoformat(),
-        "unix_timestamp": dt.timestamp(),
-        "timezone": dt.tzname() or "",
-        "date": dt.strftime('%Y-%m-%d'),
-        "time": dt.strftime('%H:%M:%S'),
-        "weekday": dt.strftime('%A'),
-        "day_of_year": dt.timetuple().tm_yday,
-        "is_dst": bool(dt.dst()) if dt.tzinfo else False
-    }
-    return json.dumps(data, ensure_ascii=False)
-
-
-# ─── TOOL LIST ──────────────────────────────────────────
-
-@register_tool(
-    name="list_tools",
-    description="Kullanılabilir tool'ları listele. İsteğe bağlı toolset filtresi.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "toolset": {"type": "string", "description": "Toolset adına göre filtrele (örn: file, web, terminal, utility)", "default": ""},
-        },
-    },
-    toolset="system",
-)
-def list_tools_tool(toolset: str = "") -> str:
-    if toolset:
-        tools = registry.list(toolset)
-        names = [t.name for t in tools]
-    else:
-        names = registry.available_tools()
-    return json.dumps({"available_tools": names, "count": len(names), "toolset": toolset or "all"}, ensure_ascii=False)
-
-# ─── MEMORY / PREFERENCES ──────────────────────────────────
-
-@register_tool(
-    name="save_preference",
-    description="Kullanıcı tercihini (prosedürel hafıza) kalıcı olarak kaydet (örn: 'TailwindCSS kullan', 'Türkçe konuş').",
-    parameters={
-        "type": "object",
-        "properties": {
-            "key": {"type": "string", "description": "Tercihin kısa adı/kategorisi (örn: css_framework)"},
-            "value": {"type": "string", "description": "Tercihin kendisi (örn: TailwindCSS v3)"},
-        },
-        "required": ["key", "value"],
-    },
-    toolset="system",
-)
-def save_preference_tool(key: str, value: str) -> str:
-    import json
-    from pathlib import Path
-    pref_file = Path.home() / ".dorina" / "knowledge" / "learned" / "preferences.json"
-    pref_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    data = {}
-    if pref_file.exists():
-        try:
-            data = json.loads(pref_file.read_text())
-        except Exception:
-            pass
-            
-    data[key] = value
-    pref_file.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    return json.dumps({"success": True, "message": f"Tercih kaydedildi: {key} = {value}"}, ensure_ascii=False)
-
 
 @register_tool(
     name="batch_python",
@@ -1029,7 +926,7 @@ def save_preference_tool(key: str, value: str) -> str:
     },
     toolset="development",
 )
-def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) -> str:
+async def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) -> str:
     """Python script'ini calistir. Toplu taramalar icin (import, dosya, regex)."""
     # ── Sandbox routing ────────────────────────────────────
     if sandbox is None:
@@ -1045,7 +942,7 @@ def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) -> str
         f.write(code)
         f.flush()
         try:
-            r = subprocess.run(
+            r = await asyncio.to_thread(subprocess.run,
                 [sys.executable, f.name],
                 capture_output=True, text=True, timeout=timeout,
                 env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
@@ -1061,3 +958,26 @@ def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) -> str
             return json.dumps({"error": str(e)})
         finally:
             os.unlink(f.name)
+
+
+# ─── TOOLSET YONETIMI ────────────────────────────────────
+
+@register_tool(
+    name="tools_enable",
+    description="Yeni bir tool kategorisini aktiflestir. Ornek: tools_enable('GIT'), tools_enable('CRON'). Default acik: FILE, WEB, TERMINAL.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "toolset": {
+                "type": "string",
+                "description": "Kategori: file, web, terminal, git, memory, cron, delegation, sandbox, graphify, research, vision, mcp, system",
+                "enum": ["file", "web", "terminal", "git", "memory", "cron", "delegation", "sandbox", "graphify", "research", "vision", "mcp", "system"],
+            }
+        },
+        "required": ["toolset"],
+    },
+    toolset="system",
+)
+def tools_enable_tool(toolset: str) -> str:
+    from tools.toolset import tools_enable
+    return tools_enable(toolset)

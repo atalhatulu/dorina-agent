@@ -208,7 +208,7 @@ soul:
 skills:
   auto_detect: true
   enabled: true
-  store_dir: skills/store
+  store_dir: ~/.dorina/skills
 
 # ─── Tools ───
 tools:

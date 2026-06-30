@@ -94,4 +94,4 @@ class TestSkillsConfig:
         s = SkillsConfig()
         assert s.enabled is True
         assert s.auto_detect is True
-        assert s.store_dir == "skills/store"
+        assert s.store_dir == "~/.dorina/skills"

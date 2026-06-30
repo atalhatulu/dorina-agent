@@ -32,10 +32,10 @@ class ProviderRouter:
         """Şu anki sağlayıcı."""
         return self.providers[self._current] if self.providers else {}
 
-    def fallback(self, error: Optional[Exception] = None) -> Optional[dict]:
+    async def fallback(self, error: Optional[Exception] = None) -> Optional[dict]:
         """Sonraki sağlayıcıya geç. Once 5sn bekle, sonra gec."""
-        import time
-        time.sleep(5)
+        import asyncio
+        await asyncio.sleep(5)
 
         prev = self.providers[self._current] if self._current < len(self.providers) else None
 
@@ -163,6 +163,8 @@ from providers.keys import keys as _key_mgr, PROVIDERS as _all_providers
 _available = _key_mgr.list_available()
 _weight = 1
 for _p in _available:
+    if not _p.get('configured'):
+        continue
     _name = _p['name']
     _info = _all_providers.get(_name, {})
     _models = _info.get('models', [])

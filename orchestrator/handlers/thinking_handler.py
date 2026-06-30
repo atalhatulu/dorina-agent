@@ -98,8 +98,9 @@ async def handle_thinking(loop, ctx: AgentContext):
             log.warning(f"Repairing invalid assistant msg at idx {i}")
             msgs[i]["content"] = "(continuing...)"
 
-    # Call LLM
-    tool_schemas = registry.schemas()
+    # Call LLM — sadece aktif toolset'lerin tool'larini gonder
+    from tools.toolset import get_active_schemas
+    tool_schemas = get_active_schemas()
     response = await loop.reasoning.think(effective_prompt, msgs, tool_schemas)
     _status.set_status("processing")
 
@@ -128,6 +129,7 @@ async def handle_thinking(loop, ctx: AgentContext):
     if finish_reason == "length":
         log.warning("LLM response truncated (finish_reason=length)")
         loop.context.add_assistant_message(content or "(devam ediyor...)")
+        ctx.llm_response = response
         if not tool_calls:
             loop.context.add_user_message("Devam et, cevabın kesildi. Kaldığın yerden devam et.")
             ctx.metadata["truncated"] = True
