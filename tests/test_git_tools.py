@@ -22,11 +22,12 @@ class TestGitTools:
         assert isinstance(r, str)
         assert len(r) > 0
 
-    def test_git_push_removed(self):
-        """git_push_tool kaldirildi, import edilememeli."""
-        import importlib
-        mod = importlib.import_module("tools.builtin.git_tools")
-        assert not hasattr(mod, "git_push_tool")
+    def test_git_push_exists(self):
+        """git_push_tool fixlendi, artik calisiyor olmali."""
+        from tools.builtin.git_tools import git_push_tool
+        import json
+        r = json.loads(git_push_tool())
+        assert "success" in r or "error" in r
 
     def test_git_commit_no_message(self):
         from tools.builtin.git_tools import git_commit_tool

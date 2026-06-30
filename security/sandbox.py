@@ -1,12 +1,19 @@
-"""Docker sandbox - güvenli kod çalıştırma."""
+"""Docker sandbox — Docker SDK implementation.
+
+Alternative sandbox backend. Requires ``docker`` pip package.
+Used when ``config.yaml tools.sandbox: docker-sdk``.
+"""
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.logger import log
+from sandbox.interface import SandboxInterface
 
 
-class Sandbox:
-    """Docker container içinde güvenli kod çalıştır."""
+class Sandbox(SandboxInterface):
+    """Sandbox implementation using the Docker SDK (``docker`` pip package)."""
 
     def __init__(self):
         self.client = None
@@ -19,14 +26,18 @@ class Sandbox:
             self.client = docker.from_env()
             self.client.ping()
             self._ready = True
-            log.info("Docker sandbox hazır")
+            log.info("Docker SDK sandbox hazir")
         except Exception:
             self._ready = False
+            log.warning("Docker SDK sandbox kullanilamiyor")
 
-    def run_python(self, code: str, timeout: int = 30) -> dict:
+    def is_available(self) -> bool:
+        return self._ready
+
+    def run_python(self, code: str, timeout: int = 30) -> dict[str, Any]:
         """Python kodunu güvenli container'da çalıştır."""
         if not self._ready:
-            return {"error": "Docker kullanılamıyor", "output": code[:200]}
+            return {"error": "Docker kullanilamiyor", "output": code[:200]}
 
         try:
             container = self.client.containers.run(
@@ -45,10 +56,10 @@ class Sandbox:
         except Exception as e:
             return {"error": str(e)}
 
-    def run_shell(self, command: str, timeout: int = 30) -> dict:
+    def run_shell(self, command: str, timeout: int = 30) -> dict[str, Any]:
         """Shell komutunu container'da çalıştır."""
         if not self._ready:
-            return {"error": "Docker kullanılamıyor"}
+            return {"error": "Docker kullanilamiyor"}
 
         try:
             container = self.client.containers.run(

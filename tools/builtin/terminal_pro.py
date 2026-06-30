@@ -597,20 +597,20 @@ def base64_decode_tool(text: str, output_format: str = "str") -> str:
 # ─── UUID ───────────────────────────────────
 
 @register_tool(
-    name="uuid_generate",
-    description="UUID (benzersiz kimlik) oluştur.",
+    name="uuid_quick",
+    description="UUID (benzersiz kimlik) oluştur — hızlı versiyon. Detaylı uuid için uuid_generate tool'unu kullan.",
     parameters={"type": "object", "properties": {"count": {"type": "integer", "description": "Adet", "default": 1}}},
     toolset="data",
 )
-def uuid_generate_tool(count: int = 1) -> str:
+def uuid_quick_tool(count: int = 1) -> str:
     return "\n".join(str(uuid.uuid4()) for _ in range(min(count, 10)))
 
 
 # ─── TIMER ──────────────────────────────────
 
 @register_tool(
-    name="timer",
-    description="Timer/geri sayım başlat. (experimental)",
+    name="timer_simple",
+    description="Basit timer/geri sayım. Detaylı zamanlayıcı için timer tool'unu kullan.",
     parameters={
         "type": "object",
         "properties": {
@@ -620,7 +620,7 @@ def uuid_generate_tool(count: int = 1) -> str:
     },
     toolset="system",
 )
-def timer_tool(seconds: int) -> str:
+def timer_simple_tool(seconds: int) -> str:
     start = time.time()
     time.sleep(min(seconds, 5))  # max 5 saniye bekle
     elapsed = time.time() - start

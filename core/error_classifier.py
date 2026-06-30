@@ -25,7 +25,6 @@ class FailoverReason:
     TOOL_FORMAT_ERROR = "tool_format_error"
     NETWORK = "network"
     TOOL_ERROR = "tool_error"
-    TIMEOUT = "timeout"
     PARSE_ERROR = "parse_error"
     UNKNOWN = "unknown"
 

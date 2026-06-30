@@ -73,10 +73,15 @@ class TestSessionManager:
         with _mgr_engine.connect() as conn:
             row = conn.execute(text(f"SELECT tool_calls, token_total, cost, tags FROM sessions WHERE id='{sid}'")).fetchone()
             assert row is not None
-            assert "read_file" in row[0]
+            # Session verisi Fernet sifreli, decryption ile kontrol et
+            from session.manager import _decrypt
+            decrypted = _decrypt(row[0])
+            assert "read_file" in decrypted
             assert row[1] == 1500
             assert row[2] == 5
-            assert "bug-fix" in row[3]
+            # Tags da Fernet sifreli olabilir
+            from session.manager import _decrypt as _decrypt2
+            assert "bug-fix" in _decrypt2(row[3])
         mgr.delete(sid)
 
     def test_export_session(self):

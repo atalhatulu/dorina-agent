@@ -11,13 +11,54 @@ from tools.security import is_destructive, redact_secrets
 from core.logger import log
 
 
+def _sandbox_enabled_in_config() -> bool:
+    """Check if config.yaml has tools.sandbox: docker."""
+    try:
+        import yaml
+        from pathlib import Path
+        cfg = Path.home() / ".dorina" / "config.yaml"
+        if cfg.exists():
+            data = yaml.safe_load(cfg.read_text()) or {}
+            return data.get("tools", {}).get("sandbox") == "docker"
+    except Exception:
+        pass
+    return False
+
+
+def _run_in_sandbox(command: str, timeout: int) -> str | None:
+    """Try to run command in Docker sandbox. Returns None if sandbox unavailable."""
+    try:
+        from sandbox.docker import sandbox as docker_sandbox
+        if not docker_sandbox.available:
+            log.warning("Docker sandbox istek edildi ama Docker kullanilamiyor")
+            return None
+        return docker_sandbox.run_command(command, timeout=timeout)
+    except Exception as e:
+        log.warning(f"Sandbox kullanilamadi: {e}")
+        return None
+
+
+def _run_python_in_sandbox(code: str, timeout: int) -> str | None:
+    """Try to run Python code in Docker sandbox. Returns None if sandbox unavailable."""
+    try:
+        from sandbox.docker import sandbox as docker_sandbox
+        if not docker_sandbox.available:
+            log.warning("Docker sandbox istek edildi ama Docker kullanilamiyor")
+            return None
+        return docker_sandbox.run_python(code, timeout=timeout)
+    except Exception as e:
+        log.warning(f"Sandbox kullanilamadi: {e}")
+        return None
+
+
 # ─── TERMINAL ─────────────────────────────────────────────
 
 @register_tool(
     name="terminal",
     description="Shell komutu çalıştır. Çıktıyı döndürür. "
                 "Interaktif komutlar (npm install, docker build vb.) için pty=True kullan — "
-                "böylece yes/no prompt'ları otomatik cevaplanır.",
+                "böylece yes/no prompt'ları otomatik cevaplanır. "
+                "Guvenilmez komutlar icin sandbox=True kullan (Docker container'da calistirir).",
     parameters={
         "type": "object",
         "properties": {
@@ -26,17 +67,27 @@ from core.logger import log
             "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 60},
             "pty": {"type": "boolean", "description": "PTY (pseudo-terminal) kullan. Interaktif prompt'lar için gerekli", "default": False},
             "background": {"type": "boolean", "description": "Arka planda çalıştır. Uzun süren komutlar için", "default": False},
+            "sandbox": {"type": "boolean", "description": "Docker container'da calistir (guvenlik). Varsayilan: config.yaml tools.sandbox ayarina gore", "default": None},
         },
         "required": ["command"],
     },
     toolset="terminal",
 )
-def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = False, background: bool = False) -> str:
+def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = False, background: bool = False, sandbox: bool = None) -> str:
     """Shell komutu çalıştır. PTY, cwd ve background desteği."""
+    # ── Sandbox routing ────────────────────────────────────
+    if sandbox is None:
+        sandbox = _sandbox_enabled_in_config()
+    if sandbox:
+        sandbox_result = _run_in_sandbox(command, timeout=timeout)
+        if sandbox_result is not None:
+            return sandbox_result
+        # Sandbox unavailable — fall through to host execution
+
     import platform as _platform
     _is_win = _platform.system() == "Windows"
     _shell = not _is_win
-    
+
     from soul.personality import GODMODE
     if GODMODE:
         timeout = 3600  # Godmode'da timeout 1 saat
@@ -972,13 +1023,23 @@ def save_preference_tool(key: str, value: str) -> str:
         "properties": {
             "code": {"type": "string", "description": "Calistirilacak Python kodu. print() ile cikti al."},
             "timeout": {"type": "integer", "description": "Zaman asimi (saniye)", "default": 30},
+            "sandbox": {"type": "boolean", "description": "Docker container'da calistir. Varsayilan: config.yaml tools.sandbox ayarina gore", "default": None},
         },
         "required": ["code"],
     },
     toolset="development",
 )
-def batch_python_tool(code: str, timeout: int = 30) -> str:
+def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) -> str:
     """Python script'ini calistir. Toplu taramalar icin (import, dosya, regex)."""
+    # ── Sandbox routing ────────────────────────────────────
+    if sandbox is None:
+        sandbox = _sandbox_enabled_in_config()
+    if sandbox:
+        sandbox_result = _run_python_in_sandbox(code, timeout=timeout)
+        if sandbox_result is not None:
+            return sandbox_result
+        # Sandbox unavailable — fall through to host execution
+
     import subprocess, sys, tempfile, os
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
         f.write(code)

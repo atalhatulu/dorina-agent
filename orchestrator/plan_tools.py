@@ -30,7 +30,7 @@ from tools.registry import register_tool
     },
     toolset="agent",
 )
-def plan_and_execute_tool(task: str, parallel: bool = False) -> str:
+async def plan_and_execute_tool(task: str, parallel: bool = False) -> str:
     """Plan and execute a multi-step task using the Planner engine.
 
     Flow:
@@ -51,7 +51,7 @@ def plan_and_execute_tool(task: str, parallel: bool = False) -> str:
         plan["parallel"] = True
 
     # Execute the plan
-    result = planner.execute_plan(plan)
+    result = await planner.execute_plan(plan)
     return result
 
 

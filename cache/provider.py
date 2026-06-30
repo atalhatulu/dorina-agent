@@ -6,7 +6,8 @@ from pathlib import Path
 
 class DiskCache:
     def __init__(self, ttl: int = 3600):
-        self.cache_dir = Path("data/cache")
+        from core.constants import DEFAULT_CACHE_DIR
+        self.cache_dir = DEFAULT_CACHE_DIR
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ttl = ttl
 

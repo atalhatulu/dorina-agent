@@ -79,19 +79,6 @@ def git_diff_tool(staged: bool = False, path: str = "") -> str:
 
 
 @register_tool(
-    name="git_push",
-    description="Git push — commit'leri remote'a gonder.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "remote": {"type": "string", "description": "Remote adi", "default": "origin"},
-            "branch": {"type": "string", "description": "Dal adi", "default": "main"},
-        },
-        "required": [],
-    },
-    toolset="git",
-)
-@register_tool(
     name="git_branch",
     description="Git branch — dal listele, olustur veya sil.",
     parameters={
@@ -124,5 +111,28 @@ def git_branch_tool(action: str = "list", name: str = "") -> str:
                 return json.dumps({"success": True, "message": f"Dal silindi: {name}"})
             return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
         return json.dumps({"error": f"Gecersiz islem: {action}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@register_tool(
+    name="git_push",
+    description="Git push — commit'leri remote'a gonder.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "remote": {"type": "string", "description": "Remote adi", "default": "origin"},
+            "branch": {"type": "string", "description": "Dal adi", "default": "main"},
+        },
+        "required": [],
+    },
+    toolset="git",
+)
+def git_push_tool(remote: str = "origin", branch: str = "main") -> str:
+    try:
+        r = subprocess.run(["git", "push", remote, branch], capture_output=True, text=True, timeout=60)
+        if r.returncode == 0:
+            return json.dumps({"success": True, "message": f"Push basarili: {remote}/{branch}"})
+        return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
     except Exception as e:
         return json.dumps({"error": str(e)})

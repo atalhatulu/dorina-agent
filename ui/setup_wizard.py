@@ -6,32 +6,27 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
 from rich import box
+from providers.keys import PROVIDERS as PROVIDER_CONFIG, PROVIDER_SETUP_LIST
 
 console = Console()
 
-PROVIDER_MODELS = {
-    "deepseek": ["deepseek-chat", "deepseek-v4-flash", "deepseek-v4-pro"],
-    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
-    "openrouter": ["openai/gpt-4o-mini", "openrouter/free", "google/gemma-4-31b-it", "qwen/qwen3-next-80b-a3b-instruct"],
-    "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4.1"],
-    "anthropic": ["claude-sonnet-4", "claude-haiku-4"],
-    "google": ["gemini-2.5-pro", "gemini-2.5-flash"],
-    "siliconflow": ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"],
-    "ollama": ["(local - run ollama pull first)"],
-    "together": ["mistralai/Mixtral-8x7B-Instruct-v0.1"],
+# Backward compatibility: old provider names → canonical keys.py names
+PROVIDER_ALIASES = {
+    "google": "gemini",
 }
 
-PROVIDERS = [
-    ("deepseek", "DeepSeek (V3, R1, coder, direct API)", True),
-    ("openrouter", "OpenRouter (Pay-per-use, 200+ models)", True),
-    ("groq", "Groq (Free tier, fast inference)", True),
-    ("openai", "OpenAI (GPT-4o, Codex CLI)", True),
-    ("anthropic", "Anthropic (Claude models)", True),
-    ("google", "Google AI Studio (Gemini API)", True),
-    ("siliconflow", "SiliconFlow (China, free DeepSeek)", True),
-    ("ollama", "Ollama (Local, no key needed)", False),
-    ("together", "Together AI (Open-source models)", True),
-]
+# Provider models for the setup wizard — derives from canonical config
+PROVIDER_MODELS = {
+    name: info['models']
+    for name, info in PROVIDER_CONFIG.items()
+}
+
+PROVIDERS = PROVIDER_SETUP_LIST
+
+
+def _resolve_provider(name: str) -> str:
+    """Resolve provider name (with backward compat aliases)."""
+    return PROVIDER_ALIASES.get(name, name)
 
 
 async def run_setup_wizard():
@@ -49,7 +44,7 @@ async def run_setup_wizard():
     from ui.provider_selector import select_provider
     from providers.keys import keys as km
 
-    provider = select_provider(config.get("provider", ""))
+    provider = select_provider(_resolve_provider(config.get("provider", "")))
     if provider is None:
         console.print("  [yellow]Cancelled[/yellow]")
         return config
@@ -108,22 +103,24 @@ async def run_setup_wizard():
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "setup.json").write_text(json.dumps(config, indent=2))
     
-    # Update config.yaml with new model/provider
-    yaml_path = Path(__file__).resolve().parent.parent / "config.yaml"
-    if yaml_path.exists():
-        try:
-            import yaml
+    # Update ~/.dorina/config.yaml with new model/provider
+    yaml_path = config_dir / "config.yaml"
+    try:
+        import yaml
+        if yaml_path.exists():
             yaml_data = yaml.safe_load(yaml_path.read_text()) or {}
-            if "model" in config:
-                yaml_data.setdefault("model", {})["default"] = config["model"]
-            if "provider" in config:
-                yaml_data.setdefault("model", {})["provider"] = config["provider"]
-            yaml_path.write_text(yaml.dump(yaml_data, default_flow_style=False, allow_unicode=True))
-            console.print(f"  [green]Config.yaml guncellendi[/green]")
-        except ImportError:
-            console.print("  [dim]pyyaml kurulu degil, config.yaml guncellenemedi[/dim]")
-        except Exception as e:
-            console.print(f"  [dim]Config.yaml guncellenemedi: {e}[/dim]")
+        else:
+            yaml_data = {}
+        if "model" in config:
+            yaml_data.setdefault("model", {})["default"] = config["model"]
+        if "provider" in config:
+            yaml_data.setdefault("model", {})["provider"] = config["provider"]
+        yaml_path.write_text(yaml.dump(yaml_data, default_flow_style=False, allow_unicode=True))
+        console.print(f"  [green]Config.yaml guncellendi[/green]")
+    except ImportError:
+        console.print("  [dim]pyyaml kurulu degil, config.yaml guncellenemedi[/dim]")
+    except Exception as e:
+        console.print(f"  [dim]Config.yaml guncellenemedi: {e}[/dim]")
 
     console.print(Panel.fit(
         "[bold green]Setup complete![/bold green]\n"

@@ -1,4 +1,4 @@
-"""Oturum yönetimi - SQLAlchemy ile."""
+"""Oturum yönetimi - SQLAlchemy ile + Fernet şifreleme."""
 
 from __future__ import annotations
 from pathlib import Path
@@ -10,6 +10,54 @@ import uuid
 from sqlalchemy import create_engine, Column, String, Text, DateTime, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker
 from core.logger import log
+
+# ── Fernet session key management ─────────────────────────────────
+_KEY_FILE = Path.home() / ".dorina" / ".session_key"
+_fernet_instance = None
+
+
+def _get_fernet():
+    """Load or generate the session encryption key and return a Fernet instance."""
+    global _fernet_instance
+    if _fernet_instance is not None:
+        return _fernet_instance
+    try:
+        from cryptography.fernet import Fernet
+    except ImportError:
+        log.warning("cryptography paketi yok — session şifrelemesi kapali")
+        return None
+
+    if _KEY_FILE.exists():
+        key = _KEY_FILE.read_bytes()
+    else:
+        key = Fernet.generate_key()
+        _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _KEY_FILE.write_bytes(key)
+        log.info(f"Session encryption key generated: {_KEY_FILE}")
+
+    _fernet_instance = Fernet(key)
+    return _fernet_instance
+
+
+def _encrypt(text: str) -> str:
+    """Encrypt plaintext → base64 string. Returns text as-is if Fernet unavailable."""
+    f = _get_fernet()
+    if f is None:
+        return text
+    return f.encrypt(text.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt(ciphertext: str) -> str:
+    """Decrypt base64 string → plaintext. Returns input as-is if Fernet unavailable."""
+    f = _get_fernet()
+    if f is None:
+        return ciphertext
+    try:
+        return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    except Exception:
+        # Not encrypted (plaintext stored before encryption was added)
+        return ciphertext
+# ────────────────────────────────────────────────────────────────
 
 # P2-13: Checkpoint import
 from orchestrator.checkpoint import checkpoint_manager, _list_checkpoints, _checkpoint_path
@@ -111,18 +159,18 @@ class SessionManager:
         
         session = self.db.query(SessionModel).filter_by(id=self.current_id).first()
         if session:
-            session.messages = json.dumps(messages, ensure_ascii=False)
+            session.messages = _encrypt(json.dumps(messages, ensure_ascii=False))
             session.summary = summary
             session.updated_at = datetime.now(timezone.utc)
             session.token_count = sum(len(str(m.get("content") or "")) for m in messages) // 4
             if tool_calls_data is not None:
-                session.tool_calls = json.dumps(tool_calls_data, ensure_ascii=False)
+                session.tool_calls = _encrypt(json.dumps(tool_calls_data, ensure_ascii=False))
             if token_total:
                 session.token_total = token_total
             if cost:
                 session.cost = cost
             if tags is not None:
-                session.tags = json.dumps(tags, ensure_ascii=False)
+                session.tags = _encrypt(json.dumps(tags, ensure_ascii=False))
             self.db.commit()
 
     def load(self, session_id: str) -> Optional[dict]:
@@ -136,7 +184,7 @@ class SessionManager:
                 "created_at": session.created_at.isoformat() if session.created_at else "",
                 "updated_at": session.updated_at.isoformat() if session.updated_at else "",
                 "summary": session.summary,
-                "messages": json.loads(session.messages),
+                "messages": json.loads(_decrypt(session.messages)),
                 "model": session.model,
             }
         return None
@@ -154,7 +202,8 @@ class SessionManager:
         for s in sessions:
             if not s.messages or s.messages.strip() in ("", "[]", "{}"):
                 continue
-            msgs = json.loads(s.messages)
+            decrypted = _decrypt(s.messages)
+            msgs = json.loads(decrypted)
             if not msgs:
                 continue
             result.append({
@@ -165,7 +214,7 @@ class SessionManager:
                 "summary": s.summary,
                 "model": s.model,
                 "token_count": s.token_count,
-                "message_count": len([m for m in json.loads(s.messages or "[]") if m.get("role") == "user"]),
+                "message_count": len([m for m in msgs if m.get("role") == "user"]),
             })
         
         return result
@@ -176,8 +225,7 @@ class SessionManager:
             self.db.query(SessionModel)
             .filter(
                 SessionModel.title.contains(query) |
-                SessionModel.summary.contains(query) |
-                SessionModel.messages.contains(query)
+                SessionModel.summary.contains(query)
             )
             .order_by(SessionModel.updated_at.desc())
             .limit(10)

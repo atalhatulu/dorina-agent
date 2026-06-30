@@ -4,30 +4,42 @@ import json
 from pathlib import Path
 
 PROVIDERS = {
-    'deepseek': {'env': 'DEEPSEEK_API_KEY', 'url': 'https://api.deepseek.com', 'models': ['deepseek-chat', 'deepseek-v4-flash']},
-    'groq': {'env': 'GROQ_API_KEY', 'url': 'https://api.groq.com/openai/v1', 'models': ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'qwen/qwen3-32b']},
-    'openrouter': {'env': 'OPENROUTER_API_KEY', 'url': 'https://openrouter.ai/api/v1', 'models': ['openai/gpt-4o-mini', 'openrouter/free', 'google/gemma-4-31b-it', 'qwen/qwen3-next-80b-a3b-instruct']},
-    'openai': {'env': 'OPENAI_API_KEY', 'url': 'https://api.openai.com/v1', 'models': ['gpt-4o-mini', 'gpt-4o']},
-    'anthropic': {'env': 'ANTHROPIC_API_KEY', 'url': 'https://api.anthropic.com/v1', 'models': ['claude-sonnet-4']},
-    'gemini': {'env': 'GOOGLE_API_KEY', 'url': 'https://generativelanguage.googleapis.com/v1beta', 'models': ['gemini-2.0-flash', 'gemini-2.5-pro']},
-    'mistral': {'env': 'MISTRAL_API_KEY', 'url': 'https://api.mistral.ai/v1', 'models': ['mistral-large-latest', 'mistral-small-latest', 'open-mistral-nemo']},
-    'xai': {'env': 'XAI_API_KEY', 'url': 'https://api.x.ai/v1', 'models': ['grok-2-latest']},
-    'cohere': {'env': 'COHERE_API_KEY', 'url': 'https://api.cohere.com/v1', 'models': ['command-r-plus', 'command-r']},
-    'perplexity': {'env': 'PERPLEXITY_API_KEY', 'url': 'https://api.perplexity.ai', 'models': ['sonar-pro', 'sonar']},
-    'fireworks': {'env': 'FIREWORKS_API_KEY', 'url': 'https://api.fireworks.ai/inference/v1', 'models': ['accounts/fireworks/models/llama-v3p3-70b-instruct']},
-    'replicate': {'env': 'REPLICATE_API_KEY', 'url': 'https://api.replicate.com/v1', 'models': ['meta/meta-llama-3-70b-instruct']},
-    'siliconflow': {'env': 'SILICONFLOW_API_KEY', 'url': 'https://api.siliconflow.cn/v1', 'models': ['deepseek-ai/DeepSeek-V3']},
-    'together': {'env': 'TOGETHER_API_KEY', 'url': 'https://api.together.xyz/v1', 'models': ['mistralai/Mixtral-8x7B-Instruct-v0.1']},
-    'ollama': {'env': '', 'url': 'http://localhost:11434', 'models': ['llama3', 'mistral']},
-    'huggingface': {'env': 'HF_API_KEY', 'url': 'https://api-inference.huggingface.co/v1', 'models': ['meta-llama/Llama-3.3-70B-Instruct', 'microsoft/Phi-3.5-mini-instruct']},
-    'deepinfra': {'env': 'DEEPINFRA_API_KEY', 'url': 'https://api.deepinfra.com/v1/openai', 'models': ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Qwen/Qwen3-30B-A3B']},
-    'nvidia': {'env': 'NVIDIA_API_KEY', 'url': 'https://integrate.api.nvidia.com/v1', 'models': ['nvidia/llama-3.3-nemotron-super-49b-v1']},
-    'azure': {'env': 'AZURE_OPENAI_API_KEY', 'url': 'https://YOUR_RESOURCE.openai.azure.com', 'models': ['gpt-4o-mini', 'gpt-4o']},
-    'bedrock': {'env': 'AWS_ACCESS_KEY_ID', 'url': 'https://bedrock-runtime.us-east-1.amazonaws.com', 'models': ['anthropic.claude-sonnet-4']},
-    'minimax': {'env': 'MINIMAX_API_KEY', 'url': 'https://api.minimax.chat/v1', 'models': ['MiniMax-Text-01']},
-    'qwen': {'env': 'QWEN_API_KEY', 'url': 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'models': ['qwen3-30b-a3b', 'qwen-turbo-latest']},
-    'novita': {'env': 'NOVITA_API_KEY', 'url': 'https://api.novita.ai/v3/openai', 'models': ['meta-llama/llama-3.3-70b-instruct']},
+    'deepseek': {'env': 'DEEPSEEK_API_KEY', 'url': 'https://api.deepseek.com', 'models': ['deepseek-chat', 'deepseek-v4-flash'], 'display': 'DeepSeek (V3, R1, coder, direct API)', 'needs_key': True},
+    'groq': {'env': 'GROQ_API_KEY', 'url': 'https://api.groq.com/openai/v1', 'models': ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'qwen/qwen3-32b'], 'display': 'Groq (Free tier, very fast inference)', 'needs_key': True},
+    'openrouter': {'env': 'OPENROUTER_API_KEY', 'url': 'https://openrouter.ai/api/v1', 'models': ['openai/gpt-4o-mini', 'openrouter/free', 'google/gemma-4-31b-it', 'qwen/qwen3-next-80b-a3b-instruct'], 'display': 'OpenRouter (Pay-per-use API aggregator, 200+ models)', 'needs_key': True},
+    'openai': {'env': 'OPENAI_API_KEY', 'url': 'https://api.openai.com/v1', 'models': ['gpt-4o-mini', 'gpt-4o'], 'display': 'OpenAI (GPT-4o, GPT-4.1, Codex CLI)', 'needs_key': True},
+    'anthropic': {'env': 'ANTHROPIC_API_KEY', 'url': 'https://api.anthropic.com/v1', 'models': ['claude-sonnet-4'], 'display': 'Anthropic (Claude models via API)', 'needs_key': True},
+    'gemini': {'env': 'GOOGLE_API_KEY', 'url': 'https://generativelanguage.googleapis.com/v1beta', 'models': ['gemini-2.0-flash', 'gemini-2.5-pro'], 'display': 'Google AI Studio (Native Gemini API)', 'needs_key': True},
+    'mistral': {'env': 'MISTRAL_API_KEY', 'url': 'https://api.mistral.ai/v1', 'models': ['mistral-large-latest', 'mistral-small-latest', 'open-mistral-nemo'], 'display': 'Mistral AI (Mistral Large, Small)', 'needs_key': True},
+    'xai': {'env': 'XAI_API_KEY', 'url': 'https://api.x.ai/v1', 'models': ['grok-2-latest'], 'display': 'xAI (Grok models)', 'needs_key': True},
+    'cohere': {'env': 'COHERE_API_KEY', 'url': 'https://api.cohere.com/v1', 'models': ['command-r-plus', 'command-r'], 'display': 'Cohere (Command R models)', 'needs_key': True},
+    'perplexity': {'env': 'PERPLEXITY_API_KEY', 'url': 'https://api.perplexity.ai', 'models': ['sonar-pro', 'sonar'], 'display': 'Perplexity (Sonar models)', 'needs_key': True},
+    'fireworks': {'env': 'FIREWORKS_API_KEY', 'url': 'https://api.fireworks.ai/inference/v1', 'models': ['accounts/fireworks/models/llama-v3p3-70b-instruct'], 'display': 'Fireworks AI (Fast inference)', 'needs_key': True},
+    'replicate': {'env': 'REPLICATE_API_KEY', 'url': 'https://api.replicate.com/v1', 'models': ['meta/meta-llama-3-70b-instruct'], 'display': 'Replicate (Open-source model hosting)', 'needs_key': True},
+    'siliconflow': {'env': 'SILICONFLOW_API_KEY', 'url': 'https://api.siliconflow.cn/v1', 'models': ['deepseek-ai/DeepSeek-V3'], 'display': 'SiliconFlow (China, free tier, DeepSeek models)', 'needs_key': True},
+    'together': {'env': 'TOGETHER_API_KEY', 'url': 'https://api.together.xyz/v1', 'models': ['mistralai/Mixtral-8x7B-Instruct-v0.1'], 'display': 'Together AI (Open-source model hosting)', 'needs_key': True},
+    'ollama': {'env': '', 'url': 'http://localhost:11434', 'models': ['llama3', 'mistral'], 'display': 'Ollama (Local, 127.0.0.1:11434, no key needed)', 'needs_key': False},
+    'huggingface': {'env': 'HF_API_KEY', 'url': 'https://api-inference.huggingface.co/v1', 'models': ['meta-llama/Llama-3.3-70B-Instruct', 'microsoft/Phi-3.5-mini-instruct'], 'display': 'HuggingFace Inference API', 'needs_key': True},
+    'deepinfra': {'env': 'DEEPINFRA_API_KEY', 'url': 'https://api.deepinfra.com/v1/openai', 'models': ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Qwen/Qwen3-30B-A3B'], 'display': 'DeepInfra (Serverless inference)', 'needs_key': True},
+    'nvidia': {'env': 'NVIDIA_API_KEY', 'url': 'https://integrate.api.nvidia.com/v1', 'models': ['nvidia/llama-3.3-nemotron-super-49b-v1'], 'display': 'NVIDIA NIM (GPU-accelerated)', 'needs_key': True},
+    'azure': {'env': 'AZURE_OPENAI_API_KEY', 'url': 'https://YOUR_RESOURCE.openai.azure.com', 'models': ['gpt-4o-mini', 'gpt-4o'], 'display': 'Azure OpenAI (Enterprise)', 'needs_key': True},
+    'bedrock': {'env': 'AWS_ACCESS_KEY_ID', 'url': 'https://bedrock-runtime.us-east-1.amazonaws.com', 'models': ['anthropic.claude-sonnet-4'], 'display': 'AWS Bedrock (Enterprise)', 'needs_key': True},
+    'minimax': {'env': 'MINIMAX_API_KEY', 'url': 'https://api.minimax.chat/v1', 'models': ['MiniMax-Text-01'], 'display': 'MiniMax (Hailuo AI)', 'needs_key': True},
+    'qwen': {'env': 'QWEN_API_KEY', 'url': 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'models': ['qwen3-30b-a3b', 'qwen-turbo-latest'], 'display': 'Qwen (Alibaba Cloud models)', 'needs_key': True},
+    'novita': {'env': 'NOVITA_API_KEY', 'url': 'https://api.novita.ai/v3/openai', 'models': ['meta-llama/llama-3.3-70b-instruct'], 'display': 'Novita AI (LLM inference)', 'needs_key': True},
 }
+
+# UI-friendly display list derived from canonical PROVIDERS config
+PROVIDER_DISPLAY_LIST = [
+    (name, info['display'])
+    for name, info in PROVIDERS.items()
+]
+
+# Display list with needs_key flag (for setup wizard)
+PROVIDER_SETUP_LIST = [
+    (name, info['display'], info.get('needs_key', True))
+    for name, info in PROVIDERS.items()
+]
 
 class KeyManager:
     def __init__(self):

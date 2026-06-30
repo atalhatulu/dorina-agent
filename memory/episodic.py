@@ -6,7 +6,9 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
-DB_PATH = Path("data/episodic.db")
+from core.constants import DEFAULT_DATA_DIR
+
+DB_PATH = DEFAULT_DATA_DIR / "episodic.db"
 
 
 class EpisodicMemory:

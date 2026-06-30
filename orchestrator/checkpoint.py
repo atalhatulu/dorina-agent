@@ -14,8 +14,10 @@ from typing import Any, Optional
 
 from core.logger import log
 
+from core.constants import DEFAULT_DATA_DIR
+
 # Default checkpoint directory
-CHECKPOINT_DIR = Path("data/checkpoints")
+CHECKPOINT_DIR = DEFAULT_DATA_DIR / "checkpoints"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Default: checkpoint every N turns

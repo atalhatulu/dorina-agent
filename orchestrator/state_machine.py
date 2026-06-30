@@ -112,11 +112,11 @@ class StateMachine:
         conditions = {
             "start": lambda: True,
             "has_tools": lambda: context.metadata.get('has_tools', False),
-            "no_tools": lambda: not context.metadata.get('has_tools', True) and not context.metadata.get('planning_retry', False),
+            "no_tools": lambda: not context.metadata.get('has_tools', False) and not context.metadata.get('planning_retry', False),
             "planning_only": lambda: context.metadata.get('planning_retry', False),
             "wait": lambda: True,
             "more_tools": lambda: context.metadata.get('more_tools', False),
-            "enough": lambda: not context.metadata.get('more_tools', True),
+            "enough": lambda: not context.metadata.get('more_tools', False),
             "loop": lambda: context.metadata.get('more_tools', False),
             "truncated": lambda: context.metadata.get('truncated', False),
             "finalized": lambda: context.metadata.get('finalized', False),

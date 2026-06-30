@@ -3,7 +3,9 @@
 import json
 from pathlib import Path
 
-PREFS_FILE = Path("data/preferences.json")
+from core.constants import DEFAULT_DATA_DIR
+
+PREFS_FILE = DEFAULT_DATA_DIR / "preferences.json"
 
 
 class Preferences:

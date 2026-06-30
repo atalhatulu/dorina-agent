@@ -79,14 +79,6 @@ VERSION = _get_version()
 # Project root directory (where pyproject.toml is)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Default paths
-DEFAULT_CONFIG = PROJECT_ROOT / "config.yaml"
-DEFAULT_SOUL = PROJECT_ROOT / "soul.md"
-DEFAULT_ENV = PROJECT_ROOT / ".env"
-DEFAULT_SKILLS_DIR = PROJECT_ROOT / "skills" / "store"
-DEFAULT_SESSIONS_DIR = PROJECT_ROOT / "sessions"
-DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
-
 # i18n paths
 I18N_DIR = Path(__file__).resolve().parent / "i18n"
 

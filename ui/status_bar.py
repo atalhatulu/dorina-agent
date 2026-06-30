@@ -142,9 +142,32 @@ class StatusBar:
     def _get_task_count(self) -> int:
         try:
             from bg_tools.task_manager import task_manager
-            return len([t for t in task_manager.list_tasks() if t.status == "running"])
+            return len(task_manager.list_tasks())
         except Exception:
             return 0
+
+    def show(self):
+        """Print current status info to console."""
+        from rich.console import Console
+        from rich.table import Table
+        from rich import box
+        console = Console()
+        tbl = Table(border_style="#D4622A", box=box.ROUNDED)
+        tbl.add_column("Alan", style="bold #D4622A")
+        tbl.add_column("Değer", style="white")
+        elapsed = self.elapsed()
+        tbl.add_row("Model", f"{self.provider}/{self.model}" if self.model else "ayarlanmamış")
+        tbl.add_row("Durum", self._status_text)
+        tbl.add_row("Süre", elapsed)
+        tbl.add_row("Tur", str(self.turn))
+        tbl.add_row("Tool Calls", str(self.tool_calls))
+        tbl.add_row("Token (in/out)", f"{self.tokens_in:,} / {self.tokens_out:,}")
+        tbl.add_row("Maliyet", f"${self.cost:.6f}")
+        if GODMODE:
+            tbl.add_row("Godmode", "⚡ AKTİF", style="bold red")
+        if AUDIT_MODE:
+            tbl.add_row("Audit", "🔍 ACIK", style="bold #E06C75")
+        console.print(tbl)
 
     def _get_cron_count(self) -> int:
         try:

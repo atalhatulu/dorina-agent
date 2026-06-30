@@ -569,7 +569,7 @@ class Planner:
                 "error": str(e),
             }
 
-    def plan_and_execute(
+    async def plan_and_execute(
         self,
         user_input: str,
         tools: list[str] | None = None,
@@ -579,7 +579,7 @@ class Planner:
         Returns JSON string with plan and results.
         """
         plan = self.analyze(user_input, tools or [])
-        result = self.execute_plan(plan)
+        result = await self.execute_plan(plan)
         return result
 
 

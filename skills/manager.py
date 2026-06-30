@@ -7,20 +7,20 @@ from typing import Optional
 
 from memory.procedural import ProceduralMemory
 from core.logger import log
-from core.constants import SKILL_TRIGGER_KEYWORDS, SKILL_AUTO_LOAD_THRESHOLD
+from core.constants import DORINA_HOME, DEFAULT_DATA_DIR, SKILL_TRIGGER_KEYWORDS, SKILL_AUTO_LOAD_THRESHOLD
 
 
 class SkillManager:
     """Skill'leri yönet: algıla, kaydet, çağır, session-start bootstrap."""
 
-    STATUS_FILE = Path("data/skills_status.json")
+    STATUS_FILE = DEFAULT_DATA_DIR / "skills_status.json"
 
     def __init__(self):
         self.procedural = ProceduralMemory()
         self.usage_data: dict = {}
         self._load_usage()
         # skills/learned/ dizinine yazma desteği
-        self.learned_dir = Path("skills/learned")
+        self.learned_dir = DORINA_HOME / "skills" / "learned"
         self.learned_dir.mkdir(parents=True, exist_ok=True)
 
     def _load_usage(self):

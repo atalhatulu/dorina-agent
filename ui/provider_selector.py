@@ -3,20 +3,9 @@ from __future__ import annotations
 from typing import Optional
 
 from rich.console import Console
+from providers.keys import PROVIDER_DISPLAY_LIST as PROVIDERS
 
 console = Console()
-
-PROVIDERS = [
-    ("deepseek",     "DeepSeek (V3, R1, coder, direct API)"),
-    ("openrouter",   "OpenRouter (Pay-per-use API aggregator, 200+ models)"),
-    ("groq",         "Groq (Free tier, very fast inference)"),
-    ("openai",       "OpenAI (GPT-4o, GPT-4.1, Codex CLI)"),
-    ("anthropic",    "Anthropic (Claude models via API)"),
-    ("google",       "Google AI Studio (Native Gemini API)"),
-    ("siliconflow",  "SiliconFlow (China, free tier, DeepSeek models)"),
-    ("ollama",       "Ollama (Local, 127.0.0.1:11434, no key needed)"),
-    ("together",     "Together AI (Open-source model hosting)"),
-]
 
 
 def select_provider(current: str = "") -> str | None:

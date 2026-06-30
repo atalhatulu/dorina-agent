@@ -25,28 +25,50 @@ class ProceduralMemory:
                     skills.append(info)
         return skills
 
+    def _sanitize_name(self, name: str) -> Path:
+        """Skill adini dogrula ve path traversal'i engelle.
+
+        Raises:
+            ValueError: name '../' veya '/' iceriyorsa.
+        """
+        if not name or ".." in name or "/" in name or "\\" in name:
+            raise ValueError(f"Guvenlik: skill adi gecersiz: '{name}'")
+        return self.skills_dir / name
+
     def get_skill(self, name: str) -> Optional[dict]:
         """Skill içeriğini getir."""
-        skill_file = self.skills_dir / name / "SKILL.md"
+        try:
+            skill_path = self._sanitize_name(name)
+        except ValueError:
+            return None
+        skill_file = skill_path / "SKILL.md"
         if skill_file.exists():
             return self._read_skill_full(skill_file)
         return None
 
     def save_skill(self, name: str, content: str):
         """Skill kaydet."""
-        skill_dir = self.skills_dir / name
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_file = skill_dir / "SKILL.md"
+        try:
+            skill_path = self._sanitize_name(name)
+        except ValueError as e:
+            log.warning(str(e))
+            return
+        skill_path.mkdir(parents=True, exist_ok=True)
+        skill_file = skill_path / "SKILL.md"
         with open(skill_file, "w") as f:
             f.write(content)
         log.info(f"Skill kaydedildi: {name}")
 
     def delete_skill(self, name: str):
         """Skill sil."""
-        skill_dir = self.skills_dir / name
-        if skill_dir.exists():
+        try:
+            skill_path = self._sanitize_name(name)
+        except ValueError:
+            log.warning(f"Skill silme reddedildi (guvenlik): {name}")
+            return
+        if skill_path.exists():
             import shutil
-            shutil.rmtree(skill_dir)
+            shutil.rmtree(skill_path)
             log.info(f"Skill silindi: {name}")
 
     def _read_skill_info(self, path: Path) -> dict:

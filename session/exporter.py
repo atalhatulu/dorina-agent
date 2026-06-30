@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 BASE_DIR = Path.home() / ".dorina" / "sessions"
+MAX_SESSIONS = 500  # En fazla 500 session sakla
 
 
 def _ensure_dir(session_id: str) -> Path:
@@ -53,7 +54,7 @@ def export_session(session_id: str, messages: list[dict] = None,
         tool_counts[name] = tool_counts.get(name, 0) + 1
     
     now = datetime.now(timezone.utc)
-    cost_str = f"${cost / 1000:.3f}" if cost else "$0.000"
+    cost_str = f"${cost / 1_000_000:.4f}" if cost else "$0.0000"
     duration_min = max(1, token_total // 500) if token_total else 1
     
     title_str = title or safe_id
@@ -112,7 +113,10 @@ def export_session(session_id: str, messages: list[dict] = None,
     
     md_path = session_dir / f"{safe_id}.md"
     md_path.write_text("\n".join(md_lines), encoding="utf-8")
-    
+
+    # Limiti asan eski session'lari temizle
+    _cleanup_old()
+
     return str(md_path)
 
 
