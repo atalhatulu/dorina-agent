@@ -7,6 +7,7 @@ Her write_file/patch çağrısından ÖNCE dosyanın snapshot'ını alır.
 
 from __future__ import annotations
 import json
+from core.utils import safe_json_loads
 import shutil
 import hashlib
 import difflib
@@ -28,10 +29,7 @@ class FileHistory:
 
     def _load_index(self) -> dict:
         if self._index_path.exists():
-            try:
-                return json.loads(self._index_path.read_text())
-            except:
-                pass
+            return safe_json_loads(self._index_path, {"snapshots": [], "sequence": 0})
         return {"snapshots": [], "sequence": 0}
 
     def _save_index(self):

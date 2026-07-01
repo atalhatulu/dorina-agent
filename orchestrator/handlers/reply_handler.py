@@ -3,6 +3,7 @@
 from __future__ import annotations
 from orchestrator.state_machine import AgentContext
 from core.logger import log
+from orchestrator.cleaner import clean_content
 
 
 async def handle_idle(loop, ctx: AgentContext):
@@ -17,7 +18,7 @@ async def handle_synthesize(loop, ctx: AgentContext):
     final = await loop.reasoning.think(effective_prompt, loop.context.get_messages(), [])
     content = final.get("content", "")
     if content:
-        content = loop._clean_content(content)
+        content = clean_content(content)
         loop.context.add_assistant_message(content)
         ctx.final_response = content
     else:
@@ -28,7 +29,7 @@ async def handle_direct_reply(loop, ctx: AgentContext):
     """DIRECT_REPLY: clean up tool messages, add final assistant message."""
     content = ctx.llm_response.get("content", "")
     if content:
-        content = loop._clean_content(content)
+        content = clean_content(content)
         cleaned = []
         for m in loop.context.get_messages():
             role = m.get("role", "")
@@ -60,7 +61,7 @@ async def handle_done(loop, ctx: AgentContext):
         final = await loop.reasoning.think(effective_prompt, loop.context.get_messages(), [])
         content = final.get("content", "")
         if content:
-            content = loop._clean_content(content)
+            content = clean_content(content)
             loop.context.add_assistant_message(content)
             ctx.final_response = content
         else:

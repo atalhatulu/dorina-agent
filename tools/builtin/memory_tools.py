@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 
 from tools.registry import register_tool
+from core.constants import DORINA_HOME
 
-MEMORY_DIR = Path.home() / ".dorina" / "memories"
+MEMORY_DIR = DORINA_HOME / "memories"
 
 
 def _ensure():

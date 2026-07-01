@@ -3,6 +3,8 @@
 from __future__ import annotations
 from core.logger import log
 from orchestrator.state_machine import AgentContext
+from orchestrator.cleaner import clean_content
+from orchestrator.repair import repair_message_sequence
 
 
 async def handle_thinking(loop, ctx: AgentContext):
@@ -11,6 +13,12 @@ async def handle_thinking(loop, ctx: AgentContext):
     from tools.registry import registry
     from ui.status_bar import status as _status
     from ui import display as _display
+
+    # [OPT] Eski read_file sonuclarini buda (son 10 mesaj korusun)
+    msgs = loop.context.get_messages()
+    for msg in msgs[:-10]:
+        if msg.get("role") == "tool" and msg.get("name") == "read_file" and len(str(msg.get("content", ""))) > 200:
+            msg["content"] = "[okundu]"
 
     effective_prompt = getattr(loop, '_enriched_system_prompt', soul.system_prompt)
 
@@ -64,7 +72,7 @@ async def handle_thinking(loop, ctx: AgentContext):
         elif _has_task:
             dynamic_injections.append("[SYSTEM: Kullanici mesaji bir GOREV iceriyor. Selamlama yapma, tanisma muhabbeti yapma. DOGRUDAN tool cagir ve gorevi yap.]")
 
-    loop._repair_message_sequence()
+    loop.context.messages = repair_message_sequence(loop.context.messages)
 
     ctx.metadata["planning_retry"] = False
     ctx.metadata["truncated"] = False
@@ -98,14 +106,24 @@ async def handle_thinking(loop, ctx: AgentContext):
             log.warning(f"Repairing invalid assistant msg at idx {i}")
             msgs[i]["content"] = "(continuing...)"
 
-    # Call LLM — sadece aktif toolset'lerin tool'larini gonder
-    from tools.toolset import get_active_schemas
-    tool_schemas = get_active_schemas()
+    # Call LLM — 3 katmanli tool secimi (token tasarrufu)
+    from tools.selector import select_schemas
+    from tools.registry import registry
+    _tool_names = select_schemas(ctx.user_input or "", registry)
+    tool_schemas = registry.schemas_for(_tool_names)
     response = await loop.reasoning.think(effective_prompt, msgs, tool_schemas)
     _status.set_status("processing")
 
     # Update token usage from LLM response
     loop._update_status(response)
+
+    # ─── Token Budget Breach → force context compression ───
+    if response.get("_budget_breached"):
+        from ui.display import print_warning as _pw
+        _pw("Token budget asildi! Context sikistirmasi baslatiliyor...")
+        compressed = await loop.compressor.compress(loop.context.get_messages(), loop._summarize)
+        loop.context.messages = compressed
+        log.info(f"Budget-triggered compression: {len(compressed)} messages remaining")
 
     # ─── Response Analysis ──────────────────────────────────────────────
     ctx.iterations_used += 1
@@ -123,7 +141,7 @@ async def handle_thinking(loop, ctx: AgentContext):
     finish_reason = response.get("finish_reason", "stop")
 
     if content:
-        content = loop._clean_content(content)
+        content = clean_content(content)
 
     # Handle truncated response
     if finish_reason == "length":
@@ -187,3 +205,15 @@ async def handle_thinking(loop, ctx: AgentContext):
         loop.context.add_assistant_message(content or "(devam...)")
         loop.context.add_user_message("READ THE FILE and FIX THE BUG. Use read_file tool, then patch tool. DO NOT greet.")
         ctx.turn = max(0, ctx.turn - 1)  # don't count this wasted turn
+
+    # Empty response retry — LLM returned nothing (no tools, no text, or no choices)
+    # Usually happens after tool errors: LLM can't decide what to do
+    _empty_response = not tool_calls and not bool(content) and finish_reason == "no_choices"
+    if _empty_response:
+        log.warning("LLM returned empty response or no choices — forcing retry")
+        ctx.metadata["planning_retry"] = True
+        loop.context.add_assistant_message("(boş veya seçimsiz yanıt)")
+        loop.context.add_user_message(
+            "Önceki aracın sonucunu değerlendir ve göreve devam et. "
+            "Eğer hata aldıysan farklı bir yaklaşım dene."
+        )

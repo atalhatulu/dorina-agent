@@ -1,6 +1,3 @@
-"""LLM reasoning - litellm ile model çağrıları + prompt caching (async)."""
-
-from __future__ import annotations
 import json
 import os
 import asyncio
@@ -24,31 +21,56 @@ class ReasoningEngine:
 
     def __init__(self):
         self.llm = None
-        # Initialize provider router
-        from providers.router import router
-        self._router = router
 
     @property
     def model(self):
-        """Live-read model from config (not cached)."""
         return settings.model.default
 
     @property
     def provider(self):
-        """Live-read provider from config (not cached)."""
         return settings.model.provider
 
-    @property
-    def fallbacks(self):
-        """Live-read fallback providers from config."""
-        return settings.model.fallback_providers
+    def get_model_string(self) -> str:
+        """litellm formatında model string'i döndür (örn: gemini/gemini-2.5-flash)."""
+        active_model = self.model
+        active_provider = self.provider
+        if active_provider in ("google", "gemini"):
+            if not active_model.startswith("gemini/"):
+                raw = active_model.split("/", 1)[-1] if "/" in active_model else active_model
+                return f"gemini/{raw}"
+        if "/" not in active_model and active_provider:
+            return f"{active_provider}/{active_model}"
+        return active_model
 
     _shared_llm = None
+
+    # ─── Cross-provider model fallback chain ───
+    # (provider, litellm_model_name) tuples — tried in order when primary fails
+    MODEL_FALLBACK_CHAIN: list[tuple[str, str]] = [
+        # (provider, litellm_model_name) — tried in order when primary fails
+        ("deepseek", "deepseek/deepseek-chat"),
+        ("deepseek", "deepseek/deepseek-reasoner"),
+    ]
+
+    def _get_fallback_chain(self, exclude_provider: str = "", exclude_model: str = "") -> list[tuple[str, str]]:
+        """Return fallback chain, optionally excluding a specific (provider, model) pair.
+        
+        This method is independent of current provider setting — always returns the
+        same chain regardless of what provider is configured.
+        The first entry is always the primary model from settings.
+        """
+        # Start with all available fallbacks
+        chain = list(self.__class__.MODEL_FALLBACK_CHAIN)
+
+        # Remove the failed model if it appears in the list
+        if exclude_model:
+            chain = [(p, m) for p, m in chain if not (p == exclude_provider and m == exclude_model)]
+
+        return chain
 
     def _get_llm(self):
         if ReasoningEngine._shared_llm is None:
             try:
-                # Environment-level suppression (catch-all for litellm internal logs)
                 import os as _os
                 _os.environ.setdefault("LITELLM_LOG", "WARNING")
                 _os.environ.setdefault("OPENAI_LOG_LEVEL", "WARNING")
@@ -56,7 +78,7 @@ class ReasoningEngine:
                 _os.environ.setdefault("LITELLM_VERBOSE", "False")
                 _os.environ.setdefault("LITELLM_DEBUG", "False")
                 _os.environ.setdefault("ANTHROPIC_LOG_LEVEL", "ERROR")
-                _os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")  # Suppress boto3 region warnings
+                _os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
                 import litellm
                 litellm.drop_params = True
@@ -75,17 +97,10 @@ class ReasoningEngine:
         return ReasoningEngine._shared_llm
 
     def _get_cache_params(self, system_prompt: str) -> dict:
-        """Cache parametrelerini provider'a göre ayarla.
-
-        DeepSeek: caching via model params (cache_key, ttl)
-        Anthropic: native prompt caching via cache_control
-        Other providers: no caching
-        """
         provider = self.provider
         if provider not in CACHE_ENABLED_PROVIDERS:
             return {}
 
-        # System prompt değişti mi? (cache invalidation)
         current_hash = str(hash(system_prompt))
         system_prompt_changed = (
             ReasoningEngine._last_system_prompt_hash is not None
@@ -93,14 +108,11 @@ class ReasoningEngine:
         )
         ReasoningEngine._last_system_prompt_hash = current_hash
 
-        # Conservative strategy: only cache if system prompt hasn't changed
         if CACHE_STRATEGY == "conservative" and system_prompt_changed:
             log.debug(f"System prompt changed — skipping cache")
             return {}
 
-        # Provider-specific caching
         if provider == "deepseek":
-            # DeepSeek supports caching via litellm's caching params
             return {
                 "cache": {
                     "no-cache": False,
@@ -109,7 +121,6 @@ class ReasoningEngine:
                 }
             }
         elif provider == "anthropic":
-            # Anthropic prompt caching — mark system message for caching
             return {
                 "caching": True,
                 "cache_control": {"type": "ephemeral"},
@@ -125,22 +136,22 @@ class ReasoningEngine:
         tools: Optional[list[dict]] = None,
         stream_callback: Optional[callable] = None,
     ) -> dict:
-        """LLM'e sor, yanıt al. (async) + prompt caching + opsiyonel streaming.
-
-        stream_callback: Her token chunk'ı için çağrılır (streaming mod).
-                        Sağlanırsa stream=True ile çağrı yapılır.
-        """
+        """LLM'e sor, yanıt al. (async) + prompt caching + opsiyonel streaming."""
         llm = self._get_llm()
 
         full_messages = [{"role": "system", "content": system_prompt}]
         full_messages.extend(messages)
 
-        # Load API key (from key manager first, then env)
         api_key = self._get_api_key()
 
-        # Fix model name: add provider prefix if needed
         model_name = self.model
-        if self.provider == "openrouter" and not model_name.startswith("openrouter/"):
+        # litellm uses "gemini/" prefix for Google models, not "google/"
+        if self.provider in ("google", "gemini"):
+            if not model_name.startswith("gemini/"):
+                # Strip any "google/" prefix, add "gemini/"
+                raw = model_name.split("/", 1)[-1] if "/" in model_name else model_name
+                model_name = f"gemini/{raw}"
+        elif self.provider == "openrouter" and not model_name.startswith("openrouter/"):
             model_name = f"openrouter/{model_name}"
         elif "/" not in model_name and self.provider:
             model_name = f"{self.provider}/{model_name}"
@@ -149,9 +160,21 @@ class ReasoningEngine:
             "model": model_name,
             "messages": full_messages,
             "api_key": api_key,
+            "max_tokens": settings.model.max_tokens, # Config'den alınır
         }
 
-        # ── P0-06: Prompt caching ──────────────────────────────────
+        # Safety Settings for Gemini (if provider is google/gemini)
+        if self.provider in ("google", "gemini"):
+            params["safety_settings"] = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+            ]
+            # Litellm'de max_tokens ayrı parametre olarak verilir, generationConfig yerine
+            params["max_tokens"] = 65535 # Gemini'ye özel yüksek token limiti
+
         cache_params = self._get_cache_params(system_prompt)
         if cache_params:
             params.update(cache_params)
@@ -170,58 +193,81 @@ class ReasoningEngine:
             response = await llm.acompletion(**params)
             return self._parse_response(response)
         except Exception as e:
-            from core.error_classifier import classify_api_error
-            classified = classify_api_error(e, provider=self.provider, model=model_name)
-            
-            # Auto-Retry for Rate Limits and Timeouts
-            if classified.reason in ["RateLimitError", "APIConnectionError", "Timeout"]:
-                import asyncio
-                from ui import display as _display
-                retry_wait = 10
-                log.warning(f"API {classified.reason} alindi! {retry_wait} saniye dinleniliyor, sonra tekrar denenecek...")
-                _display.print_info(f"Yogunluk/Limit Hatasi: Sistem {retry_wait} saniye soluklanip tekrar deneyecek (Mola) ☕")
+            return await self._handle_llm_error(e, llm, params, model_name, full_messages, stream_callback)
+
+    async def _handle_llm_error(
+        self, e: Exception, llm, params: dict, model_name: str,
+        full_messages: list, stream_callback=None
+    ) -> dict:
+        """Cross-provider fallback: try model chain on retryable errors."""
+        from core.error_classifier import classify_api_error, FailoverReason
+        classified = classify_api_error(e, provider=self.provider, model=model_name)
+
+        if classified.reason in [FailoverReason.RATE_LIMIT, FailoverReason.OVERLOADED,
+                                  FailoverReason.SERVER_ERROR, FailoverReason.TIMEOUT,
+                                  FailoverReason.MODEL_NOT_FOUND]:
+            import asyncio
+            from ui import display as _display
+            from providers.keys import keys as _km, ENV_MAP
+
+            # Build fallback chain, excluding the model that just failed
+            fallback_chain = self._get_fallback_chain(exclude_provider=self.provider, exclude_model=model_name)
+
+            for attempt, (fb_provider, fb_model_name) in enumerate(fallback_chain, 1):
+                retry_wait = 5 * attempt  # 5sn, 10sn, 15sn...
+                log.warning(f"Fallback {attempt}: {model_name} → {fb_model_name} ({fb_provider})")
+                _display.print_info(f"Model {model_name} hata verdi. {retry_wait}s sonra {fb_model_name} deneniyor... ☕")
                 await asyncio.sleep(retry_wait)
+
+                # Build new params for this model/provider
+                fb_params = params.copy()
+                fb_params["model"] = fb_model_name
+                fb_params["api_key"] = _km.get_key(fb_provider) or os.getenv(ENV_MAP.get(fb_provider, ""), "")
+
+                # Safety settings for Gemini
+                if fb_provider in ("google", "gemini"):
+                    fb_params["safety_settings"] = [
+                        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+                    ]
+                    fb_params["max_tokens"] = 65535
+                else:
+                    fb_params.pop("safety_settings", None)
+                    fb_params["max_tokens"] = settings.model.max_tokens
+
                 try:
-                    log.info(f"Mola bitti, {self.provider} uzerinden tekrar deneniyor...")
+                    log.info(f"Deniyorum: {fb_model_name}")
                     if stream_callback:
-                        return await self._think_stream(llm, params, stream_callback)
-                    response = await llm.acompletion(**params)
-                    return self._parse_response(response)
-                except Exception as retry_e:
-                    log.error(f"Tekrar deneme basarisiz: {retry_e}")
-                    e = retry_e # Fallback'e dusmesi icin asil hatayi guncelle
-            
-            log.error(f"LLM ERROR [{classified.reason}]: {type(e).__name__}: {str(e)[:200]}")
-            log.error(f"  model={model_name}, provider={self.provider}, key_len={len(api_key) if api_key else 0}")
-            log.error(f"  recovery: compress={classified.should_compress} rotate={classified.should_rotate_credential} fallback={classified.should_fallback}")
-            # Log to error database
-            try:
-                from core.error_db import log_llm_error
-                log_llm_error(
-                    message=str(e)[:500],
-                    category=classified.reason,
-                    provider=self.provider,
-                    model=model_name,
-                )
-            except Exception:
-                pass
-            # Log last 5 messages for debugging
-            last_msgs = full_messages[-5:] if len(full_messages) >= 5 else full_messages
-            for i, m in enumerate(last_msgs):
-                r = m.get("role", "")
-                c = (m.get("content") or "")[:80]
-                tc = m.get("tool_calls")
-                tci = m.get("tool_call_id", "")
-                log.error(f"  msg[-{len(last_msgs)-i}]: role={r} content={c} tc={bool(tc)} tcid={tci}")
-            if self.fallbacks and classified.reason not in ("BadRequestError", "AuthenticationError", "PermissionDeniedError"):
-                return await self._try_fallback(system_prompt, messages, tools)
-            raise
+                        return await self._think_stream(llm, fb_params, stream_callback)
+                    resp = await llm.acompletion(**fb_params)
+                    return self._parse_response(resp)
+                except Exception as fb_e:
+                    log.error(f"Fallback basarisiz ({fb_model_name}): {fb_e}")
+                    e = fb_e  # son hatayı tut
+
+        # All fallbacks exhausted — clean user message and raise
+        log.error(f"LLM ERROR [{classified.reason}]: {type(e).__name__}: {str(e)[:200]}")
+        log.error(f"  model={model_name}, provider={self.provider}")
+        log.error(f"  recovery: compress={classified.should_compress} rotate={classified.should_rotate_credential} fallback={classified.should_fallback}")
+        try:
+            from core.error_db import log_llm_error
+            log_llm_error(provider=self.provider, model=model_name, error=e)
+        except Exception:
+            pass
+        last_msgs = full_messages[-5:] if len(full_messages) >= 5 else full_messages
+        for i, m in enumerate(last_msgs):
+            r = m.get("role", "")
+            c = (m.get("content") or "")[:80]
+            tc = m.get("tool_calls")
+            tci = m.get("tool_call_id", "")
+            log.error(f"  msg[-{len(last_msgs)-i}]: role={r} content={c} tc={bool(tc)} tcid={tci}")
+        raise
 
     async def _think_stream(self, llm, params: dict, callback: callable) -> dict:
-        """Streaming LLM call — accumulate chunks, yield via callback.
-
-        Returns the same dict format as _parse_response().
-        """
+        """Streaming LLM call — accumulate chunks, yield via callback."""
         content_chunks: list[str] = []
         tool_call_deltas: dict[int, dict] = {}
         finish_reason = "stop"
@@ -229,16 +275,18 @@ class ReasoningEngine:
         stream = await llm.acompletion(stream=True, **params)
 
         async for chunk in stream:
+            if not chunk.choices:
+                log.warning(f"LLM stream chunk has no choices for model {params.get('model')}")
+                continue
+
             delta = chunk.choices[0].delta if chunk.choices else None
             if not delta:
                 continue
 
-            # Content chunk
             if delta.content:
                 content_chunks.append(delta.content)
                 callback(delta.content)
 
-            # Tool call chunks — accumulate deltas
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -254,13 +302,10 @@ class ReasoningEngine:
                         if tc.function.arguments:
                             tool_call_deltas[idx]["function"]["arguments"] += tc.function.arguments
 
-            # Finish reason
             if chunk.choices[0].finish_reason:
                 finish_reason = chunk.choices[0].finish_reason
 
-        # Build response in same format as _parse_response
         content = "".join(content_chunks)
-        # Estimate tokens from content length (rough: 4 chars ≈ 1 token)
         _est_prompt = params.get("messages", [])
         _prompt_chars = sum(len(str(m.get("content", ""))) for m in _est_prompt)
         _est_in = _prompt_chars // 4
@@ -281,78 +326,34 @@ class ReasoningEngine:
                 tool_call_deltas[i] for i in sorted(tool_call_deltas.keys())
             ]
 
+        # ── Token budget kontrolü (stream) ──
+        from core.mode_manager import modes
+        _est_total = _est_in + _est_out
+        if _est_total > 0 and modes.budget_hit(_est_total):
+            from ui.display import print_warning
+            print_warning(f"Token budget asildi! ({modes.budget_used}/{modes.budget})")
+            result["_budget_breached"] = True
+
         return result
 
-    async def _try_fallback(
-        self, system_prompt: str, messages: list[dict], tools: Optional[list[dict]]
-    ) -> dict:
-        """Provider router üzerinden async fallback dene."""
-        llm = self._get_llm()
-        full_messages = [{"role": "system", "content": system_prompt}]
-        full_messages.extend(messages)
-
-        # API key env mapping for fallback providers
-        KEY_ENV_MAP = {
-            "openrouter": "OPENROUTER_API_KEY",
-            "deepseek": "DEEPSEEK_API_KEY",
-            "groq": "GROQ_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "siliconflow": "SILICONFLOW_API_KEY",
-            "together": "TOGETHER_API_KEY",
-            "google": "GOOGLE_API_KEY",
-        }
-
-        # Reset router state before starting fallback cycle
-        self._router.reset()
-
-        while True:
-            provider = await self._router.fallback()
-            if not provider:
-                break
-            try:
-                log.info(f"Fallback deneniyor: {provider['name']} ({provider['model']})")
-
-                # Look up API key for this fallback provider
-                pname = provider["name"]
-                fb_key = ""
-                try:
-                    from providers.keys import keys as _km
-                    fb_key = _km.get_key(pname)
-                except ImportError:
-                    pass
-                if not fb_key:
-                    env_var = KEY_ENV_MAP.get(pname)
-                    if env_var:
-                        fb_key = os.getenv(env_var, "")
-
-                params = {
-                    "model": provider["model"],
-                    "messages": full_messages,
-                    "api_key": fb_key or None,
-                }
-                if tools:
-                    params["tools"] = tools
-                    params["tool_choice"] = "auto"
-
-                response = await llm.acompletion(**params)
-                log.info(f"Fallback basarili: {provider['name']}")
-                return self._parse_response(response)
-            except Exception as e:
-                log.warning(f"Fallback [{provider['name']}] basarisiz: {e}")
-                continue
-
-        raise Exception("Tum provider'lar basarisiz oldu")
-
     def _parse_response(self, response) -> dict:
-        """LLM yanıtını parse et."""
+        """LLM yanıtını parse et + token budget kontrolü."""
+        if not response.choices:
+            log.warning(f"LLM response has no choices for model {response.model}")
+            return {"content": "", "tool_calls": [], "finish_reason": "no_choices", "usage": {"prompt_tokens": 0, "completion_tokens": 0}, "cost": 0}
+
         choice = response.choices[0]
+        prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+        completion_tokens = response.usage.completion_tokens if response.usage else 0
+        total_tokens = prompt_tokens + completion_tokens
+
         result = {
             "content": choice.message.content or "",
             "tool_calls": [],
             "finish_reason": getattr(choice, "finish_reason", "stop"),
             "usage": {
-                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
             },
             "cost": getattr(response, "_cost", 0),
         }
@@ -370,6 +371,13 @@ class ReasoningEngine:
                 for tc in choice.message.tool_calls
             ]
 
+        # ── Token budget kontrolü ──
+        from core.mode_manager import modes
+        if total_tokens > 0 and modes.budget_hit(total_tokens):
+            from ui.display import print_warning
+            print_warning(f"Token budget asildi! ({modes.budget_used}/{modes.budget})")
+            result["_budget_breached"] = True
+
         return result
 
     def _get_api_key(self) -> str | None:
@@ -380,10 +388,10 @@ class ReasoningEngine:
             "anthropic": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
             "google": "GOOGLE_API_KEY",
+            "gemini": "GOOGLE_API_KEY",
             "siliconflow": "SILICONFLOW_API_KEY",
             "together": "TOGETHER_API_KEY",
         }
-        # Always use key manager (env vars may be masked)
         try:
             from providers.keys import keys as _km
             mgr_key = _km.get_key(self.provider)
@@ -392,7 +400,6 @@ class ReasoningEngine:
         except Exception:
             pass
 
-        # Fallback: check env vars as last resort
         env_key = key_map.get(self.provider)
         if env_key:
             key = os.getenv(env_key)
@@ -402,6 +409,4 @@ class ReasoningEngine:
         return os.getenv("API_KEY") or os.getenv("DORINA_API_KEY")
 
     def reset_cache(self):
-        """Cache state'ini sıfırla (system prompt değişikliği durumunda)."""
         ReasoningEngine._last_system_prompt_hash = None
-        log.info("Prompt cache state reset")

@@ -71,3 +71,20 @@ class Approval:
 
 
 approval = Approval()
+
+
+def _approval_hook(tool_name: str, arguments: dict) -> bool:
+    """Pre-execution hook: tool cagrilmadan once onay al."""
+    return approval.approve(tool_name, arguments)
+
+
+# Kendini pipeline'a kaydet (lazy import)
+def _register_approval_hook():
+    try:
+        from hooks.lifecycle import pipeline
+        pipeline.register("pre_execution", _approval_hook)
+    except Exception:
+        pass  # pipeline henuz hazir degilse sessizce gec
+
+
+_register_approval_hook()

@@ -207,7 +207,10 @@ class StateMachine:
                  break
 
         if context.state == AgentState.ERROR or context.error:
-            return f"Hata: {context.error}"
+            from ui.display import console as _ec
+            _ec.print(f"[bold red]✗ Bir hata olustu:[/] {context.error[:200]}")
+            _ec.print(f"[dim]Detaylar: ~/.dorina/logs/agent.log[/dim]")
+            return f"✗ Hata: {context.error[:200]}"
 
         return context.final_response
 

@@ -12,7 +12,8 @@ import time
 import asyncio
 
 from core.constants import NAME, VERSION
-from soul.personality import GODMODE, AUDIT_MODE
+from core.mode_manager import modes
+from core.event_bus import bus
 
 DORINA_ORANGE = "#E06C75"
 TEXT_MAIN = "#ABB2BF"
@@ -42,6 +43,7 @@ class StatusBar:
         self.turn_tokens_in = 0
         self.turn_tokens_out = 0
         self._status_text = "idle"
+        self._last_update = time.time()
 
     def _ensure_lock(self):
         if self._lock is None:
@@ -101,11 +103,9 @@ class StatusBar:
         return f"{e // 3600:.0f}h {(e % 3600) // 60:.0f}m"
 
     def get_toolbar_tokens(self) -> list[tuple[str, str]]:
-        from soul.personality import GODMODE, AUDIT_MODE
-
         tokens = []
         
-        if GODMODE:
+        if modes.is_on('godmode'):
             tokens.append(("class:godmode", " ⚡ GOD MODE "))
             tokens.append(("class:godmode_dim", "  │  "))
             tokens.extend([
@@ -115,7 +115,7 @@ class StatusBar:
                 ("class:godmode_dim", "  │  tur: "),
                 ("class:godmode_dim", str(self.turn)),
             ])
-        elif AUDIT_MODE:
+        elif modes.is_on('audit'):
             tokens.append(("class:audit", " 🔍 AUDIT "))
             tokens.append(("class:dim", "  │  "))
             tokens.extend([
@@ -126,6 +126,16 @@ class StatusBar:
                 ("class:dim", "  │  tur: "),
                 ("class:dim", str(self.turn)),
                 ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
+            ])
+        elif modes.is_on('temp'):
+            tokens.append(("class:temp", " 💭 TEMP "))
+            tokens.append(("class:temp_dim", "  │  "))
+            tokens.extend([
+                ("class:temp_dim", f" {self.model or 'deepseek'}"),
+                ("class:temp_dim", "  │  "),
+                ("class:temp_dim", f"in: {self.tokens_in:,}  out: {self.tokens_out:,}"),
+                ("class:temp_dim", "  │  tur: "),
+                ("class:temp_dim", str(self.turn)),
             ])
         else:
             tokens.extend([
@@ -138,11 +148,11 @@ class StatusBar:
                 ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
             ])
         return tokens
-
     def _get_task_count(self) -> int:
+        """Arka planda calisan gorev sayisi (sadece running)."""
         try:
             from bg_tools.task_manager import task_manager
-            return len(task_manager.list_tasks())
+            return len([t for t in task_manager.list_tasks() if t.status == "running"])
         except Exception:
             return 0
 
@@ -163,9 +173,9 @@ class StatusBar:
         tbl.add_row("Tool Calls", str(self.tool_calls))
         tbl.add_row("Token (in/out)", f"{self.tokens_in:,} / {self.tokens_out:,}")
         tbl.add_row("Maliyet", f"${self.cost:.6f}")
-        if GODMODE:
+        if modes.is_on('godmode'):
             tbl.add_row("Godmode", "⚡ AKTİF", style="bold red")
-        if AUDIT_MODE:
+        if modes.is_on('audit'):
             tbl.add_row("Audit", "🔍 ACIK", style="bold #E06C75")
         console.print(tbl)
 
@@ -186,7 +196,7 @@ class StatusBar:
     def show_waiting(self):
         """AI calisirken gosterilecek bekleme mesaji."""
         mdl = self.model or "?"
-        if GODMODE:
+        if modes.is_on('godmode'):
             print(f"\r\x1b[38;5;208m⟳ {self._status_text} {mdl}\x1b[0m  │  tur: {self.turn}  ", end="", flush=True)
         else:
             print(f"\r⟳ {self._status_text} {mdl}  │  tur: {self.turn}  ", end="", flush=True)
@@ -213,6 +223,12 @@ class StatusBar:
     def _refresh(self):
         pass
 
+    def update(self):
+        """Force refresh — marks toolbar for re-render on next prompt_toolkit cycle."""
+        self._last_update = time.time()
+        # get_toolbar_tokens() reads modes directly, so the toolbar
+        # will pick up any mode change on the next render cycle.
+
     def reset(self):
         self.tokens_in = 0
         self.tokens_out = 0
@@ -227,3 +243,11 @@ class StatusBar:
 
 
 status = StatusBar()
+
+
+def _setup_mode_listener():
+    """Subscribe to mode_change events so the status bar refreshes visually."""
+    bus.subscribe("mode_change", lambda **kw: status.update())
+
+
+_setup_mode_listener()

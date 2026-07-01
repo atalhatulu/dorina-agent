@@ -6,8 +6,9 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
+from core.constants import DORINA_HOME
 
-BASE_DIR = Path.home() / ".dorina" / "sessions"
+BASE_DIR = DORINA_HOME / "sessions"
 MAX_SESSIONS = 500  # En fazla 500 session sakla
 
 

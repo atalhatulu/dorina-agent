@@ -65,10 +65,14 @@ class TaskManager:
         return task_id
 
     def pop_notifications(self) -> list[str]:
-        """Get and clear finished task notifications."""
-        notifs = self._pending_notifications.copy()
-        self._pending_notifications.clear()
-        return notifs
+        """Thread-safe notification pop."""
+        import threading
+        if not hasattr(self, "_notif_lock"):
+            self._notif_lock = threading.Lock()
+        with self._notif_lock:
+            notifs = list(self._pending_notifications)
+            self._pending_notifications.clear()
+            return notifs
 
     def list_tasks(self) -> list[BackgroundTask]:
         """Return all tasks."""
@@ -97,6 +101,10 @@ class TaskManager:
             task._asyncio_task.cancel()
             
         return True
+
+    def clear_failed(self):
+        """Remove all failed tasks."""
+        self._tasks = {k: v for k, v in self._tasks.items() if v.status != "failed"}
 
     def clear_done(self):
         """Remove finished, failed or cancelled tasks from history."""

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from memory.procedural import ProceduralMemory
+from core.utils import safe_json_loads
 from core.logger import log
 from core.constants import DORINA_HOME, DEFAULT_DATA_DIR, SKILL_TRIGGER_KEYWORDS, SKILL_AUTO_LOAD_THRESHOLD
 
@@ -27,10 +28,7 @@ class SkillManager:
         import json
         self.STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
         if self.STATUS_FILE.exists():
-            try:
-                self.usage_data = json.loads(self.STATUS_FILE.read_text())
-            except:
-                self.usage_data = {}
+            self.usage_data = safe_json_loads(self.STATUS_FILE, {})
 
     def _save_usage(self):
         import json

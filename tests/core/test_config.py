@@ -28,7 +28,7 @@ class TestSettings:
     def test_settings_nested_configs(self):
         from core.config import Settings
         s = Settings()
-        assert s.model.default in ("deepseek/deepseek-chat", "deepseek/deepseek-v4-flash", "google/gemini-2.0-flash", "gemini/gemini-2.0-flash", "ollama/gemma4:e2b", "ollama/nemotron-3-super:cloud")
+        assert s.model.default in ("deepseek/deepseek-chat", "deepseek/deepseek-v4-flash", "google/gemini-2.0-flash", "gemini/gemini-2.0-flash", "gemini-2.5-flash-lite", "ollama/gemma4:e2b", "ollama/nemotron-3-super:cloud")
         assert s.terminal.status_bar is True
         assert s.memory.enabled is True
         assert s.tools.sandbox == "docker"

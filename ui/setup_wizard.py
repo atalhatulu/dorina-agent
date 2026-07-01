@@ -2,11 +2,12 @@
 from __future__ import annotations
 import json
 from pathlib import Path
+from core.constants import DORINA_HOME
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
 from rich import box
-from providers.keys import PROVIDERS as PROVIDER_CONFIG, PROVIDER_SETUP_LIST
+from providers.keys import PROVIDERS as PROVIDER_CONFIG
 
 console = Console()
 
@@ -21,7 +22,7 @@ PROVIDER_MODELS = {
     for name, info in PROVIDER_CONFIG.items()
 }
 
-PROVIDERS = PROVIDER_SETUP_LIST
+PROVIDERS = [("google", "Google Gemini", True)]
 
 
 def _resolve_provider(name: str) -> str:
@@ -44,7 +45,7 @@ async def run_setup_wizard():
     from ui.provider_selector import select_provider
     from providers.keys import keys as km
 
-    provider = select_provider(_resolve_provider(config.get("provider", "")))
+    provider = await select_provider(_resolve_provider(config.get("provider", "")))
     if provider is None:
         console.print("  [yellow]Cancelled[/yellow]")
         return config
@@ -99,7 +100,7 @@ async def run_setup_wizard():
     config["status_bar"] = Confirm.ask("  Show status bar?", default=True)
 
     # Save both to setup.json AND config.yaml
-    config_dir = Path.home() / ".dorina"
+    config_dir = DORINA_HOME
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "setup.json").write_text(json.dumps(config, indent=2))
     
@@ -133,7 +134,7 @@ async def run_setup_wizard():
 
 
 def needs_setup() -> bool:
-    return not (Path.home() / ".dorina" / "setup.json").exists()
+    return not (DORINA_HOME / "setup.json").exists()
 
 
 def run_user_profile_wizard() -> dict:
@@ -182,7 +183,7 @@ def run_user_profile_wizard() -> dict:
     style_map = {"p": "professional", "d": "dengeli", "a": "arkadas"}
     profile["personality_style"] = style_map.get(personality, "dengeli")
     
-    config_dir = Path.home() / ".dorina"
+    config_dir = DORINA_HOME
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "user_profile.json").write_text(
         json.dumps(profile, indent=2, ensure_ascii=False)
@@ -194,4 +195,4 @@ def run_user_profile_wizard() -> dict:
 
 def has_user_profile() -> bool:
     """Kullanici profili var mi?"""
-    return (Path.home() / ".dorina" / "user_profile.json").exists()
+    return (DORINA_HOME / "user_profile.json").exists()

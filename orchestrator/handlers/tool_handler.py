@@ -50,6 +50,33 @@ async def handle_waiting_result(loop, ctx: AgentContext):
         ctx.metadata["all_tools_failed"] = True
         return
 
+    # ── Enforce tool call limits per turn (max 15) ──
+    from ui.display import console as _disp_con
+    if len(tool_calls) > 15:
+        _disp_con.print(f"[bold yellow]⚠ Tek turda max 15 tool ({len(tool_calls)} istendi). Ilk 15 calisiyor.[/]")
+        tool_calls = tool_calls[:15]
+
+    # ── Repetition guard: same file read >1x per turn → skip ──
+    import json as _fj
+    _seen_in_turn: set = set()
+    _filtered: list = []
+    for tc in tool_calls:
+        fn = tc.get("function", {})
+        name = fn.get("name", "")
+        _key = ""
+        if name == "read_file":
+            try:
+                _args = _fj.loads(fn.get("arguments", "{}"))
+                _key = _args.get("path", "")
+                if _key in _seen_in_turn:
+                    _disp_con.print(f"[dim]⚠ {_key} ayni turda 2. kez okunuyor, atlandi[/]")
+                    continue
+                _seen_in_turn.add(_key)
+            except Exception:
+                pass
+        _filtered.append(tc)
+    tool_calls = _filtered
+
     READ_TOOLS = frozenset({"read_file", "search_files", "web_search", "web_fetch",
                             "browser_snapshot", "gif_search", "list_directory"})
     read_calls = [tc for tc in tool_calls if tc.get("function", {}).get("name", "") in READ_TOOLS]
@@ -78,7 +105,11 @@ async def handle_waiting_result(loop, ctx: AgentContext):
         _display.print_tool_start(name, _parsed)
         try:
             result = await asyncio.to_thread(executor.execute, name, args)
-            loop.context.add_tool_result(name, result, tool_call_id)
+            # Tool ciktisini contexte ekle: read_file disindaki buyuk ciktilar 1500'de kesilir
+            _ctx_result = result
+            if name != "read_file" and len(_ctx_result) > 2000:
+                _ctx_result = _ctx_result[:1500] + f"\n[...{len(_ctx_result)-1500} karakter kisaltildi]"
+            loop.context.add_tool_result(name, _ctx_result, tool_call_id)
             if "error" in result[:20].lower():
                 _display.print_tool_error(name, result)
                 fail_count += 1

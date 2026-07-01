@@ -54,7 +54,7 @@ class ToolRegistry:
         return list(self._tools.values())
 
     def schemas(self, toolset: str | None = None) -> list[dict]:
-        """LLM'e göndermek için JSON schema listesi."""
+        """LLM'e göndermek için JSON schema listesi (toolset'e göre filtreler)."""
         return [
             {
                 "type": "function",
@@ -65,7 +65,21 @@ class ToolRegistry:
                 },
             }
             for t in self.list(toolset)
-            if t.check_fn is None or t.check_fn()
+        ]
+
+    def schemas_for(self, names: list[str]) -> list[dict]:
+        """Sadece belirtilen tool isimlerinin schema'larini dondurur."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                },
+            }
+            for name in names
+            if (t := self._tools.get(name))
         ]
 
     def available_tools(self) -> list[str]:

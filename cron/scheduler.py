@@ -14,6 +14,7 @@ from typing import Optional
 from dataclasses import dataclass, field
 
 from core.logger import log
+from core.utils import safe_json_loads
 
 from core.constants import DEFAULT_DATA_DIR
 JOBS_FILE = DEFAULT_DATA_DIR / "cron_jobs.json"
@@ -43,11 +44,8 @@ class CronScheduler:
 
     def _load(self):
         if JOBS_FILE.exists():
-            try:
-                data = json.loads(JOBS_FILE.read_text())
-                self.jobs = [CronJob(**j) for j in data]
-            except:
-                self.jobs = []
+            data = safe_json_loads(JOBS_FILE, [])
+            self.jobs = [CronJob(**j) for j in data]
 
     def _save(self):
         data = [{"id": j.id, "name": j.name, "schedule": j.schedule,

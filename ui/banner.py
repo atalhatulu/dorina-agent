@@ -1,6 +1,7 @@
 """Baslangic banner'i — fastfetch tarzi, #D4622A tema."""
 import os
 import platform
+import subprocess as _sp_run
 import sys
 from rich.console import Console
 from rich.text import Text
@@ -111,7 +112,7 @@ def print_startup_banner(
     api_keys: list[str] = None,
 ):
     """Ekrani temizle ve gradient ASCII + infos bas."""
-    os.system("clear" if os.name == "posix" else "cls")
+    _sp_run.run("clear" if os.name == "posix" else "cls", shell=True)
 
     if tools_available is None: tools_available = []
     if tools_all is None: tools_all = []

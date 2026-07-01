@@ -5,14 +5,15 @@ from typing import Optional, List
 from pydantic_settings import BaseSettings, SettingsConfigDict, YamlConfigSettingsSource
 from pydantic_settings.sources import PydanticBaseSettingsSource
 from pydantic import Field
-from core.constants import DORINA_HOME
+from core.constants import DORINA_HOME, DEFAULT_MODEL
 
 
 class ModelConfig(BaseSettings):
-    default: str = "deepseek/deepseek-chat"
+    model_config = SettingsConfigDict(extra="ignore")
+
+    default: str = Field(default="deepseek/deepseek-chat")
     provider: str = "deepseek"
     godmode: bool = False
-    fallback_providers: List[str] = ["openrouter", "groq"]
     context_length: int = 128000
     max_tokens: int = 4096
     # Token pricing (per 1K tokens USD)
@@ -117,22 +118,79 @@ class Settings(BaseSettings):
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "Settings":
-        """Load config.yaml + .env, return Settings."""
+        """Load ~/.dorina/config.yaml + providers.json + .env, return Settings."""
         import yaml
+        import json
         from pathlib import Path as P
+        from core.constants import DORINA_HOME
+        from providers.keys import PROVIDERS_FILE
 
-        config_path = P(path) if path else P("config.yaml")
+        # 1. ~/.dorina/config.yaml
+        config_path = P(path) if path else DORINA_HOME / "config.yaml"
         if config_path.exists():
             with open(config_path) as f:
                 raw = yaml.safe_load(f)
         else:
             raw = {}
 
-        # Read environment
+        # 2. providers.json'daki default model
+        if PROVIDERS_FILE.exists():
+            try:
+                with open(PROVIDERS_FILE) as f:
+                    pj = json.load(f)
+                pj_default = pj.get("default", "")
+                if pj_default and not raw.get("model", {}).get("default"):
+                    raw.setdefault("model", {})
+                    raw["model"]["default"] = pj_default
+                    if "/" in pj_default:
+                        raw["model"]["provider"] = pj_default.split("/", 1)[0]
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # 3. .env
         from dotenv import load_dotenv
         load_dotenv()
 
-        return cls(**raw)
+        inst = cls(**raw)
+        return inst
+
+    def save(self):
+        """Write model config to config.yaml + providers.json default."""
+        import yaml, json
+        from pathlib import Path as P
+        from core.constants import DORINA_HOME
+        from providers.keys import PROVIDERS_FILE
+
+        # 1. providers.json default model
+        if PROVIDERS_FILE.exists():
+            try:
+                with open(PROVIDERS_FILE) as f:
+                    pj = json.load(f)
+                pj["default"] = self.model.default
+                PROVIDERS_FILE.write_text(json.dumps(pj, indent=2, ensure_ascii=False))
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # 2. config.yaml
+        config_path = DORINA_HOME / "config.yaml"
+        raw = {
+            "model": {
+                "default": self.model.default,
+                "provider": self.model.provider,
+                "godmode": self.model.godmode,
+                "context_length": self.model.context_length,
+                "max_tokens": self.model.max_tokens,
+            },
+        }
+        existing = {}
+        if config_path.exists():
+            try:
+                existing = yaml.safe_load(config_path.read_text()) or {}
+            except Exception:
+                existing = {}
+        existing["model"] = raw["model"]
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(yaml.safe_dump(existing, default_flow_style=False, allow_unicode=True))
 
 
 settings = Settings.load()

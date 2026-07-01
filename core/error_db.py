@@ -5,13 +5,14 @@ Simple SQLite-based logger. Falls back to log.error if DB unavailable.
 
 from __future__ import annotations
 from pathlib import Path
+from core.constants import DORINA_HOME
 from datetime import datetime, timezone
 import traceback
 import json
 
 try:
     import sqlite3
-    _DB_PATH = Path.home() / ".dorina" / "data" / "error_log.db"
+    _DB_PATH = DORINA_HOME / "data" / "error_log.db"
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     _conn = sqlite3.connect(str(_DB_PATH))
     _conn.execute("""

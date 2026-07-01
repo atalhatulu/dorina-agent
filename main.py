@@ -49,43 +49,31 @@ import ui.display as display
 from ui.status_bar import status
 from orchestrator.agent_loop import loop
 from tools.registry import registry
-from tools.builtin import basic  # noqa: F401
-from tools.builtin import advanced  # noqa: F401
-from tools.builtin import modules  # noqa: F401
-from tools.builtin import terminal_utils  # noqa: F401
-from tools.builtin import git_tools  # noqa: F401
-from tools.builtin import clarify_tool  # noqa: F401
-from tools.builtin import cron_tools  # noqa: F401
-from tools.builtin import memory_tools  # noqa: F401
-from tools.builtin import bg_task_tool  # noqa: F401
-from tools.builtin import graphify_tools  # noqa: F401
-from mail import tools as mail_tools  # noqa: F401
-from lsp import tools as lsp_tools  # noqa: F401
-from evolution import tools as evolution_tools  # noqa: F401
-from history import tools as history_tools  # noqa: F401
-from agents import task_tools  # noqa: F401
-from orchestrator import plan_tools  # noqa: F401
+from tools.builtin import basic
+from tools.builtin import git_tools
+from tools.builtin import clarify_tool
+from tools.builtin import cron_tools
+from tools.builtin import memory_tools
+from tools.builtin import bg_task_tool
+from tools.builtin import graphify_tools
 from session.manager import manager
-from memory.semantic import SemanticMemory
 from providers.keys import keys  # noqa: F401
-from providers.keys import PROVIDERS as _PROV
 import os as _os
 
 
 def _init_api_keys():
-    """Load API keys from KeyManager into environment."""
-    for _p_name, _p_info in _PROV.items():
-        _env_name = _p_info.get("env", "")
-        if not _env_name:
-            continue  # skip providers without env var (e.g. ollama)
-        _p_key = keys.get_key(_p_name)
-        if _p_key:
-            _os.environ[_env_name] = _p_key
+    """Load all API keys from KeyManager into environment."""
+    from providers.keys import keys, ENV_MAP
+    for provider, ev in ENV_MAP.items():
+        if not ev:
+            continue
+        k = keys.get_key(provider)
+        if k and not _os.environ.get(ev):
+            _os.environ[ev] = k
 
 
 _init_api_keys()
 from memory.procedural import ProceduralMemory
-from memory.episodic import EpisodicMemory
 
 from knowledge.rag_engine import rag
 from skills.manager import skills
@@ -152,6 +140,13 @@ class DorinaApp:
                         settings.model.provider = _cfg["model"]["provider"]
                     if "default" in _cfg["model"]:
                         settings.model.default = _cfg["model"]["default"]
+                    if "godmode" in _cfg["model"]:
+                        settings.model.godmode = _cfg["model"]["godmode"]
+                    # Runtime modlari her zaman sifirla (baslangicta hicbir mod aktif olmasin)
+                    import soul.personality as _soul
+                    _soul.GODMODE = False
+                    _soul.AUDIT_MODE = False
+                    settings.model.godmode = False  # Banner da turuncu acilsin
             except Exception:
                 pass
 

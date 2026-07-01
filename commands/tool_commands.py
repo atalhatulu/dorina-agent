@@ -20,10 +20,11 @@ async def cmd_tools(app: "DorinaApp", cmd: str) -> None:
 
 
 async def cmd_tasks(app: "DorinaApp", cmd: str) -> None:
-    """List background tasks."""
+    """List background tasks (failed olanlari otomatik temizler)."""
     from bg_tools.task_manager import task_manager
     from ui.display import print_table as _pt_tasks, print_info
 
+    task_manager.clear_failed()  # failed task'leri otomatik sil
     tasks = task_manager.list_tasks()
     if tasks:
         rows = [[t.id, t.name, t.status, t.elapsed] for t in tasks]

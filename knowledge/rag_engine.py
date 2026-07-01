@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.logger import log
+from core.constants import DORINA_HOME
 
 
 class RAGEngine:
@@ -27,7 +28,7 @@ class RAGEngine:
             import chromadb
             try:
                 self.client = chromadb.PersistentClient(
-                    path=str(Path.home() / ".dorina" / "data" / "rag_knowledge"),
+                    path=str(DORINA_HOME / "data" / "rag_knowledge"),
                 )
             except Exception:
                 return  # ChromaDB basarisiz, sessizce gec

@@ -16,6 +16,8 @@ _RE_FILE_LINE2 = _re.compile(r'[-\s]+File "([^"]+)", line (\d+)')
 from prompt_toolkit.output import create_output
 from prompt_toolkit.patch_stdout import patch_stdout as _pt_patch
 
+from core.mode_manager import modes
+
 console = Console(
     highlight=False,
 )
@@ -133,7 +135,7 @@ def print_tool_start(name: str, args: dict | None = None):
             import json as _json
             try:
                 arg_str = _safe_str(_json.dumps(args, ensure_ascii=False), 60)
-            except:
+            except (TypeError, ValueError, OverflowError):
                 arg_str = _safe_str(str(args), 60)
             
     t = Text()
@@ -194,6 +196,13 @@ def print_tool_done(name: str, result: str):
     if is_multi:
         fl = _safe_str(raw.split("\n")[0], 100)
         summary = f"{fl} ({raw.count(chr(10))+1} satır, {len(raw)} B)"
+
+    # sudo password prompt: ayri satir + bariz arkaplan rengi
+    _sudo_style = "bold #ffffff on #cc0000"  # beyaz yazi, kirmizi arkaplan
+    if "sudo" in summary.lower() and "password" in summary.lower():
+        _current_tool_text = None
+        console.print(f"\n{INDENT}[bold #ffffff on #cc0000] ── [sudo] password istiyor ── [/]")
+        return
 
     if _current_tool_text:
         line = Text()
@@ -324,14 +333,18 @@ def print_success(text: str):
     console.print(t)
 
 
+def print_warning(text: str):
+    """WARNING mesaji — turuncu ikaz stili."""
+    t = Text()
+    t.append(INDENT + "⚠ ", style="bold #FFA500")
+    t.append(str(text), style="#FFA500")
+    console.print(t)
+
+
 def print_info(text: str):
-    from core.config import settings
-    import soul.personality as _sp
-    godmode = getattr(settings.model, "godmode", False)
-    
-    if godmode:
+    if modes.is_on('godmode'):
         color = "#ff3333"
-    elif getattr(_sp, "AUDIT_MODE", False):
+    elif modes.is_on('audit'):
         color = "#E06C75"
     else:
         color = USER

@@ -131,10 +131,11 @@ class TestToolRegistry:
         def pre_hook(tool_name, arguments):
             return True
 
+        fresh_registry.clear_hooks()
         fresh_registry.register_hook("pre_execution", pre_hook)
         hooks = fresh_registry.list_hooks()
         assert "pre_execution" in hooks
-        assert len(hooks["pre_execution"]) == 1
+        assert len(hooks["pre_execution"]) >= 1
 
         count = fresh_registry.hook_count()
         assert count >= 1

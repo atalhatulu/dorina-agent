@@ -15,29 +15,29 @@ class TestAgentLoopCore:
         assert loop.sm is not None
 
     def test_clean_content_removes_xml(self):
-        from orchestrator.agent_loop import AgentLoop
+        from orchestrator.cleaner import clean_content
         text = '<invoke name="read_file"><parameter name="path">/etc/passwd</parameter></invoke>'
-        cleaned = AgentLoop._clean_content(text)
+        cleaned = clean_content(text)
         assert "<invoke" not in cleaned
         assert "<parameter" not in cleaned
 
     def test_clean_content_removes_tool_calls_xml(self):
-        from orchestrator.agent_loop import AgentLoop
+        from orchestrator.cleaner import clean_content
         text = '<tool_calls><tool name="search">query</tool></tool_calls>'
-        cleaned = AgentLoop._clean_content(text)
+        cleaned = clean_content(text)
         assert "<tool_calls" not in cleaned
         assert "<tool" not in cleaned
 
     def test_clean_content_preserves_normal_text(self):
-        from orchestrator.agent_loop import AgentLoop
+        from orchestrator.cleaner import clean_content
         text = "Hello, this is normal text with no XML."
-        cleaned = AgentLoop._clean_content(text)
+        cleaned = clean_content(text)
         assert cleaned == text
 
     def test_clean_content_function_calls(self):
-        from orchestrator.agent_loop import AgentLoop
+        from orchestrator.cleaner import clean_content
         text = '<function=read_file>path="/etc/passwd"</function>'
-        cleaned = AgentLoop._clean_content(text)
+        cleaned = clean_content(text)
         assert "<function" not in cleaned
 
     def test_reset(self):

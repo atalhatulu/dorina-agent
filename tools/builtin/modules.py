@@ -21,12 +21,10 @@ from core.logger import log
 def list_providers_tool() -> str:
     """Kullanılabilir LLM sağlayıcılarını listele."""
     from providers.router import router
-    # Add default providers
-    if not router.providers:
-        router.add_provider("deepseek", "deepseek/deepseek-v4-flash", weight=1)
-        router.add_provider("groq", "groq/llama3-70b-8192", weight=2)
-        router.add_provider("ollama", "ollama/llama3", weight=3)
-    return json.dumps(router.list(), ensure_ascii=False)
+    active = router.get_active()
+    return json.dumps([
+        {"name": active["name"], "model": active["model"], "active": True}
+    ], ensure_ascii=False)
 
 
 @register_tool(
@@ -42,12 +40,10 @@ def list_providers_tool() -> str:
     toolset="system",
 )
 def switch_provider_tool(provider: str) -> str:
-    from providers.router import router
-    for i, p in enumerate(router.providers):
-        if p["name"].lower() == provider.lower():
-            router._current = i
-            return json.dumps({"success": True, "provider": provider})
-    return json.dumps({"error": f"Sağlayıcı bulunamadı: {provider}"})
+    """Provider değiştir — config'e yaz, restart gerektirir."""
+    return json.dumps({
+        "error": f"Provider degistirme özelliği kaldirildi. Config'i manuel güncelle: ~/.dorina/config.yaml"
+    })
 
 
 # ─── SEARCH TOOL'LARI ───────────────────────────

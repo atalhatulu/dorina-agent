@@ -28,6 +28,14 @@ from orchestrator.checkpoint import checkpoint_manager
 # Extracted state handlers
 from orchestrator.handlers import build_handlers
 
+# Extracted utilities (was spagetti inside this class)
+from orchestrator.cleaner import clean_content
+from orchestrator.repair import repair_message_sequence
+
+# Extracted greeting detection + session auto-titling
+from orchestrator.greeting import is_greeting
+from orchestrator.titler import autotitle
+
 
 class AgentLoop:
     """
@@ -45,6 +53,8 @@ class AgentLoop:
         self._skills_injected = False  # P0-05: sadece ilk turda skill injection
         self._session_titled = False  # Otomatik title
         self._temp_mode = False  # Gecici sohbet modu (kayit yok)
+        self._prompt_cache: str = ""
+        self._prompt_cache_turn: int = -1
 
 
     async def process(self, user_input: str) -> str:
@@ -69,16 +79,14 @@ class AgentLoop:
             self._error_patterns = {}  # tool_name -> [error_sig, count]
         
         # ─── Selamlama Tespiti (Python tarafinda, LLM cagrisi yok) ───
-        _greeting_kelimeler = {"merhaba", "selam", "hey", "hi", "hello", "naber", "nasilsin", "nasılsın", "günaydın", "gunaydin", "iyi geceler", "kolay gelsin"}
-        _user_lower = (user_input or "").lower().strip().rstrip(".!?,")
-        # Sadece selamlama kelimelerinden olusuyorsa (en fazla 3 kelime)
-        _words = set(_user_lower.split())
-        if _words and _words.issubset(_greeting_kelimeler | {"talha", "dorina"}) and len(_words) <= 3:
+        if is_greeting(user_input):
             _status.set_status("idle")
             self.turn = max(0, self.turn - 1)
+            _user_lower = (user_input or "").lower().strip().rstrip(".!?,")
+            _words = set(_user_lower.split())
             _ad = ""
             for _w in _words:
-                if _w.lower() not in _greeting_kelimeler and _w.lower() != "dorina":
+                if _w.lower() not in {"merhaba", "selam", "hey", "hi", "hello", "naber", "nasilsin", "nasılsın", "günaydın", "gunaydin", "iyi geceler", "kolay gelsin", "ne haber", "dorina"}:
                     _ad = _w
                     break
             _selam = "Merhaba" if "merhaba" in _user_lower else "Selam"
@@ -91,14 +99,10 @@ class AgentLoop:
 
         # P0-05: Otomatik session title — ilk mesajdan
         if self.turn == 1 and not self._session_titled:
-            _title = (user_input or "").strip()[:60]
+            from session.manager import manager
+            _title = autotitle(user_input, session_id=manager.current_id)
             if _title:
-                from session.manager import manager
-                try:
-                    manager.rename(manager.current_id, _title)
-                    self._session_titled = True
-                except Exception:
-                    pass
+                self._session_titled = True
 
         # P0-05: Skill injection at session start
         if not self._skills_injected:
@@ -118,7 +122,14 @@ class AgentLoop:
                 log.info(f"Skills injected: {[s['name'] for s in self._active_skills]}")
             else:
                 self._cached_skills_text = ""
-                self._enriched_system_prompt = soul.system_prompt
+                # Basit gorevlerde kisa prompt, karmasikta uzun
+                # Speed modunda da kisa prompt kullan
+                from core.mode_manager import modes
+                _simple = {"merhaba", "selam", "hey", "naber", "nasilsin", "gunaydin", "kolay gelsin", "ne haber"}
+                if modes.is_on('speed') or (user_input or "").lower().strip().rstrip(".!?,") in _simple or len((user_input or "").split()) <= 3:
+                    self._enriched_system_prompt = soul.system_prompt_short
+                else:
+                    self._enriched_system_prompt = soul.system_prompt
             self._skills_injected = True
         else:
             if getattr(self, '_cached_skills_text', ""):
@@ -130,6 +141,18 @@ class AgentLoop:
         if self.compressor.should_compress(self.context.get_messages()):
             compressed = await self.compressor.compress(self.context.get_messages(), self._summarize)
             self.context.messages = compressed
+
+        # [OPT] Eski read_file sonuclarini buda (son turdakiler kalsin)
+        if len(self.context.messages) > 4:
+            for msg in self.context.messages[:-1]:
+                if msg.get("role") == "tool" and msg.get("name") == "read_file" and len(str(msg.get("content", ""))) > 200:
+                    msg["content"] = "[okundu]"
+
+        # [OPT] System prompt cache: her 5 turda rebuild
+        if self.turn - self._prompt_cache_turn >= 5 or not self._prompt_cache:
+            self._prompt_cache = self._enriched_system_prompt
+            self._prompt_cache_turn = self.turn
+        self._enriched_system_prompt = self._prompt_cache
 
         self.context.add_user_message(user_input)
 
@@ -223,6 +246,8 @@ class AgentLoop:
         """Reset counters, new session."""
         from tools.executor import executor
         from ui.status_bar import status
+        from core.mode_manager import modes
+        modes.reset()
         self.turn = 0
         self.context.clear()
         log.info(f"Context reset: {len(self.context.messages)} messages, {self.context.estimated_tokens} tokens")
@@ -232,62 +257,10 @@ class AgentLoop:
         status.reset()
         self._skills_injected = False  # P0-05: yeni session'da tekrar injection
         self._session_titled = False  # Yeni session'da yeni title
+        # Sudo parolasini session sonunda temizle
+        import soul.personality as _sp
+        _sp.SUDO_PASSWORD = ""
         self._temp_mode = False  # Temp modu kapat
-
-    def _repair_message_sequence(self):
-        """Ensure strict role alternation: assistant(tool_calls) -> tool -> tool -> ...
-        
-        If a non-tool message (like a user message injected by a tool) is found 
-        while an assistant message is still waiting for its tool responses, 
-        that non-tool message is pushed AFTER all the tool responses.
-        """
-        msgs = self.context.messages
-        if not msgs:
-            return
-
-        reordered = []
-        pending_non_tools = []
-        active_tool_calls = set()
-
-        for msg in msgs:
-            role = msg.get("role", "")
-            
-            if role == "assistant" and msg.get("tool_calls"):
-                # If we had any pending non-tools from a previous block, flush them
-                reordered.extend(pending_non_tools)
-                pending_non_tools = []
-                
-                reordered.append(msg)
-                active_tool_calls = {tc.get("id", "") for tc in msg["tool_calls"]}
-                
-            elif role == "tool":
-                tc_id = msg.get("tool_call_id", "")
-                if tc_id in active_tool_calls:
-                    reordered.append(msg)
-                    active_tool_calls.discard(tc_id)
-                else:
-                    # Orphaned tool message, ignore or just append
-                    pass
-                    
-                # If all tool calls for the current assistant are fulfilled, flush pending non-tools
-                if not active_tool_calls and pending_non_tools:
-                    reordered.extend(pending_non_tools)
-                    pending_non_tools = []
-                    
-            else:
-                # User or normal Assistant message
-                if active_tool_calls:
-                    # We are in the middle of fulfilling tool calls! Buffer it.
-                    pending_non_tools.append(msg)
-                else:
-                    # Safe to append immediately
-                    reordered.append(msg)
-
-        # Flush any remaining pending messages at the end
-        if pending_non_tools:
-            reordered.extend(pending_non_tools)
-
-        self.context.messages = reordered
 
     PLANNING_PATTERNS = [
         "önce", "hemen", "başlıyorum", "başlayalım",
@@ -309,30 +282,6 @@ class AgentLoop:
         "oku", "yaz", "çalıştır", "oluştur", "düzenle",
         "read", "write", "create", "run", "execute",
     ]
-
-    @staticmethod
-    def _clean_content(content: str) -> str:
-        """Remove hallucinated XML tool call syntax from LLM text output."""
-        import re as _re
-        for pat in [
-            r'<invoke(?:\s+[^>]*)?>.*?</invoke>',  # <invoke>, <invoke name="x">, <invoke name="x" extra="y">
-            r'<tool_calls>.*?</tool_calls>',
-            r'<function[^>]*>.*?</function>',  # <function=search>, <function name="x">, bare <function>
-            r'\[tool_calls\].*?\[/tool_calls\]',
-            r'<function_calls>.*?</function_calls>',
-            r'<tool_call>.*?</tool_call>',
-            r'<function_call>.*?</function_call>',
-            r'<tool(?:\s+[^>]*)?>.*?</tool>',  # <tool name="x">, <tool name="x" extra="y">
-            r'<action>.*?</action>',
-            r'<parameter[^>]*>.*?</parameter>',  # stray parameter tags
-        ]:
-            content = _re.sub(pat, '', content, flags=_re.DOTALL | _re.IGNORECASE)
-        content = _re.sub(r'\n\s*\n\s*\n+', '\n\n', content)  # collapse excess blank lines
-        content = content.strip()
-        # If only punctuation/symbols remain after cleanup, clear it
-        if content and not _re.search(r'[a-zA-Z0-9\u0080-\uFFFF]', content):
-            content = ""
-        return content
 
     async def cleanup(self):
         """Cleanup resources: close DB, browsers, litellm, etc."""
@@ -356,14 +305,15 @@ class AgentLoop:
                 
                 token_total = sum(len(str(m.get("content") or "")) for m in messages) // 4
                 
-                # Export
+                # Export — runtime model kullan, static sabit degil
                 from session.exporter import export_session
+                from core.config import settings as _cfg
                 export_session(
                     session_id=manager.current_id,
                     messages=messages,
                     summary=getattr(self, '_last_summary', ''),
                     title=getattr(self, '_last_title', ''),
-                    model=DEFAULT_MODEL,
+                    model=_cfg.model.active_model or _cfg.model.default or DEFAULT_MODEL,
                     tool_calls_data=tool_calls_data,
                     token_total=token_total,
                 )

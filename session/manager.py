@@ -10,9 +10,10 @@ import uuid
 from sqlalchemy import create_engine, Column, String, Text, DateTime, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker
 from core.logger import log
+from core.constants import DORINA_HOME
 
 # ── Fernet session key management ─────────────────────────────────
-_KEY_FILE = Path.home() / ".dorina" / ".session_key"
+_KEY_FILE = DORINA_HOME / ".session_key"
 _fernet_instance = None
 
 
@@ -28,7 +29,7 @@ def _get_fernet():
         return None
 
     # Try secrets.yaml first
-    secrets_file = Path.home() / ".dorina" / "secrets.yaml"
+    secrets_file = DORINA_HOME / "secrets.yaml"
     if secrets_file.exists():
         try:
             import yaml
@@ -47,6 +48,17 @@ def _get_fernet():
     # Fallback: old .session_key file
     if _KEY_FILE.exists():
         key = _KEY_FILE.read_bytes()
+        # Validate key before using; if invalid, regenerate
+        try:
+            _fernet_instance = Fernet(key)
+            return _fernet_instance
+        except (ValueError, TypeError):
+            log.warning(f"Gecersiz session key ({_KEY_FILE}), yenisi olusturuluyor...")
+            _KEY_FILE.unlink(missing_ok=True)
+            key = Fernet.generate_key()
+            _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _KEY_FILE.write_bytes(key)
+            log.info(f"Session encryption key regenerated: {_KEY_FILE}")
     else:
         key = Fernet.generate_key()
         _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -66,21 +78,34 @@ def _encrypt(text: str) -> str:
 
 
 def _decrypt(ciphertext: str) -> str:
-    """Decrypt base64 string → plaintext. Returns input as-is if Fernet unavailable."""
+    """Decrypt base64 string → plaintext. Returns input as-is if Fernet unavailable.
+
+    Handles three cases:
+      1. Currently encrypted (current key)  → decrypt and return
+      2. Plaintext JSON (pre-encryption era) → return as-is
+      3. Encrypted with old/different key    → raise ValueError (data lost)
+    """
     f = _get_fernet()
     if f is None:
         return ciphertext
     try:
         return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
     except Exception:
-        # Not encrypted (plaintext stored before encryption was added)
-        return ciphertext
+        import json
+        # Check if the data is actually plaintext JSON (from before encryption was added)
+        try:
+            json.loads(ciphertext)
+            return ciphertext  # It's plaintext!
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+        # Data was encrypted with a key that no longer exists
+        raise ValueError("Session data encrypted with a key that is no longer available")
 # ────────────────────────────────────────────────────────────────
 
 # P2-13: Checkpoint import
 from orchestrator.checkpoint import checkpoint_manager, _list_checkpoints, _checkpoint_path
 
-DB_PATH = Path.home() / ".dorina" / "data" / "sessions.db"
+DB_PATH = DORINA_HOME / "data" / "sessions.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(f"sqlite:///{DB_PATH}")
@@ -411,6 +436,112 @@ class SessionManager:
                 name=f"auto_turn{turn}",
             )
         return None
+
+    # ── DB optimisation: archive / prune / size ─────────────────
+
+    def archive_old_sessions(self, days: int = 7) -> int:
+        """Archive sessions older than *days* days to ~/.dorina/sessions/archive/.
+
+        Returns the number of archived sessions.
+        """
+        from sqlalchemy import create_engine as _ae
+        from sqlalchemy.orm import sessionmaker as _asm
+
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None)
+        from datetime import timedelta
+        cutoff = cutoff - timedelta(days=days)
+
+        old = (
+            self.db.query(SessionModel)
+            .filter(SessionModel.updated_at < cutoff)
+            .all()
+        )
+        if not old:
+            return 0
+
+        archive_dir = DORINA_HOME / "sessions" / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_db_path = archive_dir / "sessions_archive.db"
+
+        archive_engine = _ae(f"sqlite:///{archive_db_path}")
+        Base.metadata.create_all(archive_engine)
+        ArchiveSession = _asm(bind=archive_engine)()
+
+        count = 0
+        for s in old:
+            try:
+                ArchiveSession.merge(s)
+                ArchiveSession.commit()
+                self.db.query(SessionModel).filter_by(id=s.id).delete()
+                self.db.commit()
+                count += 1
+            except Exception as exc:
+                ArchiveSession.rollback()
+                self.db.rollback()
+                log.warning(f"archive failed for session {s.id}: {exc}")
+
+        ArchiveSession.close()
+        archive_engine.dispose()
+        log.info(f"Archived {count} old session(s) to {archive_db_path}")
+        return count
+
+    def prune_session(self, session_id: str, keep_last: int = 100) -> int:
+        """Keep only the last *keep_last* messages in a session.
+
+        Returns the number of messages removed, or -1 if the session was not found.
+        """
+        session = self.db.query(SessionModel).filter_by(id=session_id).first()
+        if not session:
+            return -1
+
+        try:
+            messages = json.loads(_decrypt(session.messages))
+        except Exception:
+            log.warning(f"prune_session({session_id}): decrypt failed")
+            return -1
+
+        if len(messages) <= keep_last:
+            return 0
+
+        removed = len(messages) - keep_last
+        messages = messages[-keep_last:]
+
+        session.messages = _encrypt(json.dumps(messages, ensure_ascii=False))
+        session.updated_at = datetime.now(timezone.utc)
+        self.db.commit()
+        log.info(f"Pruned {removed} message(s) from session {session_id}")
+        return removed
+
+    def get_session_size(self, session_id: str) -> dict:
+        """Return size info for a session.
+
+        Returns a dict with keys:
+          - message_count: int
+          - bytes_raw: int          (plaintext JSON size)
+          - bytes_encrypted: int    (encrypted column size)
+          - exists: bool
+        If the session does not exist, returns {'exists': False}.
+        """
+        session = self.db.query(SessionModel).filter_by(id=session_id).first()
+        if not session:
+            return {"exists": False}
+
+        msg_count = 0
+        bytes_raw = 0
+        try:
+            decrypted = _decrypt(session.messages)
+            msgs = json.loads(decrypted)
+            msg_count = len(msgs)
+            bytes_raw = len(decrypted.encode("utf-8"))
+        except Exception:
+            pass
+
+        return {
+            "exists": True,
+            "message_count": msg_count,
+            "bytes_raw": bytes_raw,
+            "bytes_encrypted": len(session.messages.encode("utf-8")) if session.messages else 0,
+        }
 
 
 manager = SessionManager()

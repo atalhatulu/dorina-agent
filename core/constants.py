@@ -93,7 +93,7 @@ STATE_DONE = "done"
 STATE_ERROR = "error"
 
 # Default model
-DEFAULT_MODEL = "deepseek/deepseek-chat"
+DEFAULT_MODEL = ""
 DEFAULT_PROVIDER = "deepseek"
 
 # Token limitleri

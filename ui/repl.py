@@ -18,13 +18,15 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.key_binding import KeyBindings
 
 from core.constants import DEFAULT_DATA_DIR
+from core.mode_manager import modes
+from core.event_bus import bus
 HISTORY_FILE = DEFAULT_DATA_DIR / "history.txt"
 
 # Slash commands - A-Z sorted
 SLASH_COMMANDS = sorted([
     "/ara", "/audit", "/clear", "/exit", "/export", "/godmode", "/help", "/load",
-    "/model", "/new", "/personality", "/q", "/quit",
-    "/review", "/save", "/sessions", "/setup", "/skills", "/status", "/tools", "/tasks", "/crons"
+    "/model", "/mods", "/new", "/personality", "/q", "/quit",
+    "/review", "/save", "/session", "/sessions", "/setup", "/skills", "/status", "/tasks", "/temp", "/tools", "/crons"
 ])
 
 NORMAL_STYLE = Style.from_dict({
@@ -37,6 +39,9 @@ NORMAL_STYLE = Style.from_dict({
     "bottom-toolbar": "bg:#1a1a1a #5C6370",
     "godmode": "bg:#3d0000 bold #ff3333",
     "godmode_dim": "bg:#3d0000 #cc2222",
+    "audit": "bold #E06C75",
+    "temp": "bold #6C7086",
+    "temp_dim": "#585B70",
     "orange": "bold #E06C75",
     "main": "#ABB2BF",
     "dim": "#5C6370",
@@ -53,6 +58,9 @@ GODMODE_STYLE = Style.from_dict({
     "bottom-toolbar": "bg:#3d0000 #cc2222",
     "godmode": "bg:#3d0000 bold #ff3333",
     "godmode_dim": "bg:#3d0000 #cc2222",
+    "audit": "bold #E06C75",
+    "temp": "bold #6C7086",
+    "temp_dim": "#585B70",
     "orange": "bold #ff3333",
     "main": "#ffaaaa",
     "dim": "#cc6666",
@@ -70,10 +78,31 @@ AUDIT_STYLE = Style.from_dict({
     "godmode": "bg:#3d0000 bold #ff3333",
     "godmode_dim": "bg:#3d0000 #cc2222",
     "audit": "bold #E06C75",
+    "temp": "bold #6C7086",
+    "temp_dim": "#585B70",
     "orange": "bold #D4622A",
     "main": "#ABB2BF",
     "dim": "#5C6370",
     "green": "#98C379",
+})
+
+TEMP_STYLE = Style.from_dict({
+    "prompt": "bold #6C7086",
+    "completion-menu": "bg:#1e1e2e #cdd6f4",
+    "completion-menu.completion": "bg:#1e1e2e #cdd6f4",
+    "completion-menu.completion.current": "bg:#45475a #6C7086 bold",
+    "completion-menu.meta": "bg:#1e1e2e #6c7086",
+    "completion-menu.meta.current": "bg:#45475a #6C7086",
+    "bottom-toolbar": "bg:#1a1a1a #585B70",
+    "godmode": "bg:#3d0000 bold #ff3333",
+    "godmode_dim": "bg:#3d0000 #cc2222",
+    "audit": "bold #E06C75",
+    "temp": "bold #6C7086",
+    "temp_dim": "#585B70",
+    "orange": "bold #6C7086",
+    "main": "#585B70",
+    "dim": "#585B70",
+    "green": "#6C7086",
 })
 
 STYLE = NORMAL_STYLE
@@ -81,15 +110,38 @@ STYLE = NORMAL_STYLE
 
 _session: PromptSession | None = None
 
-def set_style(mode: str | bool):
+def set_style(mode: str | bool | None = None):
+    """Set REPL style based on mode priority: godmode > audit > temp > normal.
+    
+    If mode is provided, toggle that specific mode's style.
+    If None (refresh), recalculate from all active states.
+    """
     global STYLE
+    
+    # Priority: godmode > audit > temp
     if mode == True or mode == "godmode":
         STYLE = GODMODE_STYLE
     elif mode == "audit":
         STYLE = AUDIT_STYLE
+    elif mode == "temp":
+        # Only set temp if no higher-priority mode is active
+        if modes.is_on('godmode'):
+            STYLE = GODMODE_STYLE
+        elif modes.is_on('audit'):
+            STYLE = AUDIT_STYLE
+        else:
+            STYLE = TEMP_STYLE
     else:
-        STYLE = NORMAL_STYLE
-        
+        # Refresh from actual states
+        if modes.is_on('godmode'):
+            STYLE = GODMODE_STYLE
+        elif modes.is_on('audit'):
+            STYLE = AUDIT_STYLE
+        elif modes.is_on('temp'):
+            STYLE = TEMP_STYLE
+        else:
+            STYLE = NORMAL_STYLE
+    
     if _session:
         _session.app.style = STYLE
 
@@ -156,6 +208,7 @@ def create_session() -> PromptSession:
 
     cmd_completer = NestedCompleter.from_nested_dict({
         "/model": model_completions,
+        "/mods": None,
         "/load": None,
         "/ara": None,
         "/audit": None,
@@ -179,8 +232,14 @@ def create_session() -> PromptSession:
         "/skills": None,
         "/status": None,
         "/tasks": None,
+        "/temp": None,
         "/crons": None,
         "/tools": None,
+        "/session": {
+            "prune": None,
+            "archive": None,
+            "size": None,
+        },
     })
     from ui.status_bar import status
 
@@ -249,3 +308,23 @@ async def get_input(session: PromptSession | None = None) -> str:
             return result.strip()
     except (EOFError, KeyboardInterrupt):
         return "/exit"
+
+
+def _setup_mode_listener():
+    """Subscribe to mode_change to auto-switch REPL style."""
+    from core.mode_manager import modes
+
+    def _on_mode_change(**kw):
+        if modes.is_on('godmode'):
+            set_style('godmode')
+        elif modes.is_on('audit'):
+            set_style('audit')
+        elif modes.is_on('temp'):
+            set_style('temp')
+        else:
+            set_style('')
+
+    bus.subscribe("mode_change", _on_mode_change)
+
+
+_setup_mode_listener()

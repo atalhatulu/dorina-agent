@@ -130,7 +130,7 @@ class MCPClient:
             try:
                 self.writer.close()
                 await self.writer.wait_closed()
-            except:
+            except (OSError, ConnectionError):
                 pass
             self.writer = None
 
@@ -141,7 +141,7 @@ class MCPClient:
                 if self.process.returncode is None:
                     self.process.kill()
                 await self.process.wait()
-            except:
+            except (OSError, ProcessLookupError):
                 pass
             self.process = None
 
@@ -202,7 +202,7 @@ class MCPClient:
         try:
             await self._request("ping", {})
             return True
-        except:
+        except (OSError, asyncio.TimeoutError):
             return False
 
     async def _request(self, method: str, params: dict) -> str:

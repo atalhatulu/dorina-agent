@@ -16,6 +16,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from core.constants import DORINA_HOME
 from logging.handlers import RotatingFileHandler
 from rich.console import Console
 from rich.logging import RichHandler
@@ -27,7 +28,7 @@ _log_console = Console(markup=False, highlight=False, stderr=True)
 
 # ── Log dizini ─────────────────────────────────────────────
 
-LOG_DIR = Path.home() / ".dorina" / "logs"
+LOG_DIR = DORINA_HOME / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Session context (thread-local) ─────────────────────────

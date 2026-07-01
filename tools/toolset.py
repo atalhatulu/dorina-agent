@@ -72,13 +72,25 @@ def get_active_toolsets() -> frozenset[str]:
     return frozenset(ACTIVE_TOOLSETS)
 
 
-def get_active_schemas() -> list[dict]:
-    """Aktif toolset'lerdeki tool'ların schema'larını döndürür."""
+def get_active_schemas(user_input: str = "") -> list[dict]:
+    """Aktif toolset'lerdeki tool'larin schema'larini dondurur.
+    Gorev salt-okunur tespit edilirse sadece okuma tool'lari gonderilir (token tasarrufu)."""
     from tools.registry import registry
+    
+    # Gorev salt-okunur mu? (incele, analiz, bak, oku, listele, ara, audit, review)
+    _readonly_keywords = {"incele", "analiz", "kontrol", "bak", "goster", "listele", "ara", "oku", "audit", "review", "inspect", "ne yap", "nasil", "açıkla", "anlat"}
+    _is_readonly = any(k in user_input.lower() for k in _readonly_keywords) if user_input else False
+    
     active = get_active_toolsets()
     schemas = []
     for tool in registry.list():
         if tool.toolset in active:
+            # Salt-okunur gorev: sadece okuma araclari
+            if _is_readonly and tool.name not in {
+                "read_file", "search_files", "web_search", "web_fetch",
+                "list_directory", "terminal",
+            }:
+                continue
             schemas.append({
                 "type": "function",
                 "function": {

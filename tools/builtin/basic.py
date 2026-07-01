@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 
 from tools.registry import register_tool, registry
+from core.constants import DORINA_HOME
+from core.utils import safe_json_loads
 from tools.security import is_destructive, redact_secrets
 from core.logger import log
 
@@ -17,7 +19,7 @@ def _sandbox_enabled_in_config() -> bool:
     try:
         import yaml
         from pathlib import Path
-        cfg = Path.home() / ".dorina" / "config.yaml"
+        cfg = DORINA_HOME / "config.yaml"
         if cfg.exists():
             data = yaml.safe_load(cfg.read_text()) or {}
             return data.get("tools", {}).get("sandbox") == "docker"
@@ -64,14 +66,15 @@ def _run_python_in_sandbox(code: str, timeout: int) -> str | None:
             "cwd": {"type": "string", "description": "Çalışma dizini (Opsiyonel)"},
             "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 15},
             "pty": {"type": "boolean", "description": "PTY (pseudo-terminal) kullan. Interaktif prompt'lar için gerekli", "default": False},
-            "background": {"type": "boolean", "description": "Arka planda çalıştır. Uzun süren komutlar için", "default": False},
+            "background": {"type": "boolean", "description": "Arka planda çalıştır. Uzun süren komutlar için (airodump-ng, tcpdump, ping vb). Kullanici bloke olmaz.", "default": False},
+            "notify_on_complete": {"type": "boolean", "description": "background=True ile kullanilir. Komut bitince (veya ciktida pattern yakalaninca) chate bildirim gonderir. Orn: handshake bulunca haber ver.", "default": False},
             "sandbox": {"type": "boolean", "description": "Docker container'da calistir (guvenlik). Varsayilan: config.yaml tools.sandbox ayarina gore", "default": None},
         },
         "required": ["command"],
     },
     toolset="terminal",
 )
-async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = False, background: bool = False, sandbox: bool = None) -> str:
+async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = False, background: bool = False, notify_on_complete: bool = False, sandbox: bool = None) -> str:
     """Shell komutu çalıştır. PTY, cwd ve background desteği."""
     # ── Sandbox routing ────────────────────────────────────
     if sandbox is None:
@@ -86,17 +89,85 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
     _is_win = _platform.system() == "Windows"
     _shell = not _is_win
 
-    from soul.personality import GODMODE
+    from core.mode_manager import modes
     import soul.personality as _sp
     SUDO_PWD = getattr(_sp, "SUDO_PASSWORD", None)
     HAS_SUDO = "sudo" in command.split() if command else False
 
-    if GODMODE:
-        timeout = 3600  # Godmode'da timeout 1 saat
-        # Sudo varsa -S ekle ve PTY'ye zorla (sifre stdin'den okunsun)
-        if SUDO_PWD and HAS_SUDO and " -S " not in command:
-            command = command.replace("sudo", "sudo -S ", 1)
-            pty = True  # PTY sart
+    # ── Sudo parolasi yoksa kullanicidan sor (*** maskeli, dogrulamali) ──
+    if HAS_SUDO and not SUDO_PWD:
+        try:
+            import subprocess as _sp_verify, termios as _t, tty as _tty, sys as _sys
+            from rich.console import Console as _Console
+            _con = _Console()
+            _con.print("")
+            while True:
+                # *** maskeli input (her karakter * olarak goster)
+                _con.print("[bold yellow]🔑 sudo parolası: [/]", end="")
+                _fd = _sys.stdin.fileno()
+                _old = _t.tcgetattr(_fd)
+                _pwd = ""
+                try:
+                    _tty.setraw(_fd)
+                    while True:
+                        _ch = _sys.stdin.read(1)
+                        if _ch in ("\r", "\n"):
+                            _con.print("")
+                            break
+                        elif _ch == "\x7f":  # backspace
+                            if _pwd:
+                                _pwd = _pwd[:-1]
+                                _con.print("\b \b", end="")
+                        elif _ch == "\x03":  # Ctrl+C
+                            raise KeyboardInterrupt
+                        else:
+                            _pwd += _ch
+                            _con.print("*", end="")
+                finally:
+                    _t.tcsetattr(_fd, _t.TCSAFLUSH, _old)
+                
+                if not _pwd:
+                    continue
+                # Parolayi dogrula
+                _proc = _sp_verify.run(
+                    ["sudo", "-S", "-k", "true"],
+                    input=f"{_pwd}\n".encode(),
+                    capture_output=True,
+                    timeout=5,
+                )
+                if _proc.returncode == 0:
+                    _sp.SUDO_PASSWORD = _pwd
+                    break
+                _con.print("[bold red]✗ Yanlış parola, tekrar dene[/]")
+        except _sp_verify.TimeoutExpired:
+            _con.print("[bold red]✗ Parola doğrulama zaman aşımı[/]")
+        except Exception:
+            pass
+
+    # ── Auto-background for monitoring / long-running commands ──
+    _monitor_patterns = ["airodump", "airodump-ng", "tcpdump", "nmap ",
+                         "ping 8", "tshark", "tcpflow", "iw event",
+                         "bettercap", "responder", "tail -f", "watch ",
+                         "top", "htop", "journalctl -f", "kubectl logs -f",
+                         "docker logs -f", "iperf", "hping3"]
+    _is_monitor = _platform.system() != "Windows" and any(p in command for p in _monitor_patterns)
+    if _is_monitor and not background and not pty:
+        # Uzun surecek monitor komutu → otomatik background'a at
+        import tools.builtin.bg_task_tool as _bg
+        if cwd:
+            command = f"cd {cwd} && {command}"
+        result = _bg.task_create_bash(command, label=command[:60], notify_on_complete=True)
+        return json.dumps({
+            "status": "background",
+            "message": "Monitor/tarama komutu arka planda baslatildi. Bittiginde otomatik haber veririm.",
+            "background_result": json.loads(result)
+        })
+
+    # Sudo parolasi tanimliysa -S ekle ve timeout'u artir
+    if SUDO_PWD and HAS_SUDO and " -S " not in command:
+        command = command.replace("sudo", "sudo -S ", 1)
+        if timeout and timeout < 3600:
+            timeout = 3600
 
     # .venv/bin PATH'e ekle (pytest vs. icin)
     _env = None
@@ -114,7 +185,12 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
         return json.dumps({"error": "Bu komut engellendi (destructive pattern)"})
         
     if not background and "sleep " in command:
-        return json.dumps({"error": "LUTFEN DIKKAT: 'sleep' komutu iceren zamanlayicilari/beklemeleri senkron olarak terminal'de CALISTIRMA! Arayuzu dondurursun. Bunun yerine KESINLIKLE 'task_create_bash' aracini kullan."})
+        # Sleep < 3sn olanlara izin ver (bekleme degil, kisa gecikme)
+        import re as _re
+        _sleep_match = _re.search(r"sleep\s+(\d+(?:\.\d+)?)", command)
+        _sleep_dur = float(_sleep_match.group(1)) if _sleep_match else 999
+        if _sleep_dur > 3:
+            return json.dumps({"error": "LUTFEN DIKKAT: Uzun sleep'leri (3sn+) senkron terminal'de CALISTIRMA! Arayuzu dondurursun. Bunun yerine KESINLIKLE 'task_create_bash' aracini kullan."})
         
     if cwd:
         cwd_path = Path(cwd).expanduser()
@@ -127,7 +203,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
         # task_create_bash cwd destegi yoksa cd ile ekleyelim
         if cwd:
             command = f"cd {cwd} && {command}"
-        return task_create_bash(command, label=command[:30])
+        return task_create_bash(command, label=command[:60], notify_on_complete=notify_on_complete)
     
     try:
         if pty:
@@ -173,10 +249,11 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                             chunk = data.decode("utf-8", errors="replace")
                             output.append(chunk)
                             if ("[sudo] password for" in chunk.lower() or "password:" in chunk.lower()) and not getattr(proc, "_pwd_sent", False):
-                                from soul.personality import GODMODE
                                 import soul.personality as _sp
                                 pwd = getattr(_sp, "SUDO_PASSWORD", None)
-                                if GODMODE and pwd:
+                                # Prompt'u yeni satira al
+                                chunk = "\n" + chunk.lstrip()
+                                if pwd:
                                     _os.write(master_fd, (pwd + "\n").encode("utf-8"))
                                     proc._pwd_sent = True
                     except OSError:
@@ -201,7 +278,6 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
             return redact_secrets(full)[:50000]
         else:
             # Normal mode
-            from soul.personality import GODMODE
             import soul.personality as _sp
             pwd = getattr(_sp, "SUDO_PASSWORD", None)
             
@@ -212,8 +288,8 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                 "timeout": timeout,
             }
 
-            # GODMODE + sudo: komutun herhangi bir yerinde "sudo" varsa -S ekle ve sifreyi gonder
-            if GODMODE and pwd and "sudo" in command.split():
+            # Sudo sifresi varsa -S ekle ve sifreyi gonder (her modda)
+            if pwd and "sudo" in command.split():
                 if " -S " not in command:
                     command = command.replace("sudo", "sudo -S", 1)
                 run_kwargs["input"] = pwd + "\n"
@@ -282,8 +358,8 @@ def _search_file_broad(filename: str, limit_hits: int = 5) -> list:
             "path": {"type": "string", "description": "Dosya yolu"},
             "start_line": {"type": "integer", "description": "Başlangıç satırı (1-indexed)", "default": 1},
             "end_line": {"type": "integer", "description": "Bitiş satırı (opsiyonel)"},
-            "limit": {"type": "integer", "description": "(Geriye dönük uyumluluk) Okunacak satır sayısı", "default": 200},
-            "offset": {"type": "integer", "description": "(Geriye dönük uyumluluk) Başlangıç satırı", "default": 1},
+            "limit": {"type": "integer", "description": "Okunacak satır sayısı", "default": 500},
+            "offset": {"type": "integer", "description": "Başlangıç satırı (alternatif)", "default": 1},
         },
         "required": ["path"],
     },
@@ -347,6 +423,12 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
     total = 0
     collected = []
     
+    # ── Per-file read budget ──
+    if not hasattr(read_file_tool, "_read_budget"):
+        read_file_tool._read_budget = {}
+    _budget_key = str(p.resolve())
+    _already_read = read_file_tool._read_budget.get(_budget_key, 0)
+
     try:
         with open(p, "r", encoding="utf-8", errors="replace") as _f:
             for i, line in enumerate(_f, 1):
@@ -361,12 +443,30 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
                 total += 1
     except Exception as e:
         return json.dumps({"error": f"Dosya okunurken hata: {e}"})
-        
-    result = "\n".join(collected)
+    
+    # ── Akilli okuma: kucuk dosya tam, buyuk dosya ilk 500 ──
+    _new_read = len(collected)
+    _total_read = _already_read + _new_read
+    read_file_tool._read_budget[_budget_key] = _total_read
+
+    if total > 500 and _start <= 1:
+        # Buyuk dosya: ilk 500 satiri goster
+        collected = collected[:500]
+        result = "\n".join(collected)
+        if total > 500:
+            result += f"\n---\n⚠ Dosya {total} satir, ilk 500 gosteriliyor. Devami icin search_files kullan."
+    else:
+        result = "\n".join(collected)
+
+    # Budget uyarisi (500+ satir okunduysa)
+    if _total_read > 500:
+        result += f"\n---\n⚠ Bu dosyadan {_total_read} satir okundu. Daha fazla satir icin search_files kullan."
+    
     meta = json.dumps({
         "total_lines": total, 
         "start_line": _start, 
-        "end_line": _start + _limit - 1 if (_start + _limit - 1) < total else total
+        "end_line": _start + _new_read - 1 if (_start + _new_read - 1) < total else total,
+        "read_lines": _total_read,
     })
     return result + f"\n---\n{meta}"
 
@@ -447,7 +547,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
     try:
         await asyncio.to_thread(subprocess.run, ["rg", "--version"], capture_output=True, timeout=5)
         has_rg = True
-    except:
+    except Exception:
         pass
 
     # Search directories
@@ -488,7 +588,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
                     "count": len(lines),
                     "note": f"Dosya isminde '{pattern}' arandı (.gitignore uygulandi)"
                 }, ensure_ascii=False)
-        except:
+        except Exception:
             pass
 
         # Mode 2: content search with ripgrep
@@ -503,7 +603,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
             if result.stdout.strip():
                 lines = result.stdout.strip().split("\n")[:30]
                 return "\n".join(lines)
-        except:
+        except Exception:
             pass
 
     else:
@@ -532,7 +632,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
                     "matches": lines[:20],
                     "count": len(lines),
                 }, ensure_ascii=False)
-        except:
+        except Exception:
             pass
 
         # Mode 2: grep content search
@@ -547,7 +647,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
                 if result.stdout.strip():
                     for line in result.stdout.strip().split("\n")[:10]:
                         all_results[line] = True
-            except:
+            except Exception:
                 pass
 
         if all_results:
@@ -673,10 +773,7 @@ async def web_fetch_tool(
         if isinstance(headers, dict):
             parsed_headers = headers
         else:
-            try:
-                parsed_headers = json.loads(headers)
-            except:
-                parsed_headers = {}
+            parsed_headers = safe_json_loads(headers, {})
         if isinstance(parsed_headers, dict):
             pass
             

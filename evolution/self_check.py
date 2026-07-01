@@ -11,6 +11,7 @@ Nasıl çalışır:
 
 from __future__ import annotations
 import json
+from core.utils import safe_json_loads
 import ast
 import hashlib
 import subprocess
@@ -21,6 +22,7 @@ from datetime import datetime, timedelta
 
 from core.logger import log
 from core.event_bus import bus
+from core.constants import DORINA_HOME
 
 
 # ─── SELF REVIEW KALDIRILDI — gereksiz LLM cagrisi, sadece testler yeterli
@@ -28,7 +30,7 @@ from core.event_bus import bus
 
 # Remove bare except
 
-LEARNINGS_FILE = Path.home() / ".dorina" / "knowledge" / "learned" / "learnings.json"
+LEARNINGS_FILE = DORINA_HOME / "knowledge" / "learned" / "learnings.json"
 
 
 def log_learning(task_type: str, what_failed: str, what_worked: str):
@@ -107,11 +109,8 @@ class SelfEvolution:
     def _load_history(self):
         """Geçmiş öğrenmeleri yükle."""
         if self.history_file.exists():
-            try:
-                data = json.loads(self.history_file.read_text())
-                self.learned_patterns = data.get("patterns", [])
-            except:
-                self.learned_patterns = []
+            data = safe_json_loads(self.history_file, {})
+            self.learned_patterns = data.get("patterns", [])
 
     def _save_history(self):
         """Öğrenmeleri kaydet."""
@@ -251,7 +250,7 @@ Bu skill, kullanım desenlerinden otomatik oluşturuldu.
                     elif isinstance(node, ast.Call):
                         if hasattr(node.func, 'id'):
                             calls.add(node.func.id)
-            except:
+            except (SyntaxError, TypeError):
                 continue
         
         for func_name, file_path in functions.items():

@@ -18,11 +18,13 @@ async def cmd_new(app: "DorinaApp", cmd: str) -> None:
     from session.manager import manager
     from core.config import settings
     from ui.display import print_success
+    from ui.repl import set_style
 
     if not hasattr(app, "godmode"):
         app.godmode = False
     loop.reset()
     loop._temp_mode = False
+    set_style("")  # normal style'a don
     title = ""
     if len(cmd) > 5:
         title = cmd[5:].strip().strip("\"'")
@@ -40,10 +42,11 @@ async def cmd_temp(app: "DorinaApp", cmd: str) -> None:
     """
     from orchestrator.agent_loop import loop
     from ui.display import print_info
+    from ui.repl import set_style
 
-    loop.reset()
     loop._temp_mode = True
-    print_info("Geçici sohbet modu — hiçbir kayıt alınmaz.")
+    set_style("temp")
+    print_info("Geçici sohbet modu — kayıt alınmaz, sohbet hafızada tutulur.")
 
 
 async def cmd_save(app: "DorinaApp", cmd: str) -> None:
@@ -265,3 +268,104 @@ async def cmd_export(app: "DorinaApp", cmd: str) -> None:
         print_error(f"Bilinmeyen format: {fmt} (json/md/html)")
         return
     print_success(f"Dışa aktarıldı: {path}")
+
+
+async def cmd_session(app: "DorinaApp", cmd: str) -> None:
+    """Session management utilities: prune, archive, size::
+
+        /session prune [session_id] [keep=100]
+        /session archive [days=7]
+        /session size [session_id]
+    """
+    from session.manager import manager
+    from ui.display import print_success, print_error, print_info
+
+    args = cmd.split()[1:]  # skip /session
+    if not args:
+        print_info("Kullanım: /session prune|archive|size")
+        return
+
+    sub = args[0].lower()
+
+    if sub == "prune":
+        # /session prune [session_id] [keep=100]
+        sid = None
+        keep = 100
+        for a in args[1:]:
+            if a.startswith("keep="):
+                try:
+                    keep = int(a.split("=")[1])
+                except (ValueError, IndexError):
+                    pass
+            elif not sid:
+                sid = a
+        if not sid:
+            sid = manager.current_id
+        if not sid:
+            print_error("No active session. Specify a session ID.")
+            return
+        # Resolve prefix / row number
+        session = manager.load(sid)
+        if not session:
+            all_sessions = manager.list_sessions(limit=100)
+            try:
+                idx = int(sid) - 1
+                if 0 <= idx < len(all_sessions):
+                    sid = all_sessions[idx]["id"]
+            except ValueError:
+                for s in all_sessions:
+                    if s["id"].startswith(sid):
+                        sid = s["id"]
+                        break
+        removed = manager.prune_session(sid, keep_last=keep)
+        if removed == -1:
+            print_error(f"Session not found: {sid}")
+        elif removed == 0:
+            print_info(f"Session {sid[:16]} — only {keep} messages, nothing to prune.")
+        else:
+            print_success(f"Pruned {removed} message(s) from {sid[:16]}, keeping last {keep}.")
+
+    elif sub == "archive":
+        # /session archive [days=7]
+        days = 7
+        for a in args[1:]:
+            if a.startswith("days="):
+                try:
+                    days = int(a.split("=")[1])
+                except (ValueError, IndexError):
+                    pass
+        count = manager.archive_old_sessions(days=days)
+        if count:
+            print_success(f"Archived {count} session(s) older than {days} day(s).")
+        else:
+            print_info(f"No sessions older than {days} day(s) to archive.")
+
+    elif sub == "size":
+        # /session size [session_id]
+        sid = args[1] if len(args) > 1 else manager.current_id
+        if not sid:
+            print_error("No active session. Specify a session ID.")
+            return
+        # Resolve prefix / row number
+        session = manager.load(sid)
+        if not session:
+            all_sessions = manager.list_sessions(limit=100)
+            try:
+                idx = int(sid) - 1
+                if 0 <= idx < len(all_sessions):
+                    sid = all_sessions[idx]["id"]
+            except ValueError:
+                for s in all_sessions:
+                    if s["id"].startswith(sid):
+                        sid = s["id"]
+                        break
+        info = manager.get_session_size(sid)
+        if not info["exists"]:
+            print_error(f"Session not found: {sid}")
+            return
+        print_info(f"Session {sid[:16]}: {info['message_count']} messages, "
+                   f"{info['bytes_raw']:,} bytes raw, "
+                   f"{info['bytes_encrypted']:,} bytes encrypted")
+
+    else:
+        print_error(f"Unknown session subcommand: {sub}")

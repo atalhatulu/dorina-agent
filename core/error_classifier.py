@@ -152,7 +152,7 @@ def classify_api_error(
         (FailoverReason.RATE_LIMIT, _RATE_LIMIT_PATTERNS, True, True, False),
         (FailoverReason.CONTEXT_OVERFLOW, _CONTEXT_OVERFLOW_PATTERNS, False, True, False),
         (FailoverReason.MODEL_NOT_FOUND, _MODEL_NOT_FOUND_PATTERNS, False, False, True),
-        (FailoverReason.OVERLOADED, _OVERLOADED_PATTERNS, True, False, False),
+        (FailoverReason.OVERLOADED, _OVERLOADED_PATTERNS, True, False, True),
         (FailoverReason.SERVER_ERROR, _SERVER_ERROR_PATTERNS, True, False, True),
     ]
 

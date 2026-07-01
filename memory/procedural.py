@@ -88,7 +88,7 @@ class ProceduralMemory:
                     info["name"] = meta.get("name", info["name"])
                     info["description"] = meta.get("description", "")
                     info["version"] = meta.get("version", "1.0")
-                except:
+                except (KeyError, TypeError, AttributeError):
                     pass
         
         return info

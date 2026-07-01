@@ -19,7 +19,7 @@ class VerifyCache:
         if self.db_file.exists():
             try:
                 self._cache = json.loads(self.db_file.read_text())
-            except:
+            except (FileNotFoundError, json.JSONDecodeError):
                 self._cache = {}
 
     def _save(self):
