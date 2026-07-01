@@ -46,7 +46,6 @@ def register_commands() -> dict[str, CommandHandler]:
     from commands.tool_commands import (
         cmd_tools, cmd_tasks, cmd_crons, cmd_verify, cmd_review, cmd_skills,
     )
-    from commands.data_commands import cmd_dashboard
     from commands.debug_commands import cmd_debug, cmd_trace
 
     return {
@@ -67,7 +66,6 @@ def register_commands() -> dict[str, CommandHandler]:
         "/ara": cmd_ara,
         "/skills": cmd_skills,
         "/review": cmd_review,
-        "/dashboard": cmd_dashboard,
         "/crons": cmd_crons,
         "/tools": cmd_tools,
         "/tasks": cmd_tasks,

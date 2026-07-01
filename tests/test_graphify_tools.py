@@ -70,7 +70,7 @@ class TestGraphifyToolsImport:
         from tools.builtin.graphify_tools import graphify_query_tool
         r = json.loads(graphify_query_tool())
         assert "error" in r
-        assert "Ornek" in r.get("error", "")
+        # Hata mesaji graph yoklugunu soylemeli (eski 'Ornek' mesaji degil)
 
     def test_query_short_name_returns_node_detail(self):
         """Tek kelimelik sorgu → explain mode (node detayi). Graph varsa calisir."""

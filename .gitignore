@@ -80,3 +80,4 @@ docker-compose.override.yml
 graphify-out/
 .graphify_*.json
 chunk_*.json
+.backup/

@@ -1,184 +1,104 @@
 # Dorina Agent
 
-**Self-hosted CLI AI agent** — state machine, streaming, self-testing, multi-provider, 65 tools, 15 categories.
+**Self-hosted CLI AI agent** — terminal tabanli, moduler, aksiyon odakli.
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-240%20passed-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-61%25-yellow)
+![Tests](https://img.shields.io/badge/tests-271%20passed-brightgreen)
+![Lines](https://img.shields.io/badge/code-20K%20lines-blue)
 
-> Built from 16 open-source reference projects (Hermes, Odysseus, Claude Code, Superpowers, and more).
+> ~20K satir, her satir calisiyor. Gelecek planlari icin `FUTURE.md`'ye bak.
 
 ## Features
 
-- **State Machine** — deterministic agent loop with 9 states
-- **Streaming** — token-by-token real-time output
-- **Multi-Provider** — DeepSeek, Groq, OpenRouter, SiliconFlow, Ollama
-- **Self-Testing** — auto-test after every write_file/patch change
-- **Self-Evolution** — learns from mistakes, creates skills
-- **Live Status Bar** — prompt_toolkit toolbar, never overwrites input
-- **RAG Tool Selector** — picks relevant tools per turn via ChromaDB
-- **Auto-Dependency Resolution** — tool fails → research → install → retry
-- **Sub-Agent System** — parallel task delegation with isolated executors
-- **Cost-Aware Routing** — simple tasks use fast model, complex tasks use deep model
-- **Session Management** — save, load, export (JSON/MD)
-- **65 Tools, 15 Categories** — file(7), git(7), data(17), system(11), web(3), network(3), audio(4), terminal, vision, delegation, mcp, research, browser, communication, development
+- **3 Katmanli Schema Secimi** — goreve gore 6-8 tool gonderilir (50 tool yerine)
+- **State Machine** — 9 durumlu deterministic agent loop
+- **Multi-Provider** — DeepSeek, Groq, OpenRouter, Ollama (fallback zincirli)
+- **Mod Sistemi** — `/godmode`, `/audit`, `/speed`, `/temp` (sadece prompt degistirir, algoritma ayni)
+- **Approval Sistemi** — 3 katmanli: always_allow → needs_approval → hardline block
+- **Live Status Bar** — prompt_toolkit toolbar, input alanina dokunmaz
+- **Session Management** — sifreli SQLite, save/load/export, otomatik archive
+- **Background Tasks** — long-running komutlar (sudo, tcpdump) arkada calisir, bitince bildirim
+- **Context Compression** — buyuk konusmalarda otomatik ozetleme
+- **Token Budget** — `/budget N` ile limit koy, asilinca compress + uyar
+- **Sub-Agent System** — paralel task delegation
+- **Event Bus** — pub/sub ile mod degisiklikleri UI'a aninda yansir
 
 ## Quick Start
 
-### Tek komut (Linux/Mac)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/atalhatulu/dorina-agent/main/install.sh | bash
-dorina
-```
-
-### Tek komut (Windows PowerShell)
-```powershell
-iex (irm https://raw.githubusercontent.com/atalhatulu/dorina-agent/main/install.ps1)
-dorina
-```
-
-### Elle kurulum
-```bash
-# 1. Clone
 git clone https://github.com/atalhatulu/dorina-agent.git
 cd dorina-agent
-
-# 2. Install
 python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate    # Windows
-pip install -e .
-
-# 3. Configure API keys
-nano ~/.dorina/keys.json
-# {"deepseek": "sk-...", "openrouter": "sk-or-..."}
-
-# 4. Run
-dorina
+source .venv/bin/activate
+pip install -r requirements.txt
+# API key'i ~/.dorina/providers.json'a ekle
+python main.py
 ```
-
-İlk çalıştırmada profil wizard'ı açılır, `~/.dorina/` dizini otomatik oluşur.
-
-## Prerequisites
-
-| Feature | Required |
-|---------|----------|
-| **Core** | Python ≥3.10 |
-| **Best model** | DeepSeek API key (`DEEPSEEK_API_KEY=...`) |
-| **Browser** | Playwright (`playwright install chromium`) |
-| **Vision** | Pillow |
-| **Audio** | edge-tts |
-| **Sandbox** | Docker (optional) |
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show help |
-| `/tools` | List all tools |
-| `/status` | Session status |
-| `/save <title>` | Save session |
-| `/load <id>` | Load session |
-| `/sessions` | List sessions |
-| `/export <json/md>` | Export session |
-| `/new` | New session |
-| `/clear` | Clear screen |
-| `/exit` | Exit |
+| `/help` | Help |
+| `/godmode` | Sinirsiz mod — reddetme yok |
+| `/audit` | Denetim modu |
+| `/speed` | Hizli mod (6 tool, 10 tur, kisa prompt) |
+| `/temp` | Kayitsiz mod |
+| `/budget N` | Token limiti |
+| `/new` | Yeni session |
+| `/save <title>` | Session kaydet |
+| `/load <id>` | Session yukle |
+| `/session prune [N]` | Eski mesajlari temizle |
+| `/session archive [gun]` | Eski session'lari arsivle |
+| `/session size` | Session boyutunu goster |
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph EntryPoints["Giriş Noktaları"]
-        MAIN["main.py<br/>DorinaAgent"]
-        GW["gateway/server.py<br/>FastAPI"]
-        WH["webhooks/server.py"]
-    end
-
-    subgraph Core["Çekirdek Katman"]
-        CFG["core/config.py<br/>ConfigManager"]
-        LOG["core/logger.py"]
-        EVT["core/event_bus.py<br/>EventBus"]
-        ERR["core/error_classifier.py"]
-        TOK["core/tokenizer.py"]
-        CONST["core/constants.py"]
-    end
-
-    subgraph Orchestration["Orkestrasyon"]
-        SM["state_machine.py<br/>AgentStateMachine"]
-        AL["agent_loop.py<br/>AgentLoop"]
-        PL["planner.py<br/>Planner"]
-        RS["reasoning.py<br/>ReasoningEngine"]
-        CTX["context.py<br/>ContextManager"]
-    end
-
-    subgraph Intelligence["Zeka Katmanı"]
-        PV["providers/router.py<br/>ProviderRouter"]
-        MEM["memory/semantic.py<br/>ChromaDB"]
-        EVO["evolution/self_check.py<br/>SelfEvolution"]
-        SKL["skills/manager.py<br/>SkillManager"]
-        SEL["tools/selector.py<br/>ToolSelector"]
-    end
-
-    subgraph UI["Kullanıcı Arayüzü"]
-        REPL["ui/repl.py<br/>prompt_toolkit"]
-        DSP["ui/display.py<br/>Rich Console"]
-        SB["ui/status_bar.py<br/>StatusBar"]
-    end
-
-    MAIN --> REPL
-    MAIN --> DSP
-    REPL --> SB
-    MAIN --> AL
-    AL --> SM
-    AL --> RS
-    RS --> PV
-    AL --> CTX
-    AL --> EVO
-    AL --> MEM
-    AL --> SEL
-```
-
-## Project Structure
-
 ```
 dorina-agent/
-├── core/             # Config, logger, event bus, constants
-├── orchestrator/     # State machine, agent loop, reasoning, context
-├── providers/        # Multi-model router with fallback
-├── tools/            # Tool registry, executor, 56+ built-in tools
-├── ui/               # Terminal UI (prompt_toolkit + Rich)
-├── knowledge/        # Web search, deep research
-├── memory/           # Semantic memory (ChromaDB)
-├── evolution/        # Self-evolution, multi-review
-├── skills/           # Skill system
-├── session/          # Session manager & export
-├── security/         # Approval, auth, sandbox
-├── gateway/          # FastAPI REST API
-├── agents/           # Multi-agent system
-├── tests/            # 240 tests (61% coverage)
-└── soul/             # Personality system
+├── core/              # Config, constants, logger, event bus, mode manager
+├── orchestrator/      # State machine, agent loop, reasoning, context
+├── providers/         # Multi-model router with fallback
+├── tools/             # Registry, executor, 10+ built-in tools
+│   ├── builtin/       # terminal, file, git, web, cron, graphify
+│   ├── selector.py    # 3-katmanli goreve gore tool secimi
+│   ├── security.py    # is_destructive(), hardline block
+│   └── executor.py    # Hook pipeline (approval, metrics)
+├── ui/                # Terminal UI (prompt_toolkit + Rich)
+├── commands/          # Slash commands (/godmode, /speed, ...)
+├── session/           # Sifreli SQLite session manager
+├── security/          # Approval, auth
+├── hooks/             # Pre/post execution pipeline
+├── soul/              # Personality system
+├── knowledge/         # Web search, deep research
+├── memory/            # Semantic, episodic, procedural memory
+├── skills/            # Skill management
+├── tests/             # 271 tests
+└── FUTURE.md          # Ideas for next versions (NOT in codebase)
 ```
 
 ## Tests
 
 ```bash
+source .venv/bin/activate
 pytest tests/ -q --tb=short
-# 240 passed, 0 failed
+# 271 passed
 ```
 
-Coverage: **61%** (core, orchestrator, tools, knowledge, session, evolution).
+## Key Design Decisions
+
+- **Core first**: modlar prompt degistirir, algoritmayi degil. Ayni arac secimi, ayni pruning, ayni sudo mantigi her modda calisir.
+- **Plan → kod → denetle**: asla plansiz kod yazilmaz. Subagent writer + reviewer paralel calisir.
+- **FUTURE.md disiplini**: "ileride lazim olur" diye kod eklenmez. FUTURE.md'ye yazilir, gerektiginde ordan alinir.
+- **20K-25K bandi**: yeni ozellik eklenirken eski, az kullanilan silinir. Proje sismez, donusur.
 
 ## Credits
 
 Built with inspiration from:
 - **Hermes Agent** — tool architecture, session management, state machine
-- **Claude Code** — file history, task system, cost tracker
-- **Odysseus** — deep research, filesystem tools
+- **Claude Code** — file history, task system
 - **Superpowers** — skills/workflows
-- **smolagents** — agent patterns
-- **CrewAI** — multi-agent architecture
 
 ## License
 
