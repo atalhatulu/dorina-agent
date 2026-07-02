@@ -1,17 +1,22 @@
 """Prosedürel bellek - skill'leri yükler ve çalıştırır."""
 
+import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 import yaml
 
 from core.logger import log
 from core.constants import DORINA_HOME
+from memory.base import BaseMemory
 
 
-class ProceduralMemory:
+class ProceduralMemory(BaseMemory):
     """Skill'leri (SKILL.md) yükler ve yönetir."""
 
+    memory_type = "procedural"
+
     def __init__(self, skills_dir: str | Path | None = None):
+        super().__init__()
         if skills_dir is None:
             self.skills_dir = DORINA_HOME / "skills"
         else:
@@ -28,6 +33,61 @@ class ProceduralMemory:
                     info = self._read_skill_info(skill_file)
                     skills.append(info)
         return skills
+
+    # ── BaseMemory uyumluluk methodlari ────────────────────────
+
+    def add(self, key: str, content: str, metadata: Optional[dict] = None) -> None:
+        """BaseMemory uyumlu: key=skill_adi, content=icerik."""
+        self.save_skill(name=key, content=content)
+
+    def get(self, key: str) -> Any:
+        """BaseMemory uyumlu: key ile skill getir."""
+        skill = self.get_skill(key)
+        return skill.get("content") if skill else None
+
+    def search(self, query: str, n_results: int = 5) -> list[dict]:
+        """Skill adi ve iceriginde ara."""
+        results = []
+        for skill_dir in self.skills_dir.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if not skill_file.exists():
+                continue
+            content = skill_file.read_text()
+            if query.lower() in content.lower() or query.lower() in skill_dir.name.lower():
+                results.append({
+                    "name": skill_dir.name,
+                    "content": content,
+                    "path": str(skill_file),
+                })
+                if len(results) >= n_results:
+                    break
+        return results
+
+    def delete(self, key: str) -> bool:
+        """BaseMemory uyumlu: key ile skill sil."""
+        try:
+            skill_path = self._sanitize_name(key)
+        except ValueError:
+            return False
+        if skill_path.exists():
+            shutil.rmtree(skill_path)
+            log.info(f"Skill silindi: {key}")
+            return True
+        return False
+
+    def clear(self):
+        """BaseMemory uyumlu: tum skill'leri temizle."""
+        for skill_dir in self.skills_dir.iterdir():
+            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                shutil.rmtree(skill_dir)
+
+    def count(self) -> int:
+        """BaseMemory uyumlu: skill sayisi."""
+        return len(self.list_skills())
+
+    # ── Orijinal ProceduralMemory API ──────────────────────────
 
     def _sanitize_name(self, name: str) -> Path:
         """Skill adini dogrula ve path traversal'i engelle.
@@ -64,16 +124,8 @@ class ProceduralMemory:
         log.info(f"Skill kaydedildi: {name}")
 
     def delete_skill(self, name: str):
-        """Skill sil."""
-        try:
-            skill_path = self._sanitize_name(name)
-        except ValueError:
-            log.warning(f"Skill silme reddedildi (guvenlik): {name}")
-            return
-        if skill_path.exists():
-            import shutil
-            shutil.rmtree(skill_path)
-            log.info(f"Skill silindi: {name}")
+        """Skill sil (delegates to delete)."""
+        self.delete(name)
 
     def _read_skill_info(self, path: Path) -> dict:
         """SKILL.md başlık bilgilerini oku."""

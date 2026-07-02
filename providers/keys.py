@@ -212,7 +212,8 @@ class KeyManager:
             models = self.get_models(provider)
             model = models[0] if models else "unknown"
 
-        model_str = f"{provider}/{model}" if "/" not in model else model
+        from core.model_utils import build_model_string
+        model_str = build_model_string(provider, model)
 
         settings.model.provider = provider
         settings.model.default = model_str

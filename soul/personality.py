@@ -93,7 +93,7 @@ class Soul:
                 import json as _j
                 _p = _j.loads(_profile_path.read_text())
                 _prof = f" [{_p.get('name','?')} | {_p.get('profession','?')}]"
-            except Exception:
+            except (json.JSONDecodeError, OSError):
                 pass
         return (
             f"Adin {self.name}{_prof}. Terminal tabanli AI asistan."
@@ -140,7 +140,7 @@ class Soul:
                     lines.append("- Ara sira espri yap, emoji kullan.")
                     lines.append("- Kullaniciya ismiyle hitap et.")
                 # dengeli: varsayilan, ekstra kural gerekmez
-            except Exception:
+            except (json.JSONDecodeError, OSError, AttributeError):
                 pass
                 
         # Tool verimliligi kurallari
@@ -165,7 +165,7 @@ class Soul:
                     _mem_found.append(("AGENT NOTLARI", _mem_data["agent_notes"]))
                 if _mem_data.get("system"):
                     _mem_found.append(("SISTEM BILGISI", _mem_data["system"]))
-            except Exception:
+            except (json.JSONDecodeError, OSError, KeyError):
                 pass
         if _mem_skill_dir.exists():
             _skill_entries = []
@@ -199,7 +199,7 @@ class Soul:
                     lines.append("## KULLANICI TERCİHLERİ (PROSEDÜREL HAFIZA)")
                     for k, v in _prefs.items():
                         lines.append(f"- {k}: {v}")
-            except Exception:
+            except (json.JSONDecodeError, OSError):
                 pass
                 
         # ── Behaviour instructions (compact) ──
@@ -210,7 +210,7 @@ class Soul:
         try:
             from tools.toolset import toolset_summary
             lines.append(toolset_summary())
-        except Exception:
+        except ImportError:
             pass
         lines.append("- Konusma, tool cagir. 'suraya bakayim' deme, read_file cagir.")
         lines.append("- Plan anlatma, dogrudan uygula. Tool hata verirse web'de cozum ara, dene.")

@@ -12,6 +12,7 @@ Strateji:
 """
 
 from __future__ import annotations
+import json
 import re
 from core.logger import log
 from core.tokenizer import count_tokens, count_messages_tokens
@@ -129,7 +130,7 @@ class ContextCompressor:
                 summary = summary.get("content", "")[:SUMMARY_MAX_CHARS]
             else:
                 summary = str(summary)[:SUMMARY_MAX_CHARS]
-        except Exception as e:
+        except (TimeoutError, OSError, json.JSONDecodeError, KeyError) as e:
             log.warning(f"LLM compression failed ({e}), using truncation fallback")
 
         # 5. Fallback: özet çıkmazsa eski turların sadece ilk mesajını tut

@@ -120,7 +120,7 @@ async def run_setup_wizard():
         console.print(f"  [green]Config.yaml guncellendi[/green]")
     except ImportError:
         console.print("  [dim]pyyaml kurulu degil, config.yaml guncellenemedi[/dim]")
-    except Exception as e:
+    except (OSError, yaml.YAMLError) as e:
         console.print(f"  [dim]Config.yaml guncellenemedi: {e}[/dim]")
 
     console.print(Panel.fit(

@@ -46,5 +46,5 @@ def cron_tool(action: str, name: str = "", schedule: str = "", prompt: str = "",
             cron._save()
             return json.dumps({"success": True, "message": f"Tum cronlar ({count} adet) silindi."}, ensure_ascii=False)
         return json.dumps({"error": f"Bilinmeyen action: {action}"})
-    except Exception as e:
+    except (ImportError, AttributeError, OSError) as e:
         return json.dumps({"error": str(e)})

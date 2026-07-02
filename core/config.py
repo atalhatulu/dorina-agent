@@ -118,12 +118,14 @@ class Settings(BaseSettings):
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "Settings":
-        """Load ~/.dorina/config.yaml + providers.json + .env, return Settings."""
+        """Load ~/.dorina/config.yaml + .env, return Settings.
+
+        config.yaml is the single source of truth for model/provider config.
+        providers.json only stores API keys and provider metadata.
+        """
         import yaml
-        import json
         from pathlib import Path as P
         from core.constants import DORINA_HOME
-        from providers.keys import PROVIDERS_FILE
 
         # 1. ~/.dorina/config.yaml
         config_path = P(path) if path else DORINA_HOME / "config.yaml"
@@ -133,21 +135,7 @@ class Settings(BaseSettings):
         else:
             raw = {}
 
-        # 2. providers.json'daki default model
-        if PROVIDERS_FILE.exists():
-            try:
-                with open(PROVIDERS_FILE) as f:
-                    pj = json.load(f)
-                pj_default = pj.get("default", "")
-                if pj_default and not raw.get("model", {}).get("default"):
-                    raw.setdefault("model", {})
-                    raw["model"]["default"] = pj_default
-                    if "/" in pj_default:
-                        raw["model"]["provider"] = pj_default.split("/", 1)[0]
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        # 3. .env
+        # 2. .env
         from dotenv import load_dotenv
         load_dotenv()
 
@@ -155,23 +143,11 @@ class Settings(BaseSettings):
         return inst
 
     def save(self):
-        """Write model config to config.yaml + providers.json default."""
-        import yaml, json
+        """Write model config to config.yaml (single source of truth)."""
+        import yaml
         from pathlib import Path as P
         from core.constants import DORINA_HOME
-        from providers.keys import PROVIDERS_FILE
 
-        # 1. providers.json default model
-        if PROVIDERS_FILE.exists():
-            try:
-                with open(PROVIDERS_FILE) as f:
-                    pj = json.load(f)
-                pj["default"] = self.model.default
-                PROVIDERS_FILE.write_text(json.dumps(pj, indent=2, ensure_ascii=False))
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        # 2. config.yaml
         config_path = DORINA_HOME / "config.yaml"
         raw = {
             "model": {
@@ -186,7 +162,7 @@ class Settings(BaseSettings):
         if config_path.exists():
             try:
                 existing = yaml.safe_load(config_path.read_text()) or {}
-            except Exception:
+            except (yaml.YAMLError, OSError):
                 existing = {}
         existing["model"] = raw["model"]
         config_path.parent.mkdir(parents=True, exist_ok=True)

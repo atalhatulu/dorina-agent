@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from main import DorinaApp
+    from app import DorinaApp
 
 
 async def cmd_exit(app: "DorinaApp", cmd: str) -> None:
@@ -61,14 +61,9 @@ async def cmd_help(app: "DorinaApp", cmd: str) -> None:
 
 async def cmd_clear(app: "DorinaApp", cmd: str) -> None:
     """Clear the terminal screen."""
-    import os
     import subprocess
-    import sys
 
-    subprocess.run(
-        ["cmd", "/c", "cls"] if sys.platform == "win32" else ["clear"],
-        check=False,
-    )
+    subprocess.run(["clear"], check=False)
 
 
 async def cmd_status(app: "DorinaApp", cmd: str) -> None:

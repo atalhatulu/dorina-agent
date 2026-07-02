@@ -64,7 +64,7 @@ class Sandbox(SandboxInterface):
         except FileNotFoundError:
             self.available = False
             return "Docker komutu bulunamadi"
-        except Exception as e:
+        except OSError as e:
             return f"Sandbox hatasi: {e}"
         finally:
             src.unlink(missing_ok=True)
@@ -97,7 +97,7 @@ class Sandbox(SandboxInterface):
         except FileNotFoundError:
             self.available = False
             return "Docker komutu bulunamadi"
-        except Exception as e:
+        except OSError as e:
             return f"Sandbox hatasi: {e}"
 
 

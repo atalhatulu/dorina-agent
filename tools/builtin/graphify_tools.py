@@ -20,7 +20,7 @@ def _load_graph():
         from networkx.readwrite import json_graph
         data = json.loads(GRAPH_PATH.read_text())
         return json_graph.node_link_graph(data, edges="links")
-    except Exception:
+    except (json.JSONDecodeError, OSError, KeyError, ImportError):
         return None
 
 
@@ -50,7 +50,7 @@ def _set_graph_flag():
     try:
         from tools.executor import executor
         executor._graph_data_available = True
-    except Exception:
+    except ImportError:
         pass
 
 
@@ -312,7 +312,7 @@ def graphify_tool(action: str, question: str = "", source: str = "", target: str
             from graphify.cluster import cluster as _cluster_fn
             communities = _cluster_fn(G)
             community_count = len(communities)
-        except Exception:
+        except (ImportError, ValueError, KeyError, TypeError):
             community_count = 0
 
         conf_counts = {"EXTRACTED": 0, "INFERRED": 0, "AMBIGUOUS": 0}

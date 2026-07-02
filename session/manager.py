@@ -8,9 +8,11 @@ import json
 import uuid
 
 from sqlalchemy import create_engine, Column, String, Text, DateTime, Integer
+from sqlalchemy.exc import OperationalError, IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker
 from core.logger import log
 from core.constants import DORINA_HOME
+from core.tokenizer import count_messages_tokens
 
 # ── Fernet session key management ─────────────────────────────────
 _KEY_FILE = DORINA_HOME / ".session_key"
@@ -42,7 +44,7 @@ def _get_fernet():
                 if len(key) == 44:  # standard Fernet key length
                     _fernet_instance = Fernet(key)
                     return _fernet_instance
-        except Exception:
+        except (ImportError, OSError, yaml.YAMLError, ValueError, TypeError):
             pass
 
     # Fallback: old .session_key file
@@ -91,19 +93,17 @@ def _decrypt(ciphertext: str) -> str:
     try:
         return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
     except Exception:
+        # Not encrypted (plaintext), corrupted, or wrong key — try JSON fallback
         import json
-        # Check if the data is actually plaintext JSON (from before encryption was added)
         try:
             json.loads(ciphertext)
             return ciphertext  # It's plaintext!
         except (json.JSONDecodeError, ValueError, TypeError):
-            pass
-        # Data was encrypted with a key that no longer exists
-        raise ValueError("Session data encrypted with a key that is no longer available")
+            raise ValueError("Session data encrypted with a key that is no longer available")
 # ────────────────────────────────────────────────────────────────
 
 # P2-13: Checkpoint import
-from orchestrator.checkpoint import checkpoint_manager, _list_checkpoints, _checkpoint_path
+from orchestrator.checkpoint import checkpoint_manager
 
 DB_PATH = DORINA_HOME / "data" / "sessions.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -140,8 +140,8 @@ with engine.connect() as _conn:
         try:
             _conn.execute(_text(f"ALTER TABLE sessions ADD COLUMN {col} {col_type}"))
             _conn.commit()
-        except Exception:
-            pass  # kolon zaten var
+        except OperationalError:
+            pass
 # -------------------------
 
 class SessionManager:
@@ -205,7 +205,7 @@ class SessionManager:
             session.messages = _encrypt(json.dumps(messages, ensure_ascii=False))
             session.summary = summary
             session.updated_at = datetime.now(timezone.utc)
-            session.token_count = sum(len(str(m.get("content") or "")) for m in messages) // 4
+            session.token_count = count_messages_tokens(messages)
             if tool_calls_data is not None:
                 session.tool_calls = _encrypt(json.dumps(tool_calls_data, ensure_ascii=False))
             if token_total:
@@ -248,7 +248,7 @@ class SessionManager:
             try:
                 decrypted = _decrypt(s.messages)
                 msgs = json.loads(decrypted)
-            except Exception:
+            except (ValueError, json.JSONDecodeError):
                 log.warning(f"Session {s.id}: decrypt failed, skipping")
                 continue
             if not msgs:
@@ -395,7 +395,7 @@ class SessionManager:
         Returns:
             List of checkpoint summary dicts.
         """
-        return _list_checkpoints()
+        return checkpoint_manager.list(cp_type)
 
     async def save_snapshot(
         self, messages: list[dict], summary: str = "",
@@ -475,7 +475,7 @@ class SessionManager:
                 self.db.query(SessionModel).filter_by(id=s.id).delete()
                 self.db.commit()
                 count += 1
-            except Exception as exc:
+            except (OperationalError, IntegrityError) as exc:
                 ArchiveSession.rollback()
                 self.db.rollback()
                 log.warning(f"archive failed for session {s.id}: {exc}")
@@ -496,7 +496,7 @@ class SessionManager:
 
         try:
             messages = json.loads(_decrypt(session.messages))
-        except Exception:
+        except (ValueError, json.JSONDecodeError):
             log.warning(f"prune_session({session_id}): decrypt failed")
             return -1
 
@@ -533,7 +533,7 @@ class SessionManager:
             msgs = json.loads(decrypted)
             msg_count = len(msgs)
             bytes_raw = len(decrypted.encode("utf-8"))
-        except Exception:
+        except (ValueError, json.JSONDecodeError):
             pass
 
         return {

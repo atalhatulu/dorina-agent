@@ -27,7 +27,7 @@ def _cleanup_old():
         for old in all_md[MAX_SESSIONS:]:
             try:
                 old.unlink()
-            except Exception:
+            except OSError:
                 pass
 
 

@@ -27,7 +27,7 @@ class Sandbox(SandboxInterface):
             self.client.ping()
             self._ready = True
             log.info("Docker SDK sandbox hazir")
-        except Exception:
+        except (ImportError, ConnectionError, Exception):
             self._ready = False
             log.warning("Docker SDK sandbox kullanilamiyor")
 

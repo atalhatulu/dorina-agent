@@ -49,7 +49,7 @@ def ensure_dorina_home():
             _soul_path.write_text(_soul_example.read_text())
             print(f"  [info] soul.md olusturuldu: {_soul_path}")
 
-    # Sistem dizinlerini tara (bir kere)
+    # Sistem dizinlerini tara (bir kere) — islice ile erken dur, tum dosyayi listeleme
     _sys_mem = DORINA_HOME / "memories" / "SYSTEM.md"
     if not _sys_mem.exists():
         _lines = []
@@ -57,7 +57,14 @@ def ensure_dorina_home():
                                   ("BELGELER", Path.home() / "Documents"),
                                   ("INDIRILENLER", Path.home() / "Downloads")]:
             if _path.exists():
-                _items = [f.name for f in _path.iterdir()][:20]
+                _items = []
+                try:
+                    for _f in _path.iterdir():
+                        _items.append(_f.name)
+                        if len(_items) >= 20:
+                            break
+                except PermissionError:
+                    pass
                 _lines.append(f"- {_dir_name}: {_path} ({len(_items)} oge)")
                 if _items:
                     _lines.append(f"  * {', '.join(_items[:8])}")
@@ -71,7 +78,7 @@ def ensure_dorina_home():
 def _get_version() -> str:
     try:
         return get_version_manager().current
-    except Exception:
+    except (ImportError, AttributeError, FileNotFoundError, json.JSONDecodeError):
         return "0.1.0"
 
 VERSION = _get_version()
@@ -97,7 +104,7 @@ DEFAULT_MODEL = ""
 DEFAULT_PROVIDER = "deepseek"
 
 # Token limitleri
-MAX_WORKING_MESSAGES = 8  # ~2-3 tur konusma, session zaten gecmisi tutuyor
+MAX_WORKING_MESSAGES = 30  # ~8-10 tur konusma, context zenginligi icin yeterli
 MAX_TOOL_CALLS_PER_TURN = 999  # tool_test_all icin limitsiz
 MAX_TURNS = 50
 
@@ -181,7 +188,7 @@ def _load_translations(lang: str) -> dict[str, str]:
             data = json.load(f)
             _i18n_cache[lang] = data
             return data
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         return {}
 
 
@@ -228,7 +235,7 @@ def load_language_from_config(config_path: Optional[Path] = None) -> str:
     try:
         with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
-    except Exception:
+    except (yaml.YAMLError, OSError):
         return DEFAULT_LANGUAGE
 
     # Check soul.language first, then top-level language

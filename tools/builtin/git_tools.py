@@ -26,7 +26,7 @@ async def git_add_tool(path: str = ".") -> str:
         if r.returncode == 0:
             return json.dumps({"success": True, "message": f"Stage eklendi: {path}"})
         return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
-    except Exception as e:
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
@@ -48,7 +48,7 @@ async def git_commit_tool(message: str) -> str:
         if r.returncode == 0:
             return json.dumps({"success": True, "message": f"Commit: {message}"})
         return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
-    except Exception as e:
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
@@ -75,7 +75,7 @@ async def git_diff_tool(staged: bool = False, path: str = "") -> str:
         r = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
         output = r.stdout.strip() or r.stderr.strip()
         return output[:5000] if output else "Degisiklik yok."
-    except Exception as e:
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
@@ -112,7 +112,7 @@ async def git_branch_tool(action: str = "list", name: str = "") -> str:
                 return json.dumps({"success": True, "message": f"Dal silindi: {name}"})
             return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
         return json.dumps({"error": f"Gecersiz islem: {action}"})
-    except Exception as e:
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
@@ -135,5 +135,5 @@ async def git_push_tool(remote: str = "origin", branch: str = "main") -> str:
         if r.returncode == 0:
             return json.dumps({"success": True, "message": f"Push basarili: {remote}/{branch}"})
         return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
-    except Exception as e:
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})

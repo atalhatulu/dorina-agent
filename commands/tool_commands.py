@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from main import DorinaApp
+    from app import DorinaApp
 
 
 async def cmd_tools(app: "DorinaApp", cmd: str) -> None:
@@ -115,7 +115,7 @@ async def cmd_verify(app: "DorinaApp", cmd: str) -> None:
 
 async def cmd_review(app: "DorinaApp", cmd: str) -> None:
     """Trigger a code review of recent tool outputs."""
-    from orchestrator.agent_loop import loop
+    from orchestrator.experimental_loop import loop_v2 as loop
     from ui.display import print_info, print_assistant
 
     print_info("Review baslatiliyor...")

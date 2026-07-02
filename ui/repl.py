@@ -276,7 +276,7 @@ async def get_input(session: PromptSession | None = None) -> str:
             try:
                 import termios
                 termios.tcflush(sys.stdin, termios.TCIFLUSH)
-            except Exception:
+            except OSError:
                 pass
             
             import asyncio

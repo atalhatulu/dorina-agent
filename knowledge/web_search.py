@@ -76,7 +76,7 @@ class WebSearch:
             ]
             self.cache[cache_key] = formatted
             return formatted
-        except Exception as e:
+        except (TimeoutError, OSError, ValueError) as e:
             log.error(f"Web arama hatası: {e}")
             return []
 
@@ -97,7 +97,7 @@ class WebSearch:
                 }
                 for r in results
             ]
-        except Exception as e:
+        except (TimeoutError, OSError, ValueError) as e:
             log.error(f"Web haber arama hatası: {e}")
             return []
 

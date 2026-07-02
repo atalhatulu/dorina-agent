@@ -53,7 +53,7 @@ class ToolExecutor:
                          "python": "terminal", "cmd": "terminal"}
 
     # ── Shared setup (used by both sync execute and async_execute) ───────────
-    def _setup(self, tool_name: str, arguments: dict | str) -> tuple[str, ToolDef | None, dict | None, str | None]:
+    def _setup(self, tool_name: str, arguments: dict) -> tuple[str, ToolDef | None, dict | None, str | None]:
         """Common pre-execution setup.
 
         Returns (tool_name, tool, resolved_args, error_result).
@@ -73,24 +73,8 @@ class ToolExecutor:
             bus.publish("tool:aborted", name=tool_name, reason="graph_data_available")
             return tool_name, None, None, json.dumps({"error": msg, "aborted": True, "hint": "graphify_query sonucunu kullan, ek dosya tarama gerekmez"})
 
-        # Resolve parameters: ensure arguments is a dict with JSON repair
-        resolved_args: dict = {}
-        if isinstance(arguments, str):
-            try:
-                resolved_args = json.loads(arguments)
-            except json.JSONDecodeError:
-                import re as _re
-                repaired = arguments.strip()
-                repaired = _re.sub(r"(?<!\\)'", '"', repaired)
-                repaired = _re.sub(r",\s*}", "}", repaired)
-                repaired = _re.sub(r",\s*]", "]", repaired)
-                try:
-                    resolved_args = json.loads(repaired)
-                    log.debug(f"Repaired JSON for '{tool_name}': ...")
-                except json.JSONDecodeError:
-                    resolved_args = {"input": arguments}
-        else:
-            resolved_args = arguments
+        # Resolve parameters — arguments must already be a dict
+        resolved_args = arguments
 
         # ── Validate required parameters BEFORE calling the handler ──
         missing = _validate_required_params(tool, resolved_args)
@@ -127,9 +111,8 @@ class ToolExecutor:
         if self.call_count > MAX_TOOL_CALLS_PER_TURN:
             raise ToolError(f"Tur başı max {MAX_TOOL_CALLS_PER_TURN} tool çağrısı aşıldı", tool_name)
 
-        # Fire events
+        # Fire event
         bus.publish("tool:called", name=tool_name, arguments=resolved_args)
-        bus.publish("monitoring:tool_called", name=tool_name, arguments=resolved_args)
 
         return tool_name, tool, resolved_args, None
 
@@ -138,19 +121,16 @@ class ToolExecutor:
         """Post-processing hooks and bus events after successful execution."""
         # ── HOOK: Post-processing (can modify result) ──
         result = pipeline.run_post_processing(tool_name, resolved_args, result)
-        bus.publish("tool:executed", name=tool_name, result=result)
         bus.publish("tool:completed", name=tool_name, result=result)
-        bus.publish("monitoring:tool_executed", name=tool_name, result=result, latency_ms=0.0)
         return result
 
     def _handle_error(self, tool_name: str, error: Exception) -> str:
         """Common error handling for both sync and async paths."""
+        import json  # defensive (Python 3.14.6 intermittent namespace edge-case)
         error_sanitized = sanitize_tool_error(str(error))
         # Kullanici dostu hata mesaji — teknik detay log'da
         user_msg = f"Bir hata olustu. Detaylar: /home/teha/.dorina/logs/error.log"
-        bus.publish("tool:aborted", name=tool_name, error=str(error))
         bus.publish("tool:error", name=tool_name, error=str(error))
-        bus.publish("monitoring:tool_error", name=tool_name, error=str(error))
         log.error(
             f"Tool hatası [{tool_name}]: {error}",
             extra={"tool": tool_name, "error_type": type(error).__name__},
@@ -162,14 +142,15 @@ class ToolExecutor:
                 message=str(error),
                 traceback=traceback.format_exc(),
             )
-        except Exception:
+        except ImportError:
             pass
         return json.dumps({"error": user_msg})
 
     # ── Public API ─────────────────────────────────────────────────────────
 
-    def execute(self, tool_name: str, arguments: dict | str, timeout: int = 30) -> str:
+    def execute(self, tool_name: str, arguments: dict, timeout: int = 30) -> str:
         """Bir tool'u senkron çağır. Sonucu JSON string döndür.
+        arguments bir dict olmalıdır.
         """
         tool_name, tool, resolved_args, err = self._setup(tool_name, arguments)
         if err:
@@ -215,6 +196,23 @@ class ToolExecutor:
         except Exception as e:
             return self._handle_error(tool_name, e)
 
+    def execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30) -> str:
+        """Bir tool'u string JSON argümanla çağır. Önce parse eder, sonra execute()'e yönlendirir."""
+        try:
+            import re as _re
+            args = json.loads(arguments_str)
+        except json.JSONDecodeError:
+            repaired = arguments_str.strip()
+            repaired = _re.sub(r"(?<!\\)'", '"', repaired)
+            repaired = _re.sub(r",\s*}", "}", repaired)
+            repaired = _re.sub(r",\s*]", "]", repaired)
+            try:
+                args = json.loads(repaired)
+                log.debug(f"execute_json: repaired JSON for '{tool_name}'")
+            except json.JSONDecodeError:
+                args = {"input": arguments_str}
+        return self.execute(tool_name, args, timeout=timeout)
+
     def execute_multi(self, calls: list[dict]) -> list[dict]:
         """Birden çok tool'u sırayla çağır.
 
@@ -241,8 +239,9 @@ class ToolExecutor:
         """Tool çağrı sayacını sıfırla (yeni tur)."""
         self.call_count = 0
 
-    async def async_execute(self, tool_name: str, arguments: dict | str, timeout: int = 30) -> str:
+    async def async_execute(self, tool_name: str, arguments: dict, timeout: int = 30) -> str:
         """Bir tool'u async çağır. Sonucu JSON string döndür.
+        arguments bir dict olmalıdır.
         """
         tool_name, tool, resolved_args, err = self._setup(tool_name, arguments)
         if err:
@@ -264,6 +263,23 @@ class ToolExecutor:
             raise
         except Exception as e:
             return self._handle_error(tool_name, e)
+
+    async def async_execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30) -> str:
+        """Bir tool'u string JSON argümanla async çağır. Önce parse eder, sonra async_execute()'e yönlendirir."""
+        try:
+            import re as _re
+            args = json.loads(arguments_str)
+        except json.JSONDecodeError:
+            repaired = arguments_str.strip()
+            repaired = _re.sub(r"(?<!\\)'", '"', repaired)
+            repaired = _re.sub(r",\s*}", "}", repaired)
+            repaired = _re.sub(r",\s*]", "]", repaired)
+            try:
+                args = json.loads(repaired)
+                log.debug(f"async_execute_json: repaired JSON for '{tool_name}'")
+            except json.JSONDecodeError:
+                args = {"input": arguments_str}
+        return await self.async_execute(tool_name, args, timeout=timeout)
 
     async def async_execute_multi(self, calls: list[dict]) -> list[dict]:
         """Birden çok tool'u async sırayla çağır.

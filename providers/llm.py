@@ -40,7 +40,8 @@ async def stream_chat(
         api_key = os.environ.get(env_var, "")
 
     # Construct litellm model string (provider/model format)
-    model_name = f"{provider}/{model}" if "/" not in model else model
+    from core.model_utils import build_model_string
+    model_name = build_model_string(provider, model)
 
     try:
         import litellm
@@ -67,5 +68,5 @@ async def stream_chat(
 
     except ImportError:
         yield {"choices": [{"delta": {"content": "Provider system not available: litellm not installed"}}]}
-    except Exception as e:
+    except (TimeoutError, OSError, KeyError) as e:
         yield {"choices": [{"delta": {"content": f"Streaming error: {str(e)[:200]}"}}]}

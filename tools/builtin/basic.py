@@ -23,7 +23,7 @@ def _sandbox_enabled_in_config() -> bool:
         if cfg.exists():
             data = yaml.safe_load(cfg.read_text()) or {}
             return data.get("tools", {}).get("sandbox") == "docker"
-    except Exception:
+    except (yaml.YAMLError, OSError):
         pass
     return False
 
@@ -36,7 +36,7 @@ def _run_in_sandbox(command: str, timeout: int) -> str | None:
             log.warning("Docker sandbox istek edildi ama Docker kullanilamiyor")
             return None
         return docker_sandbox.run_shell(command, timeout=timeout)
-    except Exception as e:
+    except (ImportError, AttributeError) as e:
         log.warning(f"Sandbox kullanilamadi: {e}")
         return None
 
@@ -49,7 +49,7 @@ def _run_python_in_sandbox(code: str, timeout: int) -> str | None:
             log.warning("Docker sandbox istek edildi ama Docker kullanilamiyor")
             return None
         return docker_sandbox.run_python(code, timeout=timeout)
-    except Exception as e:
+    except (ImportError, AttributeError) as e:
         log.warning(f"Sandbox kullanilamadi: {e}")
         return None
 
@@ -85,9 +85,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
             return sandbox_result
         # Sandbox unavailable — fall through to host execution
 
-    import platform as _platform
-    _is_win = _platform.system() == "Windows"
-    _shell = not _is_win
+    _shell = True
 
     from core.mode_manager import modes
     import soul.personality as _sp
@@ -141,7 +139,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                 _con.print("[bold red]✗ Yanlış parola, tekrar dene[/]")
         except _sp_verify.TimeoutExpired:
             _con.print("[bold red]✗ Parola doğrulama zaman aşımı[/]")
-        except Exception:
+        except (OSError, ValueError):
             pass
 
     # ── Auto-background KALDIRILDI ──
@@ -291,7 +289,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
             return redact_secrets(output)[:50000]
     except subprocess.TimeoutExpired:
         return json.dumps({"error": f"Komut zaman aşımı ({timeout}s)"})
-    except Exception as e:
+    except (subprocess.CalledProcessError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
@@ -350,7 +348,7 @@ def _search_file_broad(filename: str, limit_hits: int = 5) -> list:
             "path": {"type": "string", "description": "Dosya yolu"},
             "start_line": {"type": "integer", "description": "Başlangıç satırı (1-indexed)", "default": 1},
             "end_line": {"type": "integer", "description": "Bitiş satırı (opsiyonel)"},
-            "limit": {"type": "integer", "description": "Okunacak satır sayısı", "default": 500},
+            "limit": {"type": "integer", "description": "Okunacak satır sayısı", "default": 200},
             "offset": {"type": "integer", "description": "Başlangıç satırı (alternatif)", "default": 1},
         },
         "required": ["path"],
@@ -359,6 +357,8 @@ def _search_file_broad(filename: str, limit_hits: int = 5) -> list:
 )
 def read_file_tool(path: str, start_line: int = None, end_line: int = None, limit: int = 200, offset: int = None) -> str:
     """Read file content with line numbers, pagination, and binary protection."""
+    log.debug("read_file_tool called: path=%r limit=%r start=%r end=%r offset=%r",
+              path, limit, start_line, end_line, offset)
     p = Path(path).expanduser()
     if not p.is_absolute():
         p = Path.cwd() / p
@@ -396,7 +396,7 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
                     "path": str(p),
                     "size": p.stat().st_size
                 })
-    except Exception as e:
+    except (OSError, ValueError) as e:
         return json.dumps({"error": f"Dosya okunurken hata: {e}"})
 
     # Normalize parameters
@@ -433,9 +433,9 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
             # Hızlı satır sayma hilesi
             for _ in _f:
                 total += 1
-    except Exception as e:
+    except (OSError, ValueError) as e:
         return json.dumps({"error": f"Dosya okunurken hata: {e}"})
-    
+
     # ── Akilli okuma: kucuk dosya tam, buyuk dosya ilk 500 ──
     _new_read = len(collected)
     _total_read = _already_read + _new_read
@@ -530,6 +530,7 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
     toolset="file",
 )
 async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str:
+    import json  # local import (Python 3.14.6 intermittent GC edge-case)
     import subprocess
     import shlex
     from pathlib import Path as _Path
@@ -539,7 +540,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
     try:
         await asyncio.to_thread(subprocess.run, ["rg", "--version"], capture_output=True, timeout=5)
         has_rg = True
-    except Exception:
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         pass
 
     # Search directories
@@ -580,7 +581,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
                     "count": len(lines),
                     "note": f"Dosya isminde '{pattern}' arandı (.gitignore uygulandi)"
                 }, ensure_ascii=False)
-        except Exception:
+        except (subprocess.TimeoutExpired, OSError):
             pass
 
         # Mode 2: content search with ripgrep
@@ -595,7 +596,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
             if result.stdout.strip():
                 lines = result.stdout.strip().split("\n")[:30]
                 return "\n".join(lines)
-        except Exception:
+        except (subprocess.TimeoutExpired, OSError):
             pass
 
     else:
@@ -624,7 +625,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
                     "matches": lines[:20],
                     "count": len(lines),
                 }, ensure_ascii=False)
-        except Exception:
+        except (OSError, subprocess.TimeoutExpired):
             pass
 
         # Mode 2: grep content search
@@ -639,7 +640,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
                 if result.stdout.strip():
                     for line in result.stdout.strip().split("\n")[:10]:
                         all_results[line] = True
-            except Exception:
+            except (OSError, subprocess.TimeoutExpired):
                 pass
 
         if all_results:
@@ -696,11 +697,9 @@ async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = 
         
         return json.dumps(results[:max_results], ensure_ascii=False)
         
-    except Exception as e:
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ImportError) as e:
         _err_msg = str(e)
-        _error_info = ""
-        if "timeout" in _err_msg.lower() or "connection" in _err_msg.lower() or "blocked" in _err_msg.lower():
-            _error_info = " (muhtemelen Google/DDG engelledi)"
+        _error_info = " (muhtemelen Google/DDG engelledi)"
         
         # Alternatif: web_fetch ile dogrudan ara
         try:
@@ -715,7 +714,7 @@ async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = 
                 "note": f"DuckDuckGo dogrudan sorgu engellendi{_error_info}, web_fetch ile HTML sayfasi cekildi",
                 "results": [{"title": "DuckDuckGo HTML sonucu", "body": str(_alt_result)[:2000], "source": _url}]
             }, ensure_ascii=False)
-        except Exception:
+        except (httpx.HTTPError, OSError, json.JSONDecodeError, ImportError):
             return json.dumps({"error": f"Arama basarisiz{_error_info}: {_err_msg[:200]}"})
 
 
@@ -792,7 +791,7 @@ async def web_fetch_tool(
         except httpx.HTTPStatusError as e:
             err_msg = f"HTTP hatası: {e.response.status_code} - {e.response.reason_phrase}"
             break
-        except Exception as e:
+        except (httpx.RequestError, TimeoutError, OSError) as e:
             err_msg = str(e)
             # Network unreachable gibi kalici hatalarda retry yapma
             if "Network is unreachable" in err_msg or "getaddrinfo" in err_msg or "Name or service" in err_msg:
@@ -824,7 +823,7 @@ async def web_fetch_tool(
             try:
                 parsed = resp.json()
                 result_content = json.dumps(parsed, indent=2, ensure_ascii=False)
-            except Exception:
+            except (json.JSONDecodeError, TypeError, AttributeError):
                 result_content = raw_text
         elif "text/html" in content_type and extract_text:
             try:
@@ -839,7 +838,7 @@ async def web_fetch_tool(
                     tag.decompose()
                     
                 result_content = soup.get_text(separator="\n", strip=True)
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
                 result_content = raw_text
                 
     # Truncate and add preview
@@ -996,7 +995,7 @@ def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: l
                 "summary": f"{len(_verification)} satir degisti. Degisiklik dogru mu diye TEKRAR read_file yapma. Verification yukarida."
             },
         })
-    except Exception as e:
+    except (OSError, ValueError, json.JSONDecodeError) as e:
         return json.dumps({"error": str(e)})
 
 
@@ -1043,7 +1042,7 @@ async def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) 
             return out or "Basarili (cikti yok)"
         except subprocess.TimeoutExpired:
             return json.dumps({"error": f"Zaman asimi ({timeout}sn)"})
-        except Exception as e:
+        except (subprocess.CalledProcessError, OSError) as e:
             return json.dumps({"error": str(e)})
         finally:
             os.unlink(f.name)

@@ -39,7 +39,7 @@ class TestToolExecutor:
         }, handler=echo)
         patch_registry.register(tool)
 
-        result = executor.execute("echo_tool", '{"msg": "hello"}')
+        result = executor.execute_json("echo_tool", '{"msg": "hello"}')
         data = json.loads(result)
         assert data["msg"] == "hello"
 

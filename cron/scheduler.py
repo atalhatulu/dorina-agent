@@ -119,7 +119,7 @@ class CronScheduler:
             import subprocess
             res = subprocess.run(job.prompt, shell=True, capture_output=True, text=True)
             output_file.write_text(f"[{job.last_run}] Job: {job.name}\nPrompt: {job.prompt}\nExit: {res.returncode}\nOut: {res.stdout}\nErr: {res.stderr}\n")
-        except Exception as e:
+        except (OSError, FileNotFoundError) as e:
             log.error(f"Cron çalıştırma hatası [{job.name}]: {e}")
 
         if job.schedule.startswith("in ") or job.schedule.startswith("once "):

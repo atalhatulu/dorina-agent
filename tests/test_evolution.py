@@ -1,10 +1,7 @@
 """Tests for evolution module — review, self-calibration, learning."""
 import pytest
-import sys
 import json
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 
 class TestReview:

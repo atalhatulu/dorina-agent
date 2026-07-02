@@ -34,7 +34,7 @@ class AsyncBrowserClient:
             self._page = await self._browser.new_page()
             self.available = True
             log.info("Browser (async) baslatildi")
-        except Exception as e:
+        except (ImportError, OSError, TimeoutError) as e:
             log.warning(f"Browser baslatilamadi: {e}")
 
     async def navigate(self, url: str) -> str:
@@ -169,7 +169,7 @@ class AsyncBrowserClient:
         try:
             text = await self._page.inner_text("body")
             return text[:10000]
-        except Exception as e:
+        except (TimeoutError, AttributeError) as e:
             log.warning(f"Metin alma hatasi: {e}")
             return ""
 
@@ -203,7 +203,7 @@ class AsyncBrowserClient:
             return ""
         try:
             return await self._page.title()
-        except Exception:
+        except (TimeoutError, AttributeError):
             return ""
 
     async def get_url(self) -> str:
@@ -213,7 +213,7 @@ class AsyncBrowserClient:
             return ""
         try:
             return self._page.url
-        except Exception:
+        except (TimeoutError, AttributeError):
             return ""
 
     # ── Scroll ──────────────────────────────────────────────────
@@ -268,12 +268,12 @@ class AsyncBrowserClient:
         if self._browser:
             try:
                 await self._browser.close()
-            except Exception as e:
+            except (TimeoutError, AttributeError) as e:
                 log.warning(f"Browser kapatma hatasi: {e}")
         if self._playwright:
             try:
                 await self._playwright.stop()
-            except Exception as e:
+            except (TimeoutError, AttributeError) as e:
                 log.warning(f"Playwright durdurma hatasi: {e}")
         self._page = None
         self._browser = None

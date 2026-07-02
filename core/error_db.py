@@ -28,7 +28,7 @@ try:
     """)
     _conn.commit()
     _db_ok = True
-except Exception:
+except (sqlite3.Error, OSError):
     _db_ok = False
 
 from core.logger import log
@@ -46,7 +46,7 @@ def _log(source: str, error_type: str, error_msg: str, context: str = ""):
              traceback.format_exc()[:2000], str(context)[:500])
         )
         _conn.commit()
-    except Exception:
+    except sqlite3.Error:
         pass
 
 

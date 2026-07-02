@@ -62,7 +62,7 @@ async def docker_available() -> bool:
             capture_output=True, text=True, timeout=5,
         )
         return result.returncode == 0
-    except Exception:
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
         return False
 
 
@@ -87,7 +87,7 @@ async def sandbox_terminal(command: str, timeout: int = 60) -> str:
         return json.dumps({"error": f"Sandbox timeout ({timeout}s)"})
     except FileNotFoundError:
         return json.dumps({"error": "Docker bulunamadı. Sandbox kullanılamıyor."})
-    except Exception as e:
+    except (OSError, subprocess.CalledProcessError, ValueError) as e:
         return json.dumps({"error": f"Sandbox error: {e}"})
 
 

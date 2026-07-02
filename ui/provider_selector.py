@@ -69,7 +69,7 @@ async def _pick_one(title: str, items: list[tuple[str, str]], current: str = "")
     )
     try:
         return await app.run_async()
-    except Exception:
+    except (Exception, asyncio.CancelledError):
         return None
 
 

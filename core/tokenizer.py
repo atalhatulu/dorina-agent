@@ -50,6 +50,9 @@ _encoding_cache: dict = {}
 
 def _resolve_encoding(model: str = "") -> str:
     """Get tiktoken encoding name for a given model string."""
+    if not model:
+        return "cl100k_base"
+
     if model in MODEL_ENCODING_MAP:
         return MODEL_ENCODING_MAP[model]
 
@@ -63,7 +66,7 @@ def _resolve_encoding(model: str = "") -> str:
             if max_input >= 128000:
                 return "o200k_base"
             return "cl100k_base"
-    except Exception:
+    except (ImportError, AttributeError, KeyError):
         pass
 
     # Default fallback
@@ -90,7 +93,7 @@ def count_tokens(text: str, model: str = "") -> int:
                 _encoding_cache[encoding_name] = tiktoken.get_encoding(encoding_name)
             encoding = _encoding_cache[encoding_name]
             return len(encoding.encode(text))
-        except Exception:
+        except (KeyError, ValueError, TypeError):
             pass
 
     # Fallback: character / 4 (rough estimate)

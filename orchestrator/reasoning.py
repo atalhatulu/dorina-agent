@@ -11,6 +11,7 @@ from core.constants import (
     CACHE_ENABLED_PROVIDERS,
     CACHE_STRATEGY,
 )
+from core.tokenizer import count_tokens, count_messages_tokens
 
 
 class ReasoningEngine:
@@ -32,15 +33,8 @@ class ReasoningEngine:
 
     def get_model_string(self) -> str:
         """litellm formatında model string'i döndür (örn: gemini/gemini-2.5-flash)."""
-        active_model = self.model
-        active_provider = self.provider
-        if active_provider in ("google", "gemini"):
-            if not active_model.startswith("gemini/"):
-                raw = active_model.split("/", 1)[-1] if "/" in active_model else active_model
-                return f"gemini/{raw}"
-        if "/" not in active_model and active_provider:
-            return f"{active_provider}/{active_model}"
-        return active_model
+        from core.model_utils import build_model_string
+        return build_model_string(self.provider, self.model)
 
     _shared_llm = None
 
@@ -144,17 +138,8 @@ class ReasoningEngine:
 
         api_key = self._get_api_key()
 
-        model_name = self.model
-        # litellm uses "gemini/" prefix for Google models, not "google/"
-        if self.provider in ("google", "gemini"):
-            if not model_name.startswith("gemini/"):
-                # Strip any "google/" prefix, add "gemini/"
-                raw = model_name.split("/", 1)[-1] if "/" in model_name else model_name
-                model_name = f"gemini/{raw}"
-        elif self.provider == "openrouter" and not model_name.startswith("openrouter/"):
-            model_name = f"openrouter/{model_name}"
-        elif "/" not in model_name and self.provider:
-            model_name = f"{self.provider}/{model_name}"
+        from core.model_utils import build_model_string
+        model_name = build_model_string(self.provider, self.model)
 
         params = {
             "model": model_name,
@@ -258,7 +243,7 @@ class ReasoningEngine:
                     return await self._think_stream(llm, params, stream_callback)
                 resp = await llm.acompletion(**params)
                 return self._parse_response(resp)
-            except Exception as _repair_e:
+            except (KeyError, json.JSONDecodeError, ImportError, OSError) as _repair_e:
                 log.error(f"Tool format onarimi da basarisiz: {_repair_e}")
                 # Onarım da başarısız → normal hata akışına düş
                 e = _repair_e
@@ -315,7 +300,7 @@ class ReasoningEngine:
         try:
             from core.error_db import log_llm_error
             log_llm_error(provider=self.provider, model=model_name, error=e)
-        except Exception:
+        except (ImportError, NameError, AttributeError):
             pass
         last_msgs = full_messages[-5:] if len(full_messages) >= 5 else full_messages
         for i, m in enumerate(last_msgs):
@@ -367,9 +352,8 @@ class ReasoningEngine:
 
         content = "".join(content_chunks)
         _est_prompt = params.get("messages", [])
-        _prompt_chars = sum(len(str(m.get("content", ""))) for m in _est_prompt)
-        _est_in = _prompt_chars // 4
-        _est_out = len(content) // 4
+        _est_in = count_messages_tokens(_est_prompt)
+        _est_out = count_tokens(content)
         if content:
             _est_out = max(_est_out, 1)
         result = {
@@ -457,7 +441,7 @@ class ReasoningEngine:
             mgr_key = _km.get_key(self.provider)
             if mgr_key:
                 return mgr_key
-        except Exception:
+        except (AttributeError, KeyError):
             pass
 
         env_key = key_map.get(self.provider)

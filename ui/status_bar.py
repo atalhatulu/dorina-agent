@@ -153,7 +153,7 @@ class StatusBar:
         try:
             from bg_tools.task_manager import task_manager
             return len([t for t in task_manager.list_tasks() if t.status == "running"])
-        except Exception:
+        except (ImportError, AttributeError):
             return 0
 
     def show(self):
@@ -183,14 +183,14 @@ class StatusBar:
         try:
             from cron.scheduler import cron
             return len(cron.jobs)
-        except Exception:
+        except (ImportError, AttributeError):
             return 0
             
     def _get_sub_count(self) -> int:
         try:
             from agents.crew import crew
             return len([f for f in crew.list_forks() if f.get("status") == "running"])
-        except Exception:
+        except (ImportError, AttributeError):
             return 0
 
     def show_waiting(self):

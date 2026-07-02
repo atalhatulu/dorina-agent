@@ -44,7 +44,7 @@ def get_sandbox(backend: str | None = None) -> SandboxInterface:
         try:
             from core.config import settings
             backend = settings.tools.get("sandbox", "subprocess")
-        except Exception:
+        except (ImportError, AttributeError, KeyError):
             backend = "subprocess"
 
     backend = str(backend).lower().strip()

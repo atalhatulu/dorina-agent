@@ -59,11 +59,9 @@ class ProviderRouter:
 
     def get_model_string(self) -> str:
         """Return litellm-format model string (e.g. gemini/gemini-2.5-flash-lite)."""
+        from core.model_utils import build_model_string
         active = self.get_active()
-        model = active["model"]
-        if "/" not in model:
-            return f"{active['name']}/{model}"
-        return model
+        return build_model_string(active["name"], active["model"])
 
     def get_active_model(self) -> str:
         return settings.model.default

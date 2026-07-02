@@ -68,7 +68,7 @@ def task_create_bash(command: str, label: str = "", notify_on_complete: bool = F
                     command = command.replace("sudo ", "sudo -S ", 1)
                 else:
                     command = command.replace("/usr/bin/sudo ", "/usr/bin/sudo -S ", 1)
-        except Exception:
+        except ImportError:
             pass
 
     proc = subprocess.Popen(
@@ -86,7 +86,7 @@ def task_create_bash(command: str, label: str = "", notify_on_complete: bool = F
         if _sudo_pwd and ("sudo " in command or "sudo -S " in command):
             proc.stdin.write(f"{_sudo_pwd}\n".encode("utf-8"))
             proc.stdin.flush()
-    except Exception:
+    except (ImportError, OSError, AttributeError):
         pass
 
     task = BackgroundTask(id=task_id, name=name, status="running")
@@ -131,7 +131,7 @@ def task_create_bash(command: str, label: str = "", notify_on_complete: bool = F
                 task.error = "timeout (300s)"
                 task.finished_at = time.time()
                 _notify(f"⏱ [{name}] zaman aşımı (300s)")
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 task.status = "failed"
                 task.error = str(e)[:200]
                 task.finished_at = time.time()

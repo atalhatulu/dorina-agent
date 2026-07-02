@@ -111,7 +111,7 @@ class SubAgent:
                     })
                     continue
 
-                result = await asyncio.to_thread(executor.execute, name, args)
+                result = await executor.async_execute_json(name, args)
                 messages.append({
                     "role": "tool",
                     "content": result,

@@ -17,7 +17,7 @@ from prompt_toolkit.output import create_output
 from prompt_toolkit.patch_stdout import patch_stdout as _pt_patch
 
 from core.mode_manager import modes
-
+from core.tokenizer import count_tokens
 console = Console(
     highlight=False,
 )
@@ -147,7 +147,7 @@ def print_tool_start(name: str, args: dict | None = None):
     global _in_tokens
     _in_tokens = 0
     if args:
-        _in_tokens = len(str(args)) // 4
+        _in_tokens = count_tokens(str(args))
 
     _current_tool_text = t
     console.print(t, end="")
@@ -159,7 +159,7 @@ def print_tool_done(name: str, result: str):
     _duration = f" \n~{max(0.0, _time.time() - _tool_start_time):.1f}s" if _tool_start_time else ""
     _tool_start_time = 0
     # Input/output token tahmini
-    _out_tokens = len(result or "") // 4
+    _out_tokens = count_tokens(result or "")
     _in_str = f"  i: {_in_tokens}" if _in_tokens > 0 else ""
     _out_str = f"  o: {_out_tokens}" if _out_tokens > 0 else ""
     _io = _in_str + _out_str
@@ -190,7 +190,7 @@ def print_tool_done(name: str, result: str):
             summary = data["note"][:150]
         elif data.get("success"):
             summary = data.get("message", "Başarılı")
-    except Exception:
+    except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
         pass
 
     if is_multi:
@@ -228,7 +228,7 @@ def print_tool_error(name: str, error: str):
         try:
             p = _json.loads(raw)
             msg = p.get("error", "") or p.get("message", "") or msg
-        except Exception:
+        except (json.JSONDecodeError, KeyError, TypeError):
             pass
     user_msg = _friendly_error(msg)
     import logging as _logging

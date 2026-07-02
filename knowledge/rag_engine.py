@@ -1,192 +1,90 @@
-"""RAG motoru — ChromaDB ile belge sorgulama ve research entegrasyonu."""
+"""RAG motoru — SemanticMemory wrapper for knowledge retrieval.
+
+Artik SemanticMemory uzerine insa edilmistir, ChromaDB kodunu tekrar etmez.
+"""
 
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
 from core.logger import log
-from core.constants import DORINA_HOME
+from memory.semantic import SemanticMemory
 
 
 class RAGEngine:
-    """Retrieval-Augmented Generation. Belgeleri vektörleştir, sorgula, research sonuçlarını ekle.
+    """Retrieval-Augmented Generation — SemanticMemory wrapper with knowledge-specific defaults.
 
-    Entegrasyon:
-      - deep_research.py'den gelen raporları ve bulguları ekleyebilir
-      - Her research sonucu metadata ile işaretlenir (source="deep_research")
+    Backward-compatible: same public API, but storage layer is SemanticMemory.
     """
 
     def __init__(self):
-        self.client = None
-        self.collection = None
-        self.embedder = None
+        self._memory = SemanticMemory(
+            collection_name="dorina_knowledge",
+            db_path="rag_knowledge",
+            embedding_model="BAAI/bge-small-en-v1.5",
+        )
         self._ready = False
 
+    @property
+    def client(self):
+        return self._memory.client
+
+    @property
+    def collection(self):
+        return self._memory.collection
+
+    @property
+    def embedder(self):
+        return self._memory.embedder
+
     async def initialize(self):
-        """ChromaDB bağlantısını başlat."""
-        try:
-            import chromadb
-            try:
-                self.client = chromadb.PersistentClient(
-                    path=str(DORINA_HOME / "data" / "rag_knowledge"),
-                )
-            except Exception:
-                return  # ChromaDB basarisiz, sessizce gec
-
-            try:
-                self.collection = self.client.get_collection("dorina_knowledge")
-            except Exception:
-                self.collection = self.client.create_collection("dorina_knowledge")
-
-            try:
-                from fastembed import TextEmbedding
-                self.embedder = TextEmbedding()
-            except Exception:
-                pass
-
-            self._ready = True
-            log.info("RAGEngine hazır")
-        except Exception as e:
-            log.warning(f"RAGEngine başlatılamadı: {e}")
+        """SemanticMemory'i baslat."""
+        await self._memory.initialize()
+        self._ready = self._memory._ready
+        if self._ready:
+            log.info("RAGEngine hazir (SemanticMemory tabanli)")
+        else:
+            log.warning("RAGEngine baslatilamadi")
 
     def add_document(self, text: str, metadata: dict | None = None, doc_id: str | None = None):
         """Belge ekle."""
-        if not self._ready:
-            return
-        import uuid
-        doc_id = doc_id or str(uuid.uuid4())
-        self.collection.add(
-            documents=[text],
-            metadatas=[metadata or {}],
-            ids=[doc_id],
-        )
+        self._memory.add(text=text, metadata=metadata, doc_id=doc_id)
+
+    def add(self, text: str, metadata: dict | None = None):
+        """Short-hand for add_document (test compatibility)."""
+        self._memory.add(text=text, metadata=metadata)
 
     def add_file(self, filepath: str):
         """Dosya ekle (PDF, TXT, MD)."""
-        path = Path(filepath)
-        if not path.exists():
-            return
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        self.add_document(
-            text=text,
-            metadata={"source": str(path), "type": path.suffix},
-        )
-
-    # ── Deep Research Integration ────────────────────────────────
+        self._memory.add_file(filepath)
 
     def add_research_finding(self, query: str, finding_text: str, metadata: dict | None = None):
-        """Araştırma bulgusunu vektör deposuna ekle.
-
-        Args:
-            query: Orijinal araştırma sorusu
-            finding_text: Bulgu metni (rapor, snippet, makale)
-            metadata: Ek metadata (kaynak URL, tarih, etc.)
-        """
-        meta = {
-            "source": "deep_research",
-            "query": query,
-            "type": "research_finding",
-        }
-        if metadata:
-            meta.update(metadata)
-        self.add_document(text=finding_text, metadata=meta)
+        """Araştırma bulgusunu ekle."""
+        self._memory.add_research_finding(query, finding_text, metadata)
 
     def add_research_report(self, question: str, report: str, stats: dict | None = None):
-        """Tam araştırma raporunu vektör deposuna ekle.
-
-        Rapor chunk'lara bölünerek eklenir, böylece sonraki sorgularda
-        raporun ilgili kısımları bulunabilir.
-
-        Args:
-            question: Araştırma sorusu
-            report: Tam rapor metni
-            stats: Araştırma istatistikleri (opsiyonel)
-        """
-        meta = {
-            "source": "deep_research",
-            "query": question,
-            "type": "research_report",
-        }
-        if stats:
-            meta["stats"] = str(stats)
-
-        # Chunk the report into ~500 char segments
-        chunk_size = 500
-        chunks = [report[i:i + chunk_size] for i in range(0, len(report), chunk_size)]
-        for i, chunk in enumerate(chunks):
-            chunk_meta = {**meta, "chunk": i, "total_chunks": len(chunks)}
-            self.add_document(text=chunk, metadata=chunk_meta)
-
-    # ── Query ────────────────────────────────────────────────────
+        """Tam araştırma raporunu ekle."""
+        self._memory.add_research_report(question, report, stats)
 
     def query(self, question: str, n_results: int = 3, filter_source: str | None = None) -> list[dict]:
-        """Soru sor, ilgili belgeleri bul.
+        """Soru sor, ilgili belgeleri bul."""
+        return self._memory.query(question, n_results=n_results, filter_source=filter_source)
 
-        Args:
-            question: Sorgulanacak soru
-            n_results: Döndürülecek maksimum sonuç sayısı
-            filter_source: Sadece belirli kaynaktan sonuçlar (ör: "deep_research")
-
-        Returns:
-            {"content", "metadata", "distance"} sözlük listesi
-        """
-        if not self._ready:
-            return []
-
-        where = None
-        if filter_source:
-            where = {"source": filter_source}
-
-        results = self.collection.query(
-            query_texts=[question],
-            n_results=n_results,
-            where=where,
-        )
-
-        items = []
-        if results and results.get("documents"):
-            for i, doc in enumerate(results["documents"][0]):
-                items.append({
-                    "content": doc,
-                    "metadata": results["metadatas"][0][i] if results.get("metadatas") else {},
-                    "distance": results["distances"][0][i] if results.get("distances") else 0,
-                })
-        return items
+    def search(self, question: str, n_results: int = 3) -> list[dict]:
+        """Alias for query (test compatibility)."""
+        return self._memory.search(question, n_results=n_results)
 
     def query_research(self, question: str, n_results: int = 3) -> list[dict]:
         """Sadece research sonuçlarından sorgula."""
-        return self.query(question, n_results=n_results, filter_source="deep_research")
+        return self._memory.query_research(question, n_results=n_results)
 
     def context_for_query(self, question: str, max_chars: int = 2000, include_research: bool = True) -> str:
-        """Soru için bağlam oluştur (LLM'e eklemek için).
-
-        Args:
-            question: Sorgulanacak soru
-            max_chars: Maksimum karakter sayısı
-            include_research: Research sonuçlarını dahil et
-
-        Returns:
-            Biçimlendirilmiş bağlam metni
-        """
-        docs = self.query(question)
-        if not docs:
-            return ""
-
-        context = "İlgili bilgiler:\n\n"
-        total = 0
-        for doc in docs:
-            snippet = doc["content"][:500]
-            if total + len(snippet) > max_chars:
-                break
-            source_label = doc.get("metadata", {}).get("source", "bilinmeyen")
-            context += f"[{source_label}] {snippet}\n\n"
-            total += len(snippet)
-
-        return context
+        """Soru için bağlam oluştur (LLM'e eklemek için)."""
+        return self._memory.context_for_query(question, max_chars=max_chars)
 
     def count(self) -> int:
         if self._ready:
-            return self.collection.count()
+            return self._memory.count()
         return 0
 
 

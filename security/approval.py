@@ -83,7 +83,7 @@ def _register_approval_hook():
     try:
         from hooks.lifecycle import pipeline
         pipeline.register("pre_execution", _approval_hook)
-    except Exception:
+    except ImportError:
         pass  # pipeline henuz hazir degilse sessizce gec
 
 

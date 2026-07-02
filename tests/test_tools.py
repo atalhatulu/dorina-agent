@@ -1,11 +1,7 @@
 """Tool modülü testleri."""
 
 import pytest
-import sys
 import json
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 class TestToolRegistry:

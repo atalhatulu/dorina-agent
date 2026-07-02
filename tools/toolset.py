@@ -19,7 +19,7 @@ try:
         DEFAULT_TOOLSETS = set(t.lower().strip() for t in _cfg_tools.default_toolsets)
     else:
         DEFAULT_TOOLSETS = {"file", "web", "terminal"}
-except Exception:
+except (AttributeError, ImportError):
     DEFAULT_TOOLSETS = {"file", "web", "terminal"}
 
 ACTIVE_TOOLSETS: set[str] = set(DEFAULT_TOOLSETS)

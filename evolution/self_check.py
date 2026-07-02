@@ -39,7 +39,7 @@ def log_learning(task_type: str, what_failed: str, what_worked: str):
     if LEARNINGS_FILE.exists():
         try:
             data = json.loads(LEARNINGS_FILE.read_text())
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             data = {"learnings": []}
 
     data["learnings"].append({
@@ -65,7 +65,7 @@ def get_relevant_learnings(task_description: str) -> str:
     try:
         data = json.loads(LEARNINGS_FILE.read_text())
         learnings = data.get("learnings", [])
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         return ""
 
     # Simple keyword matching

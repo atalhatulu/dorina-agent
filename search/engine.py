@@ -153,8 +153,10 @@ class DuckDuckGoProvider(SearchProvider):
             error = "ddgs library not installed. Install: pip install ddgs"
             log.error(error)
             return self._make_response(query, [], 0, error=error)
-        except Exception as e:
+        except (TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
             error = f"DuckDuckGo search failed: {e}"
+            log.warning(error)
+            return self._make_response(query, [], 0, error=error)
             log.warning(error)
             return self._make_response(query, [], 0, error=error)
 
@@ -180,7 +182,7 @@ class GoogleCustomSearchProvider(SearchProvider):
             key = getattr(settings, "google_api_key", None) or settings.api_keys.get("google")
             if key:
                 return key
-        except Exception:
+        except AttributeError:
             pass
         return os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
@@ -253,7 +255,7 @@ class GoogleCustomSearchProvider(SearchProvider):
             error = f"Google API HTTP error: {e.response.status_code} - {e.response.text[:200]}"
             log.warning(error)
             return self._make_response(query, [], (time.time() - start) * 1000, error=error)
-        except Exception as e:
+        except (TimeoutError, OSError, json.JSONDecodeError, ValueError, KeyError) as e:
             error = f"Google search failed: {e}"
             log.warning(error)
             return self._make_response(query, [], (time.time() - start) * 1000, error=error)
@@ -372,7 +374,7 @@ class SearchEngine:
                             if inst.name == n:
                                 self._providers[n] = inst
                                 break
-                except Exception:
+                except (ImportError, TypeError):
                     pass
 
     def add_provider(self, name: str):
@@ -387,7 +389,7 @@ class SearchEngine:
                     if inst.name == name:
                         self.register(inst)
                         return
-        except Exception:
+        except (ImportError, TypeError):
             pass
 
     def remove_provider(self, name: str):
@@ -419,7 +421,7 @@ class SearchEngine:
                 name = future_map[future]
                 try:
                     results[name] = future.result()
-                except Exception as e:
+                except (concurrent.futures.CancelledError, TimeoutError, OSError, json.JSONDecodeError) as e:
                     results[name] = SearchResponse(
                         query=query,
                         error=str(e),

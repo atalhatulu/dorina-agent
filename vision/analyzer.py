@@ -216,7 +216,7 @@ class VisionAnalyzer:
                     "file_size": p.stat().st_size,
                     "path": str(p),
                 }
-        except Exception:
+        except (OSError, AttributeError, ValueError, ImportError):
             return None
 
 

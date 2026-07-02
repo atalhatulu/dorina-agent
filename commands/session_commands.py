@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from main import DorinaApp
+    from app import DorinaApp
 
 
 async def cmd_new(app: "DorinaApp", cmd: str) -> None:
@@ -14,7 +14,7 @@ async def cmd_new(app: "DorinaApp", cmd: str) -> None:
         /new
         /new my-project-name
     """
-    from orchestrator.agent_loop import loop
+    from orchestrator.experimental_loop import loop_v2 as loop
     from session.manager import manager
     from core.config import settings
     from ui.display import print_success
@@ -40,7 +40,7 @@ async def cmd_temp(app: "DorinaApp", cmd: str) -> None:
 
         /temp
     """
-    from orchestrator.agent_loop import loop
+    from orchestrator.experimental_loop import loop_v2 as loop
     from ui.display import print_info
     from ui.repl import set_style
 
@@ -54,7 +54,7 @@ async def cmd_save(app: "DorinaApp", cmd: str) -> None:
 
         /save my-analysis
     """
-    from orchestrator.agent_loop import loop
+    from orchestrator.experimental_loop import loop_v2 as loop
     from session.manager import manager
     from ui.display import print_success
 
@@ -72,7 +72,7 @@ async def cmd_load(app: "DorinaApp", cmd: str) -> None:
         /load 1
         /load abc
     """
-    from orchestrator.agent_loop import loop
+    from orchestrator.experimental_loop import loop_v2 as loop
     from session.manager import manager
     from ui.display import console, print_error
 
@@ -252,7 +252,7 @@ async def cmd_export(app: "DorinaApp", cmd: str) -> None:
         /export md
         /export html
     """
-    from orchestrator.agent_loop import loop
+    from orchestrator.experimental_loop import loop_v2 as loop
     from ui.display import print_success, print_error
 
     fmt = cmd[8:].strip().lower()

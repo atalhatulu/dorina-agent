@@ -24,10 +24,10 @@ class Context:
 
     def add_tool_result(self, tool_name: str, result: str, tool_call_id: str = ""):
         """Tool sonucu ekle (tool_call_id ile). Provenans formatinda."""
-        MAX_TOOL_RESULT = 1500  # 1.5KB uzeri tool sonuclarini kisalt
-        
-        # Provenans: tool adi + sonucu birlikte goster, LLM kaynagi bilsin
-        if result.startswith("{"):
+        # read_file sonuclari truncate edilmez — LLM dosyayi tam gormeli
+        if tool_name == "read_file":
+            content = f"[{tool_name}] → {result}"
+        elif result.startswith("{"):
             try:
                 import json as _j
                 parsed = _j.loads(result)
@@ -35,16 +35,17 @@ class Context:
                     content = f"[{tool_name}] → ✗ {parsed['error'][:200]}"
                 else:
                     content = f"[{tool_name}] → {result}"
-            except Exception:
+            except _j.JSONDecodeError:
                 content = f"[{tool_name}] → {result}"
         elif result.startswith("✗") or "error" in result[:50].lower():
             content = f"[{tool_name}] → ✗ {result[:200]}"
         else:
             content = f"[{tool_name}] → {result}"
-        
-        # Buyuk tool sonuclarini kisalt (token tasarrufu)
-        if len(content) > MAX_TOOL_RESULT:
-            preview = content[:MAX_TOOL_RESULT]
+
+        # Buyuk tool sonuclarini kisalt (token tasarrufu) — read_file haric
+        _MAX_TOOL_RESULT = 1500
+        if tool_name != "read_file" and len(content) > _MAX_TOOL_RESULT:
+            preview = content[:1500]
             content = f"{preview}\n... (truncated, {len(result)} bytes total. use read_file to see full content)"
         
         msg = {

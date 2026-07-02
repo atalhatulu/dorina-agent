@@ -113,7 +113,7 @@ class MCPClient:
 
             log.info(f"MCP bağlandı: {self.config.name} ({self.config.command})")
 
-        except Exception as e:
+        except (subprocess.CalledProcessError, OSError, asyncio.TimeoutError, json.JSONDecodeError) as e:
             log.error(f"MCP bağlantı hatası [{self.config.name}]: {e}")
             await self.disconnect()
             raise
@@ -167,7 +167,7 @@ class MCPClient:
                 for t in tools_data
             ]
 
-        except Exception as e:
+        except (json.JSONDecodeError, KeyError, TypeError, OSError) as e:
             log.error(f"MCP tool listeleme hatası: {e}")
             return []
 
@@ -194,7 +194,7 @@ class MCPClient:
 
             return "\n".join(content_parts) if content_parts else json.dumps(data)
 
-        except Exception as e:
+        except (json.JSONDecodeError, KeyError, TypeError, OSError) as e:
             return json.dumps({"error": str(e)})
 
     async def ping(self) -> bool:
@@ -262,7 +262,7 @@ class MCPClient:
                     buffer = ""
         except asyncio.CancelledError:
             pass
-        except Exception as e:
+        except (OSError, asyncio.TimeoutError, UnicodeDecodeError) as e:
             log.debug(f"MCP okuma döngüsü sonu: {e}")
 
     def _handle_message(self, message: dict):
@@ -310,7 +310,7 @@ class MCPManager:
         for client in self.servers.values():
             try:
                 await client.connect()
-            except Exception as e:
+            except (OSError, ConnectionError, asyncio.TimeoutError) as e:
                 log.warning(f"MCP [{client.config.name}] bağlanamadı: {e}")
 
     async def disconnect_all(self):

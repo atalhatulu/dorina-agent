@@ -1,13 +1,8 @@
 """Tests for browser, gateway, search, vision modules."""
 from __future__ import annotations
-import sys
 import os
-import json
 import tempfile
-import time
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import pytest
 from PIL import Image

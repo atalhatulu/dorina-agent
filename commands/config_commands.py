@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from main import DorinaApp
+    from app import DorinaApp
 
 
 async def cmd_model(app: "DorinaApp", cmd: str) -> None:
@@ -71,7 +71,8 @@ async def cmd_model(app: "DorinaApp", cmd: str) -> None:
             models = PROVIDERS[prov].get("models", [])
             if models:
                 keys.switch_to(prov, models[0])
-                model_str = f"{prov}/{models[0]}" if "/" not in models[0] else models[0]
+                from core.model_utils import build_model_string
+                model_str = build_model_string(prov, models[0])
                 print_success(f"Switched to {model_str}")
             else:
                 print_error(f"{prov} icin model tanimli degil")

@@ -4,17 +4,21 @@ import json
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from core.constants import DEFAULT_DATA_DIR
+from memory.base import BaseMemory
 
 DB_PATH = DEFAULT_DATA_DIR / "episodic.db"
 
 
-class EpisodicMemory:
+class EpisodicMemory(BaseMemory):
     """Geçmiş oturumları saklar."""
 
+    memory_type = "episodic"
+
     def __init__(self):
+        super().__init__()
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(DB_PATH))
         self._init_db()
@@ -41,6 +45,40 @@ class EpisodicMemory:
             )
         """)
         self.conn.commit()
+
+    # ── BaseMemory uyumluluk methodlari ────────────────────────
+
+    def add(self, key: str, content: str, metadata: Optional[dict] = None) -> None:
+        """BaseMemory uyumlu: key ile value ekle."""
+        category = (metadata or {}).get("category", "general")
+        self.save_memory(key, content, category=category)
+
+    def get(self, key: str) -> Any:
+        """BaseMemory uyumlu: key ile value getir."""
+        return self.get_memory(key)
+
+    def search(self, query: str, n_results: int = 5) -> list[dict]:
+        """BaseMemory uyumlu: icerikte ara."""
+        results = self.search_memories(query)
+        return results[:n_results]
+
+    def delete(self, key: str) -> bool:
+        """BaseMemory uyumlu: key ile memory sil."""
+        cur = self.conn.execute("DELETE FROM memories WHERE key = ?", (key,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def clear(self):
+        """BaseMemory uyumlu: tum memory'leri temizle."""
+        self.conn.execute("DELETE FROM memories")
+        self.conn.commit()
+
+    def count(self) -> int:
+        """BaseMemory uyumlu: memory sayisi."""
+        cur = self.conn.execute("SELECT COUNT(*) FROM memories")
+        return cur.fetchone()[0]
+
+    # ── Orijinal EpisodicMemory API ────────────────────────────
 
     def save_session(self, session_id: str, title: str, messages: list[dict], summary: str = ""):
         now = datetime.now(timezone.utc).isoformat()
