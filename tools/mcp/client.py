@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -61,6 +62,7 @@ class MCPClient:
         self._request_id = 0
         self._pending: dict[str, asyncio.Future] = {}
         self._reader_task: asyncio.Task | None = None
+        self._stderr_task: asyncio.Task | None = None
         self._connected = False
         self._server_info: dict = {}
 
@@ -70,6 +72,20 @@ class MCPClient:
             return
 
         try:
+            # Resolve $VAR references in env and inherit PATH
+            resolved_env = None
+            if self.config.env:
+                resolved_env = {**os.environ}
+                for k, v in self.config.env.items():
+                    if isinstance(v, str) and v.startswith("$"):
+                        resolved_env[k] = os.environ.get(v[1:], v)
+                    else:
+                        resolved_env[k] = v
+            elif os.environ.get("GITHUB_TOKEN") or os.environ.get("ANTHROPIC_API_KEY"):
+                resolved_env = {**os.environ}
+            else:
+                resolved_env = os.environ.copy()
+
             # Start subprocess
             self.process = await asyncio.create_subprocess_exec(
                 self.config.command,
@@ -77,19 +93,18 @@ class MCPClient:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                env=self.config.env,
+                env=resolved_env,
             )
 
-            # Reader and writer
-            loop = asyncio.get_event_loop()
-            self.reader = asyncio.StreamReader()
-            protocol = asyncio.StreamReaderProtocol(self.reader)
-            await loop.connect_read_pipe(lambda: protocol, self.process.stdout)
+            # Python 3.12+ create_subprocess_exec returns StreamReader/StreamWriter directly
+            if self.process.stdout is None or self.process.stdin is None:
+                raise ConnectionError("Subprocess pipes not available")
+            self.reader = self.process.stdout  # already a StreamReader
+            self.writer = self.process.stdin   # already a StreamWriter
+            self._connected = True
 
-            transport, _ = await loop.connect_write_pipe(
-                asyncio.Protocol, self.process.stdin
-            )
-            self.writer = asyncio.StreamWriter(transport, protocol, None, loop)
+            # Log stderr in background
+            self._stderr_task = asyncio.create_task(self._log_stderr())
 
             # JSON-RPC reader task
             self._reader_task = asyncio.create_task(self._read_loop())
@@ -106,7 +121,6 @@ class MCPClient:
 
             initialized = json.loads(result)
             self._server_info = initialized
-            self._connected = True
 
             # Initialized notification
             await self._notify("notifications/initialized")
@@ -125,6 +139,10 @@ class MCPClient:
         if self._reader_task:
             self._reader_task.cancel()
             self._reader_task = None
+
+        if self._stderr_task:
+            self._stderr_task.cancel()
+            self._stderr_task = None
 
         if self.writer:
             try:
@@ -225,10 +243,23 @@ class MCPClient:
         await self.writer.drain()
 
         try:
-            return await asyncio.wait_for(future, timeout=30)
+            return await asyncio.wait_for(future, timeout=60)
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
             raise TimeoutError(f"MCP istek zaman aşımı: {method}")
+
+    async def _log_stderr(self):
+        """MCP sunucusunun stderr çıktısını logla."""
+        try:
+            while self._connected and self.process and self.process.stderr:
+                line = await self.process.stderr.readline()
+                if not line:
+                    break
+                msg = line.decode("utf-8", errors="replace").strip()
+                if msg:
+                    log.debug(f"MCP [{self.config.name}] stderr: {msg}")
+        except (asyncio.CancelledError, OSError):
+            pass
 
     async def _notify(self, method: str, params: dict | None = None):
         """JSON-RPC notification gönder (yanıt beklenmez)."""
@@ -244,25 +275,25 @@ class MCPClient:
         await self.writer.drain()
 
     async def _read_loop(self):
-        """JSON-RPC yanıtlarını oku."""
-        buffer = ""
+        """JSON-RPC yanıtlarını satır satır oku (readline-based)."""
         try:
             while self._connected and self.reader:
-                char = await self.reader.read(1)
-                if not char:
+                line = await asyncio.wait_for(self.reader.readline(), timeout=120)
+                if not line:
                     break
-                buffer += char.decode("utf-8", errors="replace")
-
-                if char == b"\n" and buffer.strip():
-                    try:
-                        message = json.loads(buffer.strip())
-                        self._handle_message(message)
-                    except json.JSONDecodeError:
-                        log.debug(f"MCP parse hatası: {buffer[:100]}")
-                    buffer = ""
+                text = line.decode("utf-8", errors="replace").strip()
+                if not text:
+                    continue
+                try:
+                    message = json.loads(text)
+                    self._handle_message(message)
+                except json.JSONDecodeError:
+                    log.debug(f"MCP parse hatası: {text[:100]}")
+        except asyncio.TimeoutError:
+            log.debug("MCP okuma zaman aşımı (120s) — döngü sonu")
         except asyncio.CancelledError:
             pass
-        except (OSError, asyncio.TimeoutError, UnicodeDecodeError) as e:
+        except (OSError, UnicodeDecodeError) as e:
             log.debug(f"MCP okuma döngüsü sonu: {e}")
 
     def _handle_message(self, message: dict):
@@ -338,10 +369,13 @@ class MCPManager:
         return json.dumps({"error": f"Tool bulunamadı (MCP): {tool_name}"})
 
     async def ping_all(self) -> dict[str, bool]:
-        """Tüm sunuculara ping at."""
+        """Tüm sunuculara ping at (yalnızca bağlı olanları dene)."""
         results = {}
         for name, client in self.servers.items():
-            results[name] = await client.ping()
+            if client._connected:
+                results[name] = await client.ping()
+            else:
+                results[name] = False
         return results
 
 

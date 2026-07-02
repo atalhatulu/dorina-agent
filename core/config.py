@@ -45,6 +45,7 @@ class ToolsConfig(BaseSettings):
     sandbox: str = "docker"
     approval_mode: str = "smart"
     mcp_enabled: bool = True
+    mcp_servers: list[dict] = []
     default_toolsets: list[str] = []
 
 

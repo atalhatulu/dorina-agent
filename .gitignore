@@ -5,7 +5,6 @@
 
 # İzin verilen kök dizin dosyaları (Whitelist)
 !.dockerignore
-!.env.example
 !.gitignore
 !CONTRIBUTING.md
 !Dockerfile

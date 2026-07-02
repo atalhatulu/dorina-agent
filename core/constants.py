@@ -105,7 +105,7 @@ DEFAULT_PROVIDER = "deepseek"
 
 # Token limitleri
 MAX_WORKING_MESSAGES = 30  # ~8-10 tur konusma, context zenginligi icin yeterli
-MAX_TOOL_CALLS_PER_TURN = 999  # tool_test_all icin limitsiz
+MAX_TOOL_CALLS_PER_TURN = 100  # high ceiling: tool selection guards quality, not hard limits
 MAX_TURNS = 50
 
 # Memory types

@@ -36,7 +36,7 @@ from core.tokenizer import count_messages_tokens
 from core.error_classifier import classify_api_error, sanitize_tool_error
 from core.error_db import log_tool_error, log_error_pattern, get_frequent_patterns
 from core.mode_manager import modes
-from tools.selector import select_schemas
+from tools.toolset import get_active_schemas, toolset_summary
 from tools.registry import registry
 from tools.executor import executor
 from soul.personality import soul
@@ -153,9 +153,8 @@ class AgentLoopV2:
 
         self.context.add_user_message(user_input)
 
-        # Tool secimi — tum loop boyunca ayni set
-        tool_names = select_schemas(user_input, registry)
-        tool_schemas = registry.schemas_for(tool_names) if tool_names else []
+        # Tool secimi — aktif toolset'lerden schema'lar
+        tool_schemas = get_active_schemas(user_input)
 
         # ── 2. THINK → ACT LOOP ────────────────────────────────────
         while self._loop_iterations < _MAX_LOOP_ITERATIONS:
@@ -252,6 +251,9 @@ class AgentLoopV2:
     def _build_system_prompt(self, user_input: str):
         """System prompt'u hazirla: skill injection + RAG + evolution."""
         sections = []
+
+        # 0. Toolset summary (aktif kategoriler ve nasil acilacagi)
+        sections.append(toolset_summary())
 
         # 1. Skill injection
         try:
@@ -383,23 +385,6 @@ class AgentLoopV2:
 
     async def _execute_tools(self, tool_calls: list[dict]):
         """Tool'lari calistir. Read paralel, write sirali."""
-        # Enforce max 3 per turn
-        if len(tool_calls) > 3:
-            trimmed = tool_calls[3:]
-            trimmed_names = [
-                tc.get("function", {}).get("name", "?") for tc in trimmed
-            ]
-            _display.console.print(
-                f"[bold yellow]"
-                f"Tek turda max 3 tool ({len(tool_calls)} istendi). "
-                f"Ilk 3 calisiyor.[/]"
-            )
-            self.context.add_assistant_message(
-                f"[SISTEM] {len(trimmed_names)} tool kirpildi (limit: 3/tur): "
-                f"{', '.join(trimmed_names)}. Kalanlari sonraki turda cagirabilirsin."
-            )
-            tool_calls = tool_calls[:3]
-
         # Repetition guard: ayni dosyayi ayni turda 2. kez okuma
         seen_in_turn: set = set()
         filtered = []

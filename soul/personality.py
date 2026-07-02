@@ -20,6 +20,7 @@ class Soul:
     def __init__(self, path: str | None = None):
         self.path = Path(path) if path else (DORINA_HOME / "SOUL.md")
         self.raw: dict = {}
+        self._prompt_cache: str | None = None
         self._load()
 
     def _load(self):
@@ -104,6 +105,8 @@ class Soul:
     @property
     def system_prompt(self) -> str:
         """Soul'dan system prompt oluştur."""
+        if self._prompt_cache is not None:
+            return self._prompt_cache
         lines = [
             f"Adın {self.name}. Aşağıdaki kurallara uy.",
         ]
@@ -239,11 +242,14 @@ class Soul:
             lines.append("- DENETIM: Her kodu/mantigi sorgula. PASS/FAIL/WARN. Acik bul, alternatif oner.")
         else:
             lines.append("- Normal mod.")
-        return "\n".join(lines)
+        prompt = "\n".join(lines)
+        self._prompt_cache = prompt
+        return prompt
 
     def reload(self):
         """soul.md değiştiyse yeniden yükle."""
         self._load()
+        self._prompt_cache = None
 
 
 soul = Soul()

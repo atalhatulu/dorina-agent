@@ -26,19 +26,12 @@ ACTIVE_TOOLSETS: set[str] = set(DEFAULT_TOOLSETS)
 
 # ── Toolset tanımları (system prompt'ta gösterilecek) ─────
 TOOLSET_LABELS = {
-    "file":      "📁 FILE    — read, write, patch, search, batch_python",
-    "web":       "🌐 WEB     — web_search, web_fetch",
-    "terminal":  "💻 TERMINAL — shell commands",
-    "git":       "📋 GIT     — add, commit, diff, branch, push, status, log",
-    "memory":    "🧠 MEMORY  — save_memory, read_memory",
-    "cron":      "⏰ CRON    — add, remove, list, clear",
-    "delegation": "🤖 AGENT   — delegate_task, delegate_batch, clarify",
-    "sandbox":   "🐳 SANDBOX — sandbox_exec (isolated execution)",
-    "graphify":  "📊 GRAPH   — codebase analysis (import/call graph)",
-    "research":  "🔬 RESEARCH — deep_research, browser_navigate",
-    "vision":    "👁️ VISION  — analyze_image",
-    "mcp":       "🔗 MCP     — mcp_call_tool (external tools)",
-    "system":    "⚙️ SYSTEM  — list_providers, switch_provider, background tasks",
+    "file":        "📁 FILE       — read, write, patch, search, batch_python",
+    "web":         "🌐 WEB        — web_search, web_fetch",
+    "terminal":    "💻 TERMINAL   — shell commands",
+    "delegation":  "🤖 AGENT      — delegate_task, delegate_batch",
+    "mcp":         "🔌 MCP        — mcp_call, mcp_list, mcp_status",
+    "system":      "⚙️ SYSTEM     — tools_enable, cron, save_memory, read_memory",
 }
 
 ACTIVE_TOOLSET_LABELS = {k: v for k, v in TOOLSET_LABELS.items() if k in DEFAULT_TOOLSETS}
@@ -74,23 +67,20 @@ def get_active_toolsets() -> frozenset[str]:
 
 def get_active_schemas(user_input: str = "") -> list[dict]:
     """Aktif toolset'lerdeki tool'larin schema'larini dondurur.
-    Gorev salt-okunur tespit edilirse sadece okuma tool'lari gonderilir (token tasarrufu)."""
+    Gorev salt-okunur tespit edilirse sadece okuma tool'lari gonderilir (token tasarrufu).
+
+    tools_enable her zaman eklenir (system toolset'ine ait ama meta-tool olarak acik)."""
     from tools.registry import registry
-    
+
     # Gorev salt-okunur mu? (incele, analiz, bak, oku, listele, ara, audit, review)
     _readonly_keywords = {"incele", "analiz", "kontrol", "bak", "goster", "listele", "ara", "oku", "audit", "review", "inspect", "ne yap", "nasil", "açıkla", "anlat"}
     _is_readonly = any(k in user_input.lower() for k in _readonly_keywords) if user_input else False
-    
+
     active = get_active_toolsets()
     schemas = []
     for tool in registry.list():
-        if tool.toolset in active:
-            # Salt-okunur gorev: sadece okuma araclari
-            if _is_readonly and tool.name not in {
-                "read_file", "search_files", "web_search", "web_fetch",
-                "list_directory", "terminal",
-            }:
-                continue
+        # tools_enable her zaman aktif (meta-tool)
+        if tool.name == "tools_enable":
             schemas.append({
                 "type": "function",
                 "function": {
@@ -99,6 +89,23 @@ def get_active_schemas(user_input: str = "") -> list[dict]:
                     "parameters": tool.parameters,
                 },
             })
+            continue
+        if tool.toolset not in active:
+            continue
+        # Salt-okunur gorev: sadece okuma araclari
+        if _is_readonly and tool.name not in {
+            "read_file", "search_files", "web_search", "web_fetch",
+            "terminal",
+        }:
+            continue
+        schemas.append({
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+            },
+        })
     return schemas
 
 
@@ -112,7 +119,7 @@ def toolset_summary() -> str:
         status = "✅" if key in ACTIVE_TOOLSETS else "🔒"
         lines.append(f"  {status} {label}")
     lines.append("")
-    lines.append("📌 Default açık: FILE + WEB + TERMINAL. tools_enable('GIT') ile yeni kategori eklersin.")
+    lines.append("📌 Default açık: FILE, WEB, TERMINAL. tools_enable('delegation') ile AGENT, tools_enable('mcp') ile GITHUB araçlarını eklersin. tools_enable her zaman kullanılabilir.")
     return "\n".join(lines)
 
 

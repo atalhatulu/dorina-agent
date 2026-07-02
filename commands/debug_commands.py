@@ -29,8 +29,9 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
         tbl.add_row("Tool (toplam)", "N/A")
 
     try:
-        from tools.selector import selector as _sel
-        tbl.add_row("Tool Selector indeksli", str(getattr(_sel, '_total_tools', '?')))
+        from tools.toolset import get_active_toolsets
+        active = get_active_toolsets()
+        tbl.add_row("Toolset (aktif)", f"{len(active)}: {', '.join(sorted(active))}")
     except (ImportError, AttributeError):
         pass
 
@@ -102,15 +103,16 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
     try:
         from orchestrator.experimental_loop import loop_v2 as loop
         msg_tokens = count_messages_tokens(loop.context.get_messages())
-        from tools.selector import selector as _sel
-        selected = getattr(_sel, '_cache', {}).get('tools', [])
-        schema_tokens = len(selected) * 250
+        from tools.toolset import get_active_schemas
+        schemas = get_active_schemas()
+        n_tools = len(schemas)
+        schema_tokens = n_tools * 250
         sys_tokens = count_tokens(enriched or "")
         total_est = sys_tokens + msg_tokens + schema_tokens
         tbl.add_row("Tahmini toplam token", str(total_est))
         tbl.add_row("  - Sistem prompt", str(sys_tokens))
         tbl.add_row("  - Konuşma geçmişi", str(msg_tokens))
-        tbl.add_row("  - Tool şemaları", f"{schema_tokens} ({len(selected)} tool x ~250)")
+        tbl.add_row("  - Tool şemaları", f"{schema_tokens} ({n_tools} tool x ~250)")
     except (ImportError, AttributeError):
         pass
 

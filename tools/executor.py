@@ -180,10 +180,10 @@ class ToolExecutor:
                 bus.publish("tool:aborted", name=tool_name, reason="user_denied")
                 return tool_name, None, None, json.dumps({"error": denied_msg, "aborted": True})
 
-        # Update counter
+        # Update counter (failsafe — loop removed hard limits per user request)
         self.call_count += 1
         if self.call_count > MAX_TOOL_CALLS_PER_TURN:
-            raise ToolError(f"Tur başı max {MAX_TOOL_CALLS_PER_TURN} tool çağrısı aşıldı", tool_name)
+            raise ToolError(f"Failsafe: tur başı max {MAX_TOOL_CALLS_PER_TURN} tool", tool_name)
 
         # Fire event
         bus.publish("tool:called", name=tool_name, arguments=resolved_args)
@@ -301,6 +301,7 @@ class ToolExecutor:
 
         calls: [{"name": "...", "arguments": {...}}, ...]
         """
+        self.reset_count()
         results = []
         for call in calls:
             try:
@@ -369,6 +370,7 @@ class ToolExecutor:
 
         calls: [{"name": "...", "arguments": {...}}, ...]
         """
+        self.reset_count()
         results = []
         for call in calls:
             try:

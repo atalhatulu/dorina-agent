@@ -124,6 +124,7 @@ class SessionModel(Base):
     summary = Column(Text, default="")
     model = Column(String, default="")
     token_count = Column(Integer, default=0)
+    message_count = Column(Integer, default=0)
     # Genisletilmis alanlar
     tool_calls = Column(Text, default="[]")  # JSON list: [{name, args_preview, result_preview, duration}]
     token_total = Column(Integer, default=0)
@@ -136,7 +137,7 @@ Base.metadata.create_all(engine)
 # Migration: eski DB'ye yeni kolonlari ekle (SQLAlchemy 2.x uyumlu)
 from sqlalchemy import text as _text
 with engine.connect() as _conn:
-    for col, col_type in [("tool_calls", "TEXT DEFAULT '[]'"), ("token_total", "INTEGER DEFAULT 0"), ("cost", "INTEGER DEFAULT 0"), ("tags", "TEXT DEFAULT '[]'")]:
+    for col, col_type in [("tool_calls", "TEXT DEFAULT '[]'"), ("token_total", "INTEGER DEFAULT 0"), ("cost", "INTEGER DEFAULT 0"), ("tags", "TEXT DEFAULT '[]'"), ("message_count", "INTEGER DEFAULT 0")]:
         try:
             _conn.execute(_text(f"ALTER TABLE sessions ADD COLUMN {col} {col_type}"))
             _conn.commit()
@@ -206,6 +207,7 @@ class SessionManager:
             session.summary = summary
             session.updated_at = datetime.now(timezone.utc)
             session.token_count = count_messages_tokens(messages)
+            session.message_count = len([m for m in messages if m.get("role") == "user"])
             if tool_calls_data is not None:
                 session.tool_calls = _encrypt(json.dumps(tool_calls_data, ensure_ascii=False))
             if token_total:
@@ -243,15 +245,7 @@ class SessionManager:
         # Filter out sessions with no messages
         result = []
         for s in sessions:
-            if not s.messages or s.messages.strip() in ("", "[]", "{}"):
-                continue
-            try:
-                decrypted = _decrypt(s.messages)
-                msgs = json.loads(decrypted)
-            except (ValueError, json.JSONDecodeError):
-                log.warning(f"Session {s.id}: decrypt failed, skipping")
-                continue
-            if not msgs:
+            if s.message_count == 0 and (not s.messages or s.messages.strip() in ("", "[]", "{}")):
                 continue
             result.append({
                 "id": s.id,
@@ -261,7 +255,7 @@ class SessionManager:
                 "summary": s.summary,
                 "model": s.model,
                 "token_count": s.token_count,
-                "message_count": len([m for m in msgs if m.get("role") == "user"]),
+                "message_count": s.message_count,
             })
         
         return result

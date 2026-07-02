@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import warnings
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -81,6 +82,10 @@ class EpisodicMemory(BaseMemory):
     # ── Orijinal EpisodicMemory API ────────────────────────────
 
     def save_session(self, session_id: str, title: str, messages: list[dict], summary: str = ""):
+        warnings.warn(
+            "EpisodicMemory.save_session is deprecated — use session/manager.py instead",
+            DeprecationWarning, stacklevel=2,
+        )
         now = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
             """INSERT OR REPLACE INTO sessions 
@@ -91,6 +96,10 @@ class EpisodicMemory(BaseMemory):
         self.conn.commit()
 
     def load_session(self, session_id: str) -> Optional[dict]:
+        warnings.warn(
+            "EpisodicMemory.load_session is deprecated — use session/manager.py instead",
+            DeprecationWarning, stacklevel=2,
+        )
         cur = self.conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,))
         row = cur.fetchone()
         if row:
@@ -105,6 +114,10 @@ class EpisodicMemory(BaseMemory):
         return None
 
     def list_sessions(self, limit: int = 20) -> list[dict]:
+        warnings.warn(
+            "EpisodicMemory.list_sessions is deprecated — use session/manager.py instead",
+            DeprecationWarning, stacklevel=2,
+        )
         cur = self.conn.execute(
             "SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?",
             (limit,)
@@ -133,5 +146,9 @@ class EpisodicMemory(BaseMemory):
         return [{"key": r[0], "content": r[1], "category": r[2]} for r in cur.fetchall()]
 
     def delete_session(self, session_id: str):
+        warnings.warn(
+            "EpisodicMemory.delete_session is deprecated — use session/manager.py instead",
+            DeprecationWarning, stacklevel=2,
+        )
         self.conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
         self.conn.commit()

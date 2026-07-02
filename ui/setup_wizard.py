@@ -22,9 +22,6 @@ PROVIDER_MODELS = {
     for name, info in PROVIDER_CONFIG.items()
 }
 
-PROVIDERS = [("google", "Google Gemini", True)]
-
-
 def _resolve_provider(name: str) -> str:
     """Resolve provider name (with backward compat aliases)."""
     return PROVIDER_ALIASES.get(name, name)
@@ -50,7 +47,8 @@ async def run_setup_wizard():
         console.print("  [yellow]Cancelled[/yellow]")
         return config
 
-    needs_key = next((p[2] for p in PROVIDERS if p[0] == provider), True)
+    resolved = _resolve_provider(provider)
+    needs_key = PROVIDER_CONFIG.get(resolved, {}).get("needs_key", True)
     config["provider"] = provider
     console.print(f"  [green]Selected: {provider}[/green]")
 

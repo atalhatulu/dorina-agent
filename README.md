@@ -4,14 +4,15 @@
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-271%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-232%20passed-brightgreen)
 ![Lines](https://img.shields.io/badge/code-20K%20lines-blue)
 
 > ~20K satir, her satir calisiyor. Gelecek planlari icin `FUTURE.md`'ye bak.
 
 ## Features
 
-- **3 Katmanli Schema Secimi** — goreve gore 6-8 tool gonderilir (50 tool yerine)
+- **Aktif Toolset Sistemi** — goreve gore 7-16 tool, kategorilerle yonet (tools_enable)
+- **MCP Client (Model Context Protocol)** — harici MCP sunucularina baglan, tool'larini kullan
 - **State Machine** — 9 durumlu deterministic agent loop
 - **Multi-Provider** — DeepSeek, Groq, OpenRouter, Ollama (fallback zincirli)
 - **Mod Sistemi** — `/godmode`, `/audit`, `/speed`, `/temp` (sadece prompt degistirir, algoritma ayni)
@@ -21,8 +22,9 @@
 - **Background Tasks** — long-running komutlar (sudo, tcpdump) arkada calisir, bitince bildirim
 - **Context Compression** — buyuk konusmalarda otomatik ozetleme
 - **Token Budget** — `/budget N` ile limit koy, asilinca compress + uyar
-- **Sub-Agent System** — paralel task delegation
+- **Sub-Agent System** — paralel task delegation (SubAgent + batch)
 - **Event Bus** — pub/sub ile mod degisiklikleri UI'a aninda yansir
+- **Tool Limitsiz** — akilli tool secimi sayesinde tur basi tool limiti yok
 
 ## Quick Start
 
@@ -61,8 +63,9 @@ dorina-agent/
 ├── orchestrator/      # State machine, agent loop, reasoning, context
 ├── providers/         # Multi-model router with fallback
 ├── tools/             # Registry, executor, 10+ built-in tools
-│   ├── builtin/       # terminal, file, git, web, cron, graphify
-│   ├── selector.py    # 3-katmanli goreve gore tool secimi
+│   ├── builtin/       # terminal, file_tools, web_tools, cron, memory, bg_task
+│   ├── mcp/           # MCP client (connection, tool discovery, call, status)
+│   ├── toolset.py     # Active toolset manager (kategori sistemi)
 │   ├── security.py    # is_destructive(), hardline block
 │   └── executor.py    # Hook pipeline (approval, metrics)
 ├── ui/                # Terminal UI (prompt_toolkit + Rich)
@@ -74,7 +77,7 @@ dorina-agent/
 ├── knowledge/         # Web search, deep research
 ├── memory/            # Semantic, episodic, procedural memory
 ├── skills/            # Skill management
-├── tests/             # 271 tests
+├── tests/             # 232 tests
 └── FUTURE.md          # Ideas for next versions (NOT in codebase)
 ```
 
@@ -83,7 +86,7 @@ dorina-agent/
 ```bash
 source .venv/bin/activate
 pytest tests/ -q --tb=short
-# 271 passed
+# 232 passed
 ```
 
 ## Key Design Decisions

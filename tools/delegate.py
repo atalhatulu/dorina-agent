@@ -17,7 +17,7 @@ from typing import Optional
 from core.logger import log
 from tools.registry import registry, register_tool
 from tools.executor import executor
-from tools.selector import select_schemas
+from tools.toolset import toolset_summary
 from core.constants import MAX_TURNS
 from orchestrator.reasoning import ReasoningEngine
 from orchestrator.compressor import ContextCompressor
@@ -105,11 +105,18 @@ class SubAgent:
 
         messages = [{"role": "system", "content": system}]
 
-        # Tool selection via selector.py
-        tool_names = select_schemas(self.goal, registry)
-        tool_schemas = (
-            registry.schemas_for(tool_names) if tool_names else []
-        )
+        # Tool secimi — subagent'in kendi toolset'lerinden
+        tool_schemas = []
+        for t in registry.list():
+            if t.toolset in (self.toolset_names or {"file", "web", "terminal"}):
+                tool_schemas.append({
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    },
+                })
 
         max_turns = min(MAX_TURNS, 10)
         error_counts: dict[str, int] = {}

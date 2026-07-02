@@ -18,8 +18,12 @@ class TestToolsetManager:
         """All categories should have labels."""
         from tools.toolset import TOOLSET_LABELS
         assert "file" in TOOLSET_LABELS
-        assert "git" in TOOLSET_LABELS
-        assert len(TOOLSET_LABELS) >= 10
+        assert "web" in TOOLSET_LABELS
+        assert "terminal" in TOOLSET_LABELS
+        assert "delegation" in TOOLSET_LABELS
+        assert "system" in TOOLSET_LABELS
+        assert "mcp" in TOOLSET_LABELS
+        assert len(TOOLSET_LABELS) >= 6
 
     def test_tools_enable_valid_toolset(self):
         """tools_enable with valid toolset should succeed."""
@@ -28,9 +32,9 @@ class TestToolsetManager:
         ACTIVE_TOOLSETS.clear()
         ACTIVE_TOOLSETS.update(DEFAULT_TOOLSETS)
         
-        result = tools_enable("research")
+        result = tools_enable("mcp")
         assert "✅" in result
-        assert "research" in ACTIVE_TOOLSETS
+        assert "mcp" in ACTIVE_TOOLSETS
 
     def test_tools_enable_invalid_toolset(self):
         """tools_enable with invalid toolset should return error."""
