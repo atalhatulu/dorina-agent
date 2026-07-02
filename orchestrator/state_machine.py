@@ -208,7 +208,10 @@ class StateMachine:
 
         if context.state == AgentState.ERROR or context.error:
             from ui.display import console as _ec
-            _ec.print(f"[bold red]✗ Bir hata olustu:[/] {context.error[:200]}")
+            from core.error_classifier import format_user_error
+            _user_msg = format_user_error(context.error or "Bilinmeyen hata")
+            _ec.print(f"\n[bold #D4622A]✗ Bir hata oluştu[/bold #D4622A]")
+            _ec.print(_user_msg)
             _ec.print(f"[dim]Detaylar: ~/.dorina/logs/agent.log[/dim]")
             return f"✗ Hata: {context.error[:200]}"
 

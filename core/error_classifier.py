@@ -219,6 +219,17 @@ def sanitize_tool_error(error_msg: str, max_len: int = 2000) -> str:
 # ── User-facing error formatting ──────────────────────────
 
 ERROR_USER_MESSAGES: dict[str, dict[str, str]] = {
+    FailoverReason.TOOL_FORMAT_ERROR: {
+        "title": "🔧 Mesaj Sırası Hatası",
+        "what": "LLM'in çağırdığı araç (tool) ile dönen sonuç arasındaki mesaj sırası bozuldu.",
+        "why": "Bu genellikle Ctrl+C ile işlem yarıda kesildiğinde veya LLM'in araç çağrıları "
+               "arasına beklenmeyen bir mesaj girdiğinde olur. DeepSeek gibi modeller sıkı "
+               "bir assistant(tool_calls) → tool mesaj sırası bekler.",
+        "action": "Sistem mesaj sırasını otomatik onardı ve yeniden deniyor. "
+                  "Bu genellikle birkaç saniye içinde çözülür.\n"
+                  "  → /retry ile manuel tekrar dene\n"
+                  "  → /new ile yeni oturum başlat",
+    },
     FailoverReason.NETWORK: {
         "title": "🌐 Network Hatası",
         "what": "API sunucusuna bağlanılamadı veya bağlantı koptu.",

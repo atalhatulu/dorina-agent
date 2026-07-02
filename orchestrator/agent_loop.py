@@ -55,6 +55,7 @@ class AgentLoop:
         self._temp_mode = False  # Gecici sohbet modu (kayit yok)
         self._prompt_cache: str = ""
         self._prompt_cache_turn: int = -1
+        self._consecutive_llm_errors = 0  # Ardışık LLM hata sayacı (cooldown için)
 
 
     async def process(self, user_input: str) -> str:

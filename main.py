@@ -267,6 +267,9 @@ class DorinaApp:
                         _ui_console.print("\n[dim]İptal edildi. (Ctrl+C)[/dim]")
                         # Temizlik: yarim kalmis tool_calls assistant msg'lerini sil
                         # (DeepSeek: "assistant(tool_calls) sonrasi tool msg gelmeli" kurali)
+                        # DİKKAT: yapay user mesaji EKLEME — kullanici zaten yeni mesaj yazacak.
+                        # Yapay mesaj "Kullanıcı işlemi (Ctrl+C) ile yarıda kesti." agent'in
+                        # önceki bağlamı unutmasına yol açıyor.
                         msgs = loop.context.messages
                         cleaned = []
                         for m in msgs:
@@ -278,9 +281,12 @@ class DorinaApp:
                         # Son mesaj tool ise onu da temizle (karsiligi olmayan tool result)
                         while cleaned and cleaned[-1].get("role") == "tool":
                             cleaned.pop()
+                        # Yarim kalmis user mesajini da temizle (eğer tool sonucu beklerken user mesaji eklenmişse)
+                        while cleaned and cleaned[-1].get("role") == "user" and "Ctrl+C" in (cleaned[-1].get("content", "") or ""):
+                            cleaned.pop()
                         loop.context.messages = cleaned
-                        if not loop.context.messages or loop.context.messages[-1].get("role") != "user":
-                            loop.context.messages.append({"role": "user", "content": "Kullanıcı işlemi (Ctrl+C) ile yarıda kesti."})
+                        # YAPAY USER MESAJI EKLEME — bir önceki user mesaji hala duruyor,
+                        # kullanici yeni mesajiyla devam edecek.
                         await asyncio.sleep(0.1)
                         continue
                 finally:

@@ -45,16 +45,26 @@ async def handle_waiting_result(loop, ctx: AgentContext):
     from ui import display as _display
     from ui.status_bar import status as _status
 
+    from ui.display import console as _disp_con
+
     tool_calls = ctx.tool_calls
     if not tool_calls:
         ctx.metadata["all_tools_failed"] = True
         return
 
-    # ── Enforce tool call limits per turn (max 15) ──
-    from ui.display import console as _disp_con
-    if len(tool_calls) > 15:
-        _disp_con.print(f"[bold yellow]⚠ Tek turda max 15 tool ({len(tool_calls)} istendi). Ilk 15 calisiyor.[/]")
-        tool_calls = tool_calls[:15]
+    # ── Enforce tool call limits per turn (max 3) ──
+    # 15 idi ama LLM gereksiz paralel çağrı yapıp token şişiriyor.
+    # 3 tool ile LLM'i seçici olmaya zorla — kritik olmayanı sonraki tura bırakır.
+    if len(tool_calls) > 3:
+        _trimmed = tool_calls[3:]
+        _trimmed_names = [tc.get("function", {}).get("name", "?") for tc in _trimmed]
+        _disp_con.print(f"[bold yellow]⚠ Tek turda max 3 tool ({len(tool_calls)} istendi). Ilk 3 calisiyor.[/]")
+        tool_calls = tool_calls[:3]
+        # Kırpılan tool'ları LLM'e bildir — kafası karışmasın
+        loop.context.add_assistant_message(
+            f"[SISTEM] {len(_trimmed_names)} tool kırpıldı (limit: 3/tur): {', '.join(_trimmed_names)}. "
+            f"Kalanları sonraki turda çağırabilirsin."
+        )
 
     # ── Repetition guard: same file read >1x per turn → skip ──
     import json as _fj

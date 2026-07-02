@@ -203,6 +203,66 @@ class ReasoningEngine:
         from core.error_classifier import classify_api_error, FailoverReason
         classified = classify_api_error(e, provider=self.provider, model=model_name)
 
+        # ── TOOL_FORMAT_ERROR: mesaj sırasını onar ve yeniden dene (fallback tüketme) ──
+        if classified.reason == FailoverReason.TOOL_FORMAT_ERROR:
+            log.warning("Tool format hatası — mesaj sırası onarılıp yeniden deneniyor...")
+            try:
+                # messages'i onar: repair_message_sequence ile role sırasını düzelt
+                from orchestrator.repair import repair_message_sequence
+                msgs = params.get("messages", [])
+                repaired = repair_message_sequence(msgs)
+                repaired_count = len(repaired) - len(msgs) if len(repaired) > len(msgs) else 0
+
+                # Orphaned tool_calls temizle: son assistant(tool_calls) mesajını kontrol et
+                cleaned = []
+                for m in repaired:
+                    if m.get("role") == "assistant" and m.get("tool_calls"):
+                        # Sadece karşılığı olan tool_calls'leri tut
+                        valid_ids = set()
+                        for tc in m.get("tool_calls", []):
+                            tcid = tc.get("id", "") or tc.get("tool_call_id", "")
+                            if tcid:
+                                valid_ids.add(tcid)
+                        # Şu mesajdan sonraki tool mesajlarına bak
+                        _future_tool_ids = {
+                            mm.get("tool_call_id", "") for mm in repaired
+                            if mm.get("role") == "tool"
+                        }
+                        valid_tcs = [
+                            tc for tc in m.get("tool_calls", [])
+                            if (tc.get("id", "") or tc.get("tool_call_id", "")) in _future_tool_ids
+                        ]
+                        if not valid_tcs:
+                            # Hiçbir tool_call karşılığı yok — assistant content varsa düz content'e çevir
+                            if m.get("content"):
+                                cleaned.append({"role": "assistant", "content": m["content"]})
+                            # Yoksa atla
+                            continue
+                        elif len(valid_tcs) < len(m.get("tool_calls", [])):
+                            # Bazıları orphan — sadece geçerli olanları tut
+                            m["tool_calls"] = valid_tcs
+                            cleaned.append(m)
+                        else:
+                            cleaned.append(m)
+                    else:
+                        cleaned.append(m)
+
+                params["messages"] = cleaned
+                log.info(f"Tool format hatası: mesaj sırası onarıldı (repaired={repaired_count} orphaned={len(repaired)-len(cleaned)})")
+
+                # Küçük bir cooldown (1sn) — ard arda spawn'ı önle
+                await asyncio.sleep(1)
+
+                # Yeniden dene — aynı model, aynı parametreler (onarılmış messages ile)
+                if stream_callback:
+                    return await self._think_stream(llm, params, stream_callback)
+                resp = await llm.acompletion(**params)
+                return self._parse_response(resp)
+            except Exception as _repair_e:
+                log.error(f"Tool format onarimi da basarisiz: {_repair_e}")
+                # Onarım da başarısız → normal hata akışına düş
+                e = _repair_e
+
         if classified.reason in [FailoverReason.RATE_LIMIT, FailoverReason.OVERLOADED,
                                   FailoverReason.SERVER_ERROR, FailoverReason.TIMEOUT,
                                   FailoverReason.MODEL_NOT_FOUND]:

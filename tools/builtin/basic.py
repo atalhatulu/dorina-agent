@@ -144,24 +144,16 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
         except Exception:
             pass
 
-    # ── Auto-background for monitoring / long-running commands ──
-    _monitor_patterns = ["airodump", "airodump-ng", "tcpdump", "nmap ",
-                         "ping 8", "tshark", "tcpflow", "iw event",
-                         "bettercap", "responder", "tail -f", "watch ",
-                         "top", "htop", "journalctl -f", "kubectl logs -f",
-                         "docker logs -f", "iperf", "hping3"]
-    _is_monitor = _platform.system() != "Windows" and any(p in command for p in _monitor_patterns)
-    if _is_monitor and not background and not pty:
-        # Uzun surecek monitor komutu → otomatik background'a at
-        import tools.builtin.bg_task_tool as _bg
-        if cwd:
-            command = f"cd {cwd} && {command}"
-        result = _bg.task_create_bash(command, label=command[:60], notify_on_complete=True)
-        return json.dumps({
-            "status": "background",
-            "message": "Monitor/tarama komutu arka planda baslatildi. Bittiginde otomatik haber veririm.",
-            "background_result": json.loads(result)
-        })
+    # ── Auto-background KALDIRILDI ──
+    # Eskiden monitor pattern'leri (airodump, tcpdump vb.) otomatik background'a atıyordu.
+    # Bu mekanizma find/ls gibi basit komutları da background'a yollayıp
+    # agent'in sonuçları görmesini engelliyordu.
+    # LLM background istiyorsa explicit background=True parametresi geçer.
+    # (Aşağıdaki satırlar silinmedi — gerekiyorsa config'den kontrol edilebilir)
+    # _monitor_patterns = [...]
+    # _is_monitor = ... 
+    # if _is_monitor and not background and not pty:
+    #     ...
 
     # Sudo parolasi tanimliysa -S ekle ve timeout'u artir
     if SUDO_PWD and HAS_SUDO and " -S " not in command:

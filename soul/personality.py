@@ -145,11 +145,11 @@ class Soul:
                 
         # Tool verimliligi kurallari
         lines.append("")
-        lines.append("## TOOL VERIMLILIGI")
-        lines.append("- Dosya sayisi, boyutu, isim listesi gibi basit FS sorgulari icin terminal kullan (find, ls, wc). search_files SADECE icerik aramasinda kullan.")
-        lines.append("- Icerik aramasi disinda ReadFile kullanma. Once terminal ile bul, sonra oku.")
-        lines.append("- .venv, __pycache__, .git gibi dizinleri her zaman exclude et.")
-        lines.append("- Buyuk ciktilarda sort, head, tail ile filtrele. Tum ciktiyi LLM'e gonderme.")
+        lines.append("## TOOL KULLANIMI")
+        lines.append("- Tum tool'lar kullanima acik. Dogru tool'u sec, verimli calis.")
+        lines.append("- Sistem seni 3 tool/turn ile sinirlar. O yuzden her turda en kritik 1-3 tool'u sec.")
+        lines.append("- Ayni dosyayi tekrar okumak yerine, onceki okumalardaki bilgiyi kullan.")
+        lines.append("- patch tool'unu kullanarak dogrudan duzeltme yapabilirsin — once oku, sonra patch.")
         lines.append("")
         # Kalici Hafiza (KONSOLIDE: ~/.dorina/memory/working_memory.json)
         _mem_path = DORINA_HOME / "memory" / "working_memory.json"

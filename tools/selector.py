@@ -1,83 +1,115 @@
-"""3 katmanli tool schema secici — token tasarrufu icin.
+"""
+Tool schema secici — LLM'in hangi tool'lari gorecegini belirler.
 
-Katman 1 — CORE: her zaman gider (5-6 tool)
-Katman 2 — CONTEXT: goreve gore eklenir (5-10 tool)
-Katman 3 — ON_DEMAND: sadece acikca istenince
+STRATEJI: Kullanici mesajini analiz et, ihtiyac duyulan tool kategorilerini
+tespit et, sadece onlari gonder. Her turda ~8-12 tool (25 degil).
 """
 
 from __future__ import annotations
 
-# ── Katman 1: Her zaman giden tool'lar ──
+# ── Her durumda giden temel tool'lar (4-5 tool) ──
+# Dosya okuma, arama, terminal, web. LLM'in ise baslamasi icin yeterli.
 CORE_TOOLS = frozenset({
-    "terminal", "read_file", "write_file",
-    "web_search", "patch", "search_files",
+    "terminal", "read_file", "search_files", "web_search", "patch",
 })
 
-# ── Katman 2: Gorev kategorileri ──
-CONTEXT_RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
-    "git": (
-        frozenset({"git", "commit", "branch", "push", "pull", "merge", "diff", "log", "status"}),
-        frozenset({"git_diff", "git_log", "git_status"}),
+# ── Kategoriler ──
+# Her kategori: (tetikleyici_kelimeler, tool_seti)
+# Kullanici mesajinda tetikleyici kelime gecerse o kategorideki tool'lar eklenir.
+CATEGORIES: list[tuple[frozenset[str], frozenset[str]]] = [
+    # Kod/duzeltme: dosya yazma, yamalama, toplu islem
+    (
+        frozenset({"yaz", "duzelt", "guncelle", "refactor", "patch", "olustur",
+                    "ekle", "kaldir", "sil", "degistir", "fix", "bug", "hata",
+                    "sorun", "calismiyor", "bozuk", "problem"}),
+        frozenset({"write_file", "patch", "batch_python"}),
     ),
-    "research": (
-        frozenset({"arastir", "incele", "analiz", "bul", "nedir", "kimdir", "arama", "ogren"}),
-        frozenset({"web_fetch", "read_file"}),
+    # Git: versiyon kontrol
+    (
+        frozenset({"git", "commit", "push", "pull", "merge", "branch"}),
+        frozenset({"git_add", "git_branch", "git_commit", "git_diff", "git_push"}),
     ),
-    "memory": (
-        frozenset({"hatirla", "kaydet", "ogren", "skill", "hafiza", "unutma"}),
-        frozenset({"memory"}),
+    # Arastirma: web'de arama, detayli inceleme
+    (
+        frozenset({"arastir", "incele", "ogren", "bul", "nedir", "kimdir",
+                    "nasil", "arama", "sorun", "hatali", "calismiyor"}),
+        frozenset({"web_search", "web_fetch"}),
     ),
-    "graph": (
-        frozenset({"graphify", "baglanti", "modul", "import", "grafik"}),
-        frozenset({"graphify"}),
+    # Hafiza: kaydet, hatirla
+    (
+        frozenset({"kaydet", "hatirla", "ogren", "unutma", "hafiza", "skill"}),
+        frozenset({"save_memory", "read_memory"}),
     ),
-    "background": (
-        frozenset({"arka plan", "background", "dinle", "izle", "tara", "bekle", "indir"}),
-        frozenset({"terminal"}),
+    # Proje/dizin kesfi
+    (
+        frozenset({"proje", "klasor", "dizin", "dosya yapisi", "nerede"}),
+        frozenset({"search_files", "read_file", "terminal"}),
     ),
-    "code": (
-        frozenset({"kod", "yaz", "duzelt", "guncelle", "refactor", "debug", "hata", "calistir", "test"}),
-        frozenset({"read_file", "write_file", "patch", "terminal", "search_files"}),
-    ),
-    "project": (
-        frozenset({"proje", "uygulama", "dizin", "klasor", "dosya"}),
-        frozenset({"search_files", "read_file"}),
-    ),
+]
+
+# ── Yonetim tool'lari (sadece acikca istenince) ──
+# Kullanici /komut ile veya dogrudan isim vererek cagirir.
+MANAGEMENT_TOOLS = frozenset({
+    "clarify", "cron", "timer", "uuid_generate", "analyze_image",
+    "list_providers", "switch_provider", "tools_enable",
+    "cancel_background", "list_background", "graphify",
+    "save_memory", "read_memory",
+})
+
+# ── Agir tool'lar (sadece acikca istenince) ──
+HEAVY_TRIGGERS: dict[str, tuple[str, ...]] = {
+    "browser_navigate": ("web sayfasi", "siteye git", "browser", "url ac", "html sayfa"),
+    "image_generate": ("resim olustur", "foto uret", "gorsel olustur", "illustrasyon"),
+    "text_to_speech": ("ses", "konus", "oku sesli", "voice", "konusma"),
+    "delegate_task": ("alt gorev", "subagent", "delege", "paralel"),
+    "delegate_batch": ("toplu gorev", "batch gorev", "coklu gorev"),
+    "deep_research": ("derin arastirma", "detayli arastirma", "kapsamli arastirma"),
+    "sandbox_exec": ("guvenli calistir", "sandbox", "docker ile calistir"),
+    "mcp_call_tool": ("mcp", "ozel arac"),
 }
 
-# ── Katman 3: Sadece acikca istenince ──
-ONDEMAND_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "image_generate": ("resim", "foto", "gorsel", "illustrasyon", "art", "gif"),
-    "text_to_speech": ("ses", "konus", "oku sesli", "voice"),
-    "vision_analyze": ("goruntu", "ekran goruntusu", "fotograf", "resme bak"),
-    "browser_navigate": ("web sayfasi", "siteye git", "browser", "url ac"),
-    "email": ("eposta", "mail", "posta"),
-    "delegate_task": ("alt gorev", "subagent", "delege", "paralel"),
-    "cronjob": ("zamanla", "periyodik", "her gun", "cron"),
-    "image_generate": ("resim olustur", "foto uret", "goruntu olustur"),
-}
+
+def _normalize(text: str) -> str:
+    """Türkçe karakterleri ASCII'ye çevir, küçük harf yap."""
+    replacements = {
+        'ü': 'u', 'ğ': 'g', 'ş': 's', 'ı': 'i', 'ö': 'o', 'ç': 'c',
+        'Ü': 'u', 'Ğ': 'g', 'Ş': 's', 'İ': 'i', 'Ö': 'o', 'Ç': 'c',
+    }
+    result = text.lower()
+    for tr, en in replacements.items():
+        result = result.replace(tr, en)
+    return result
 
 
 def select_schemas(user_input: str, registry=None) -> list[str]:
     """Kullanici girdisine gore hangi tool'lari gonderecegini belirler.
 
-    Args:
-        user_input: Kullanici mesaji.
-        registry: Opsiyonel ToolRegistry. Verilirse sadece kayitli tool'lar doner.
+    1. CORE: 4-5 temel tool her zaman gider
+    2. KATEGORI: mesajdaki anahtar kelimelere gore ek tool'lar
+    3. YONETIM: kullanici acikca isterse eklenir
+    4. AGIR: sadece net trigger ile
 
-    Returns:
-        Tool isimlerinin listesi.
+    Toplamda her turda ~8-12 tool.
     """
     tools = set(CORE_TOOLS)
-    text = user_input.lower()
+    text = _normalize(user_input)
+    words = set(text.split())
 
-    # Katman 2: Context eslestir
-    for _category, (keywords, tool_set) in CONTEXT_RULES.items():
+    # Kategori bazli eslestirme (normalize edilmis metin ile)
+    for keywords, tool_set in CATEGORIES:
         if any(k in text for k in keywords):
             tools.update(tool_set)
 
-    # Katman 3: On-demand kontrol
-    for tool_name, triggers in ONDEMAND_KEYWORDS.items():
+    # Yonetim tool'lari — kullanici /komut veya dogrudan isimle cagirirsa ekle
+    # (cogunlukla gerekmez ama LLM bilincinde olsun)
+    _mgmt_signals = {"zamanla", "hatirlat", "kronometre", "uuid", "uret",
+                     "provider", "saglayici", "tool aktif", "tool ac",
+                     "graf", "graphify", "baglanti", "modul"}
+    if any(w in words for w in _mgmt_signals):
+        tools.update(MANAGEMENT_TOOLS)
+
+    # Agir tool'lar — sadece net trigger ile
+    for tool_name, triggers in HEAVY_TRIGGERS.items():
         if any(t in text for t in triggers):
             tools.add(tool_name)
 
