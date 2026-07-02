@@ -14,6 +14,7 @@ class FailoverReason:
     AUTH_PERMANENT = "auth_permanent"
     BILLING = "billing"
     RATE_LIMIT = "rate_limit"
+    UPSTREAM_RATE_LIMIT = "upstream_rate_limit"  # API key saglikli, upstream provider limitli
     OVERLOADED = "overloaded"
     SERVER_ERROR = "server_error"
     TIMEOUT = "timeout"
@@ -52,15 +53,22 @@ class ClassifiedError:
 
 _BILLING_PATTERNS = [
     "insufficient_quota", "insufficient quota", "insufficient credits",
-    "credit balance", "credits exhausted", "no usable credits",
+    "insufficient balance", "credit balance", "credits exhausted",
+    "credits have been exhausted", "no usable credits", "top up your credits",
     "payment required", "billing hard limit", "exceeded your current quota",
     "out of funds", "balance_depleted", "quota exceeded",
+    "account is deactivated", "plan does not include",
+    "out of extra usage", "run out of funds",
+    "model_not_supported_on_free_tier", "not available on the free tier",
 ]
 
 _RATE_LIMIT_PATTERNS = [
     "rate limit", "rate_limit", "too many requests", "throttled",
-    "requests per minute", "tokens per minute", "try again in",
-    "please retry after", "resource_exhausted", "429",
+    "requests per minute", "tokens per minute", "requests per day",
+    "try again in", "please retry after", "resource_exhausted", "429",
+    "rate increased too quickly",
+    "throttlingexception", "too many concurrent requests",
+    "servicequotaexceededexception",
 ]
 
 _CONTEXT_OVERFLOW_PATTERNS = [
@@ -86,13 +94,24 @@ _MODEL_NOT_FOUND_PATTERNS = [
 ]
 
 _OVERLOADED_PATTERNS = [
-    "overloaded", "503", "529", "service unavailable",
+    "overloaded", "temporarily overloaded",
+    "service is temporarily overloaded", "service may be temporarily overloaded",
+    "server is overloaded", "server overloaded", "service overloaded",
+    "service is overloaded", "upstream overloaded",
+    "currently overloaded", "at capacity", "over capacity",
+    "503", "529", "service unavailable",
     "temporarily unavailable", "capacity",
 ]
 
 _SERVER_ERROR_PATTERNS = [
     "500", "502", "internal server error", "server error",
     "bad gateway", "gateway timeout",
+]
+
+# Upstream provider rate-limited (aggregator 429) — model fallback, NOT credential rotate
+_UPSTREAM_RATE_LIMIT_PATTERNS = [
+    "upstream rate limit", "upstream_rate_limit",
+    "provider returned error", "upstream provider",
 ]
 
 
@@ -150,6 +169,7 @@ def classify_api_error(
         (FailoverReason.CONTENT_POLICY_BLOCKED, _CONTENT_POLICY_PATTERNS, False, False, True),
         (FailoverReason.BILLING, _BILLING_PATTERNS, False, True, True),
         (FailoverReason.RATE_LIMIT, _RATE_LIMIT_PATTERNS, True, True, False),
+        (FailoverReason.UPSTREAM_RATE_LIMIT, _UPSTREAM_RATE_LIMIT_PATTERNS, True, False, True),
         (FailoverReason.CONTEXT_OVERFLOW, _CONTEXT_OVERFLOW_PATTERNS, False, True, False),
         (FailoverReason.MODEL_NOT_FOUND, _MODEL_NOT_FOUND_PATTERNS, False, False, True),
         (FailoverReason.OVERLOADED, _OVERLOADED_PATTERNS, True, False, True),
@@ -167,6 +187,9 @@ def classify_api_error(
             )
             if reason == FailoverReason.RATE_LIMIT:
                 c.should_rotate_credential = True
+            # upstream_rate_limit: model fallback, credential rotate DEĞIL
+            if reason == FailoverReason.UPSTREAM_RATE_LIMIT:
+                c.should_rotate_credential = False
             return c
 
     # Classify by HTTP status code
@@ -255,6 +278,15 @@ ERROR_USER_MESSAGES: dict[str, dict[str, str]] = {
         "action": "Bir süre bekleyip tekrar deneyin. Sistem otomatik olarak alternatif "
                   "bir sağlayıcıya geçmeyi deneyecek.\n"
                   "  → /retry ile tekrar dene (otomatik fallback)",
+    },
+    FailoverReason.UPSTREAM_RATE_LIMIT: {
+        "title": "⏳ Upstream Rate Limiti",
+        "what": "API sağlayıcının upstream model sağlayıcısı rate limit uyguluyor.",
+        "why": "Bu genellikle OpenRouter gibi aggregator'lar aracılığıyla kullanılan "
+               "modellerde olur. Kendi API anahtarınız sağlıklı, upstream sağlayıcı limitli.",
+        "action": "Sistem otomatik olarak farklı bir modele geçmeyi deneyecek.\n"
+                  "  → /retry ile tekrar dene\n"
+                  "  → /model ile farklı model seç",
     },
     FailoverReason.TIMEOUT: {
         "title": "⏱️ Zaman Aşımı",

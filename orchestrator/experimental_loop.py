@@ -34,7 +34,7 @@ from orchestrator.titler import autotitle
 from orchestrator.repair import repair_message_sequence
 from core.tokenizer import count_messages_tokens
 from core.error_classifier import classify_api_error, sanitize_tool_error
-from core.error_db import log_tool_error
+from core.error_db import log_tool_error, log_error_pattern, get_frequent_patterns
 from core.mode_manager import modes
 from tools.selector import select_schemas
 from tools.registry import registry
@@ -312,29 +312,33 @@ class AgentLoopV2:
             )
             self._consecutive_llm_errors = 0
             return response
-        except Exception as e:
+        except (RuntimeError, ConnectionError, TimeoutError,
+                ValueError, json.JSONDecodeError) as e:
             self._consecutive_llm_errors += 1
             log.error("LLM error (x%d): %s", self._consecutive_llm_errors, e)
+        except Exception as e:
+            self._consecutive_llm_errors += 1
+            log.warning("Unexpected LLM error type (%s): %s", type(e).__name__, e)
 
-            if self._consecutive_llm_errors >= 3:
-                _display.print_error(
-                    "LLM 3 kez hata verdi. /provider ile degistir veya tekrar dene."
-                )
-                return {"content": "", "tool_calls": [], "finish_reason": "error"}
-
-            # Cooldown: 0.5s → 1s → 2s → 4s → 8s → 16s → 30s
-            delay = min(0.5 * (2 ** (self._consecutive_llm_errors - 1)), 30)
-            _display.print_info(
-                f"LLM hatasi, {delay:.0f}s bekleniyor... "
-                f"(ardisik: {self._consecutive_llm_errors})"
+        if self._consecutive_llm_errors >= 3:
+            _display.print_error(
+                "LLM 3 kez hata verdi. /provider ile degistir veya tekrar dene."
             )
-            await asyncio.sleep(delay)
+            return {"content": "", "tool_calls": [], "finish_reason": "error"}
 
-            # Retry mesaji ekle ve recursive dene
-            self.context.add_user_message(
-                "Bir onceki LLM cagrisi hata verdi. Tekrar dene."
-            )
-            return await self._think(tool_schemas)
+        # Cooldown: 0.5s → 1s → 2s → 4s → 8s → 16s → 30s
+        delay = min(0.5 * (2 ** (self._consecutive_llm_errors - 1)), 30)
+        _display.print_info(
+            f"LLM hatasi, {delay:.0f}s bekleniyor... "
+            f"(ardisik: {self._consecutive_llm_errors})"
+        )
+        await asyncio.sleep(delay)
+
+        # Retry mesaji ekle ve recursive dene
+        self.context.add_user_message(
+            "Bir onceki LLM cagrisi hata verdi. Tekrar dene."
+        )
+        return await self._think(tool_schemas)
 
     # ────────────────────────────────────────────────────────────────
     # ACT: TOOL EXECUTION
@@ -435,12 +439,7 @@ class AgentLoopV2:
                     if target and "error" not in result[:20].lower():
                         _cache_invalidate([target])
 
-                # Tool ciktisini kisalt
-                ctx_result = result
-                if name != "read_file" and len(result) > 2000:
-                    ctx_result = result[:1500] + f"\n[...{len(result)-1500} karakter kisaltildi]"
-
-                self.context.add_tool_result(name, ctx_result, tool_call_id)
+                self.context.add_tool_result(name, result, tool_call_id)
 
                 if "error" in result[:20].lower():
                     _display.print_tool_error(name, result)
@@ -449,7 +448,10 @@ class AgentLoopV2:
                     if not self._temp_mode:
                         self._schedule_save(f"[{name}] {result[:100]}", quick=True)
 
+            except (ValueError, json.JSONDecodeError, RuntimeError, OSError) as e:
+                self._handle_tool_error(name, e, tool_call_id)
             except Exception as e:
+                log.warning("Unexpected tool error type (%s): %s", type(e).__name__, e)
                 self._handle_tool_error(name, e, tool_call_id)
 
         # Read paralel, write sirali
@@ -474,11 +476,12 @@ class AgentLoopV2:
         self.context.add_tool_result(name, sanitized, tool_call_id)
         log_tool_error(tool_name=name, error=error)
 
-        # Self-reflection: error pattern tracking
+        # Self-reflection: error pattern tracking (memory + DB)
         sig = f"{name}:{classified.reason}"
         prev = self._error_patterns.get(sig, [sig, 0])
         prev[1] += 1
         self._error_patterns[sig] = prev
+        log_error_pattern(name, classified.reason, str(error))
 
         # Hafizadan eski cozum
         try:

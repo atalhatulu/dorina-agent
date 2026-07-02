@@ -8,7 +8,7 @@ from tools.registry import registry, ToolDef
 from core.logger import log
 from core.event_bus import bus
 from core.constants import MAX_TOOL_CALLS_PER_TURN
-from core.error_classifier import sanitize_tool_error
+from core.error_classifier import sanitize_tool_error, classify_api_error, FailoverReason
 from hooks.lifecycle import pipeline
 from security.approval import approval as _approval
 from tools.toolset import get_active_toolsets
@@ -41,6 +41,80 @@ def _validate_required_params(tool: ToolDef, arguments: dict) -> list[str]:
         elif isinstance(arguments[p], str) and arguments[p].strip() == "":
             missing.append(p)
     return missing
+
+
+# ── Recovery hints per FailoverReason ──────────────────────────
+
+_RECOVERY_HINTS: dict[str, dict] = {
+    FailoverReason.AUTH: {
+        "recoverable": False,
+        "hint": "API anahtarini kontrol et veya /setup ile guncelle",
+    },
+    FailoverReason.AUTH_PERMANENT: {
+        "recoverable": False,
+        "hint": "API anahtari kalici olarak gecersiz, /setup ile yenile",
+    },
+    FailoverReason.BILLING: {
+        "recoverable": False,
+        "hint": "Hesap bakiyeni ve kullanim limitini kontrol et",
+    },
+    FailoverReason.RATE_LIMIT: {
+        "recoverable": True,
+        "hint": "Rate limit asildi, birkac saniye bekleyip tekrar dene",
+    },
+    FailoverReason.UPSTREAM_RATE_LIMIT: {
+        "recoverable": True,
+        "hint": "Upstream saglayici limitli, /model ile farkli model dene",
+    },
+    FailoverReason.OVERLOADED: {
+        "recoverable": True,
+        "hint": "Servis gecici olarak yogun, birkac saniye bekleyip tekrar dene",
+    },
+    FailoverReason.SERVER_ERROR: {
+        "recoverable": True,
+        "hint": "Sunucu hatasi, birkac saniye bekleyip tekrar dene",
+    },
+    FailoverReason.TIMEOUT: {
+        "recoverable": True,
+        "hint": "Zaman asimi, daha kisa bir islemle tekrar dene",
+    },
+    FailoverReason.CONTEXT_OVERFLOW: {
+        "recoverable": True,
+        "hint": "Context cok buyudu, otomatik sikistirma devreye girecek",
+    },
+    FailoverReason.PAYLOAD_TOO_LARGE: {
+        "recoverable": True,
+        "hint": "Istek cok buyuk, daha kucuk parcaya bol",
+    },
+    FailoverReason.MODEL_NOT_FOUND: {
+        "recoverable": True,
+        "hint": "Model bulunamadi, /model ile farkli model sec",
+    },
+    FailoverReason.CONTENT_POLICY_BLOCKED: {
+        "recoverable": False,
+        "hint": "Icerik politikasi engelledi, farkli bir yaklasim dene",
+    },
+    FailoverReason.FORMAT_ERROR: {
+        "recoverable": True,
+        "hint": "Format hatasi, sistem otomatik duzeltecek",
+    },
+    FailoverReason.TOOL_FORMAT_ERROR: {
+        "recoverable": True,
+        "hint": "Tool format hatasi, mesaj sirasi onarilacak",
+    },
+    FailoverReason.NETWORK: {
+        "recoverable": True,
+        "hint": "Baglanti hatasi, birkac saniye bekleyip tekrar dene",
+    },
+    FailoverReason.TOOL_ERROR: {
+        "recoverable": True,
+        "hint": "Arac hatasi, parametreleri kontrol et",
+    },
+    FailoverReason.PARSE_ERROR: {
+        "recoverable": True,
+        "hint": "Yanit ayristirilamadi, tekrar dene",
+    },
+}
 
 
 class ToolExecutor:
@@ -128,8 +202,6 @@ class ToolExecutor:
         """Common error handling for both sync and async paths."""
         import json  # defensive (Python 3.14.6 intermittent namespace edge-case)
         error_sanitized = sanitize_tool_error(str(error))
-        # Kullanici dostu hata mesaji — teknik detay log'da
-        user_msg = f"Bir hata olustu. Detaylar: /home/teha/.dorina/logs/error.log"
         bus.publish("tool:error", name=tool_name, error=str(error))
         log.error(
             f"Tool hatası [{tool_name}]: {error}",
@@ -144,7 +216,18 @@ class ToolExecutor:
             )
         except ImportError:
             pass
-        return json.dumps({"error": user_msg})
+
+        # Classify and add recovery hints
+        classified = classify_api_error(error)
+        recovery = _RECOVERY_HINTS.get(classified.reason, {
+            "recoverable": True,
+            "hint": "Bilinmeyen hata, tekrar dene",
+        })
+        return json.dumps({
+            "error": f"Tool '{tool_name}' hatasi: {classified.reason}",
+            "recoverable": recovery["recoverable"],
+            "recovery_hint": recovery["hint"],
+        })
 
     # ── Public API ─────────────────────────────────────────────────────────
 

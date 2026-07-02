@@ -1,11 +1,9 @@
 """
-delegate_task — Alt-agent çağırma sistemi.
+delegate_task / delegate_batch — SubAgent delegasyon sistemi.
 
-Bir alt-agent oluşturur, izole context + tool seti ile çalıştırır,
-sonucu özet olarak döndürür. Paralel çalıştırma desteği.
-
-Her sub-agent kendi izole thread'inde çalışır, asyncio.run() ile
-event loop yönetimini Python'a bırakır. ThreadPoolExecutor paylaşılmaz.
+Async-native SubAgent'lar. Her sub-agent kendi mini-loop'unu calistirir,
+V2 pattern'lerini (error classification, context compression, repair,
+self-reflection) kullanir. Thread yok, polling yok.
 """
 
 from __future__ import annotations
@@ -13,21 +11,30 @@ import asyncio
 import json
 import time
 import uuid
-import threading
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Optional
+from collections import OrderedDict
+from typing import Optional
 
 from core.logger import log
-from tools.registry import registry
+from tools.registry import registry, register_tool
 from tools.executor import executor
-from soul.personality import soul
+from tools.selector import select_schemas
 from core.constants import MAX_TURNS
+from orchestrator.reasoning import ReasoningEngine
+from orchestrator.compressor import ContextCompressor
+from orchestrator.repair import repair_message_sequence
+from core.error_classifier import classify_api_error
+from core.error_db import log_error_pattern
 
-BLOCKED_TOOLS = frozenset(["delegate_task", "mcp_call_tool"])
+# Sub-agent kendi alt-agent uretemez — recursive delegation engeli
+BLOCKED_TOOLS = frozenset({"delegate_task", "delegate_batch", "mcp_call_tool"})
 
 
 class SubAgent:
-    """Alt-agent: izole bağlamda çalışan mini bir Dorina."""
+    """Alt-agent: izole baglamda calisan mini bir Dorina.
+
+    V2 pattern'lerini kullanir: error classification, context compression,
+    repair_message_sequence, self-reflection, read_file cache.
+    """
 
     def __init__(self, goal: str, context: str = "", toolsets: list[str] = None):
         self.id = uuid.uuid4().hex[:8]
@@ -38,80 +45,212 @@ class SubAgent:
         self.error: Optional[str] = None
         self.status = "pending"
         self.turn_count = 0
+        self.engine = ReasoningEngine()
+        self.compressor = ContextCompressor()
+        self._error_patterns: dict[str, int] = {}
+        self._read_cache: OrderedDict = OrderedDict()
+        self._done = asyncio.Event()
 
-    def run(self) -> str:
-        """Alt-agent'ı çalıştır. Thread pool içinde çağrılır.
-        asyncio.run() ile temiz bir event loop yönetimi sağlar."""
+    async def run(self) -> str:
+        """Alt-agent'i calistir. Sonucu JSON string dondurur."""
         self.status = "running"
-        log.info(f"SubAgent [{self.id}] basladi: {self.goal[:60]}")
-
+        log.info("SubAgent [%s] basladi: %s", self.id, self.goal[:60])
         try:
-            result = asyncio.run(self._async_run())
+            result = await self._async_run()
             self.status = "completed"
             self.result = result
+            self._done.set()
             return result
         except Exception as e:
             self.error = str(e)
             self.status = "error"
-            log.error(f"SubAgent [{self.id}] hatasi: {e}")
+            log.error("SubAgent [%s] hatasi: %s", self.id, e)
+            self._done.set()
             return json.dumps({"error": str(e)})
 
-    async def _async_run(self) -> str:
-        """Async iç mantık — asyncio.run() ile sarılır."""
-        available = [t for t in registry.available_tools() if t not in BLOCKED_TOOLS]
+    # ── read_file cache ──────────────────────────────────────────
 
-        system = (
-            f"{soul.system_prompt}\n\nGörev: {self.goal}\n\nBağlam: {self.context}"
-            if self.context
-            else f"{soul.system_prompt}\n\nGörev: {self.goal}"
+    def _cache_get(self, key: str) -> Optional[str]:
+        if key in self._read_cache:
+            self._read_cache.move_to_end(key)
+            return self._read_cache[key]
+        return None
+
+    def _cache_set(self, key: str, value: str):
+        self._read_cache[key] = value
+        self._read_cache.move_to_end(key)
+        if len(self._read_cache) > 5:
+            self._read_cache.popitem(last=False)
+
+    # ── Summarize callback (for ContextCompressor) ───────────────
+
+    async def _summarize(self, text: str) -> str:
+        result = await self.engine.think(
+            "You summarize conversations. Be concise.",
+            [{"role": "user", "content": text}],
+        )
+        return result.get("content", text[:500])
+
+    # ── Main loop ────────────────────────────────────────────────
+
+    async def _async_run(self) -> str:
+        # System prompt: minimal, NO soul injection
+        system = f"Görev: {self.goal}"
+        if self.context:
+            system += f"\n\nBağlam: {self.context}"
+        system += (
+            "\n\nHedefe ulasmak icin tool'lari kullan. "
+            "Is bitince direkt cevap ver."
         )
 
         messages = [{"role": "system", "content": system}]
 
-        from orchestrator.reasoning import ReasoningEngine
-        engine = ReasoningEngine()
+        # Tool selection via selector.py
+        tool_names = select_schemas(self.goal, registry)
+        tool_schemas = (
+            registry.schemas_for(tool_names) if tool_names else []
+        )
 
-        max_iter = min(MAX_TURNS, 15)
-        for turn in range(max_iter):
+        max_turns = min(MAX_TURNS, 10)
+        error_counts: dict[str, int] = {}
+
+        for turn in range(max_turns):
             self.turn_count = turn
 
-            response = await engine.think(
-                system_prompt=system,
-                messages=messages,
-                tools=[
-                    t for t in registry.schemas()
-                    if t["function"]["name"] in available
-                ],
-            )
+            # Cancellation check
+            if self.status == "cancelled":
+                return json.dumps({"error": "subagent iptal edildi"})
+
+            # Context compression (aggressive threshold)
+            if self.compressor.should_compress(messages):
+                messages = await self.compressor.compress(
+                    messages, self._summarize
+                )
+
+            # Think — narrowed exception
+            try:
+                response = await self.engine.think(
+                    system, messages, tool_schemas
+                )
+            except (
+                RuntimeError,
+                ConnectionError,
+                TimeoutError,
+                ValueError,
+                json.JSONDecodeError,
+            ) as e:
+                log.error("SubAgent LLM error [%s]: %s", self.id, e)
+                return json.dumps({"error": f"LLM hatasi: {e}"})
+            except Exception as e:
+                log.error(
+                    "SubAgent unexpected LLM error [%s]: %s",
+                    self.id, e,
+                )
+                return json.dumps(
+                    {"error": f"Beklenmeyen LLM hatasi: {e}"}
+                )
 
             content = response.get("content", "")
             tool_calls = response.get("tool_calls", [])
 
+            # Final answer — no tool calls
             if not tool_calls and content:
                 return content
 
+            # Append assistant message
             messages.append({
                 "role": "assistant",
                 "content": content or None,
                 "tool_calls": tool_calls,
             })
 
+            # Execute tools
             for tc in tool_calls:
                 fn = tc.get("function", {})
                 name = fn.get("name", "")
-                args = fn.get("arguments", "{}")
+                args_raw = fn.get("arguments", "{}")
                 tool_id = tc.get("id", f"call_{name}")
 
+                # Block recursive delegation
                 if name in BLOCKED_TOOLS:
                     messages.append({
                         "role": "tool",
-                        "content": json.dumps({"error": "engellendi"}),
+                        "content": json.dumps({
+                            "error": "engellendi",
+                            "reason": "recursive delegation blocked",
+                        }),
                         "name": name,
                         "tool_call_id": tool_id,
                     })
                     continue
 
-                result = await executor.async_execute_json(name, args)
+                # read_file cache
+                if name == "read_file":
+                    cache_key = str(args_raw)
+                    cached = self._cache_get(cache_key)
+                    if cached is not None:
+                        messages.append({
+                            "role": "tool",
+                            "content": cached,
+                            "name": name,
+                            "tool_call_id": tool_id,
+                        })
+                        continue
+
+                # Execute — narrowed exception
+                try:
+                    result = await executor.async_execute_json(
+                        name, args_raw
+                    )
+                except (
+                    ValueError,
+                    json.JSONDecodeError,
+                    RuntimeError,
+                    OSError,
+                ) as e:
+                    classified = classify_api_error(e)
+                    log_error_pattern(
+                        f"subagent:{name}",
+                        classified.reason,
+                        str(e),
+                    )
+                    messages.append({
+                        "role": "tool",
+                        "content": json.dumps({
+                            "error": str(e),
+                            "reason": classified.reason,
+                        }),
+                        "name": name,
+                        "tool_call_id": tool_id,
+                    })
+
+                    # Self-reflection: 3+ same error → terminate
+                    error_counts[name] = error_counts.get(name, 0) + 1
+                    if error_counts[name] >= 3:
+                        log.warning(
+                            "SubAgent [%s] stopping: %s had %d errors",
+                            self.id, name, error_counts[name],
+                        )
+                        return json.dumps({
+                            "error": (
+                                f"'{name}' ardarda 3 kez hata verdi, "
+                                "sub-agent durduruldu"
+                            ),
+                        })
+                    continue
+                except Exception as e:
+                    messages.append({
+                        "role": "tool",
+                        "content": json.dumps({"error": str(e)}),
+                        "name": name,
+                        "tool_call_id": tool_id,
+                    })
+                    continue
+
+                # Cache successful read_file
+                if name == "read_file":
+                    self._cache_set(cache_key, result)
+
                 messages.append({
                     "role": "tool",
                     "content": result,
@@ -119,123 +258,188 @@ class SubAgent:
                     "tool_call_id": tool_id,
                 })
 
+            # repair_message_sequence after each tool turn
+            messages = repair_message_sequence(messages)
+
         return "Maksimum tur sayısına ulaşıldı."
+
+    async def wait_done(self):
+        """SubAgent'in tamamlanmasini bekle."""
+        await self._done.wait()
 
 
 class DelegateManager:
-    """Alt-agent'ları yönetir. Her agent kendi izole executor'ında."""
+    """Alt-agent'lari yonetir. Pure async — thread yok, polling yok."""
 
     def __init__(self):
         self.active: dict[str, SubAgent] = {}
-        self._lock = threading.Lock()
-
-    def submit(self, goal: str, context: str = "", toolsets: list[str] = None) -> str:
-        """Alt-agent gönder. Her agent kendi thread'inde çalışır."""
-        agent = SubAgent(goal, context, toolsets)
-        with self._lock:
-            self.active[agent.id] = agent
-        _exec = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix=f"subagent-{agent.id}"
-        )
-        _exec.submit(self._run_and_store, agent, _exec)
-        return agent.id
-
-    def submit_batch(self, tasks: list[dict]) -> list[str]:
-        ids = []
-        for task in tasks:
-            aid = self.submit(
-                goal=task.get("goal", ""),
-                context=task.get("context", ""),
-                toolsets=task.get("toolsets"),
-            )
-            ids.append(aid)
-        return ids
 
     async def submit_batch_and_wait(
         self, tasks: list[dict], timeout: int = 120
     ) -> list[dict]:
-        ids = self.submit_batch(tasks)
-        deadline = time.time() + timeout
-        results = []
-        for aid in ids:
-            remaining = max(0, int(deadline - time.time()))
-            result = await self.get_result(aid, timeout=remaining)
-            with self._lock:
-                agent = self.active.get(aid)
-            results.append({
-                "id": aid,
-                "goal": agent.goal if agent else "unknown",
-                "result": result,
-                "status": agent.status if agent else "unknown",
-                "error": agent.error if agent else None,
+        """Birden cok alt-agent'i paralel calistir ve bekle."""
+        agents: list[SubAgent] = []
+        for task in tasks:
+            agent = SubAgent(
+                goal=task.get("goal", ""),
+                context=task.get("context", ""),
+                toolsets=task.get("toolsets"),
+            )
+            self.active[agent.id] = agent
+            agents.append(agent)
+
+        results = await asyncio.gather(
+            *[agent.run() for agent in agents],
+            return_exceptions=True,
+        )
+
+        output = []
+        for agent, result in zip(agents, results):
+            if isinstance(result, Exception):
+                agent.status = "error"
+                agent.error = str(result)
+            output.append({
+                "id": agent.id,
+                "goal": agent.goal[:60],
+                "result": agent.result
+                or (str(result) if isinstance(result, str) else ""),
+                "status": agent.status,
+                "error": agent.error,
             })
-        return results
-
-    async def get_results_batch(
-        self, agent_ids: list[str], timeout: int = 30
-    ) -> list[dict]:
-        deadline = time.time() + timeout
-        results = []
-        for aid in agent_ids:
-            remaining = max(0, int(deadline - time.time()))
-            result = await self.get_result(aid, timeout=remaining)
-            with self._lock:
-                agent = self.active.get(aid)
-            results.append({
-                "id": aid,
-                "result": result,
-                "status": agent.status if agent else "unknown",
-                "error": agent.error if agent else None,
-            })
-        return results
-
-    def _run_and_store(self, agent: SubAgent, exec_ref: ThreadPoolExecutor):
-        try:
-            agent.run()
-        finally:
-            exec_ref.shutdown(wait=False)
-
-    async def get_result(self, agent_id: str, timeout: int = 120) -> Optional[str]:
-        with self._lock:
-            agent = self.active.get(agent_id)
-        if not agent:
-            return None
-
-        start = time.time()
-        while agent.status in ("pending", "running"):
-            if time.time() - start > timeout:
-                agent.status = "timeout"
-                return json.dumps({"error": "timeout"})
-            await asyncio.sleep(0.1)
-
-        return agent.result
+        return output
 
     def list_active(self) -> list[dict]:
-        with self._lock:
-            return [
-                {
-                    "id": a.id,
-                    "goal": a.goal[:50],
-                    "status": a.status,
-                    "turns": a.turn_count,
-                }
-                for a in self.active.values()
-                if a.status in ("pending", "running")
-            ]
+        return [
+            {
+                "id": a.id,
+                "goal": a.goal[:50],
+                "status": a.status,
+                "turns": a.turn_count,
+            }
+            for a in self.active.values()
+            if a.status in ("pending", "running")
+        ]
 
     def cancel(self, agent_id: str):
-        with self._lock:
-            agent = self.active.get(agent_id)
-            if agent:
-                agent.status = "cancelled"
+        agent = self.active.get(agent_id)
+        if agent:
+            agent.status = "cancelled"
 
     def cleanup(self):
-        with self._lock:
-            self.active = {
-                k: v
-                for k, v in self.active.items()
-                if v.status in ("pending", "running")
-            }
+        self.active = {
+            k: v
+            for k, v in self.active.items()
+            if v.status in ("pending", "running")
+        }
 
+
+# ── Module-level DelegateManager instance ──────────────────────────
 
 delegate = DelegateManager()
+
+
+# ── Tool handlers ──────────────────────────────────────────────
+
+@register_tool(
+    name="delegate_task",
+    description=(
+        "Bir alt-gorevi (sub-task) ayri bir mini-agent'a devret. "
+        "Karmasik, uzun surecek islemler icin. Alt-agent kendi "
+        "tool'larini kullanir, sonucu ozet olarak dondurur."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "goal": {
+                "type": "string",
+                "description": (
+                    "Alt-gorevin hedefi (net ve spesifik olmali)"
+                ),
+            },
+            "context": {
+                "type": "string",
+                "description": (
+                    "Alt-goreve verilecek baglam "
+                    "(dosya yollari, onceki sonuclar)"
+                ),
+                "default": "",
+            },
+            "toolsets": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": [
+                        "file", "web", "terminal",
+                        "git", "memory", "research",
+                    ],
+                },
+                "description": (
+                    "Alt-agentin kullanabilecegi tool kategorileri"
+                ),
+                "default": ["file", "web", "terminal"],
+            },
+        },
+        "required": ["goal"],
+    },
+    toolset="delegation",
+)
+async def delegate_task_tool(
+    goal: str,
+    context: str = "",
+    toolsets: list[str] = None,
+) -> str:
+    """Bir alt-agent olustur, calistir, sonucu dondur."""
+    if toolsets is None:
+        toolsets = ["file", "web", "terminal"]
+    agent = SubAgent(goal=goal, context=context, toolsets=toolsets)
+    return await agent.run()
+
+
+@register_tool(
+    name="delegate_batch",
+    description=(
+        "Birden fazla alt-gorevi paralel calistir. Her alt-gorev "
+        "ayri bir mini-agent. Sonuclari toplu dondurur."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "tasks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "goal": {"type": "string"},
+                        "context": {
+                            "type": "string",
+                            "default": "",
+                        },
+                        "toolsets": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "default": [
+                                "file", "web", "terminal",
+                            ],
+                        },
+                    },
+                    "required": ["goal"],
+                },
+                "description": "Paralel calistirilacak gorevler",
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "Toplam zaman asimi (saniye)",
+                "default": 120,
+            },
+        },
+        "required": ["tasks"],
+    },
+    toolset="delegation",
+)
+async def delegate_batch_tool(
+    tasks: list[dict],
+    timeout: int = 120,
+) -> str:
+    """Birden cok alt-agent'i paralel calistir."""
+    results = await delegate.submit_batch_and_wait(tasks, timeout)
+    return json.dumps(results, ensure_ascii=False)
