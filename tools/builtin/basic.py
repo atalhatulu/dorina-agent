@@ -10,7 +10,7 @@ from pathlib import Path
 from tools.registry import register_tool, registry
 from core.constants import DORINA_HOME
 from core.utils import safe_json_loads
-from tools.security import is_destructive, redact_secrets
+from tools.security import is_destructive, redact_secrets, is_blocked_path, safe_resolve
 from core.logger import log
 
 
@@ -362,6 +362,20 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
     p = Path(path).expanduser()
     if not p.is_absolute():
         p = Path.cwd() / p
+    # Path traversal korumasi — sadece cwd + kullanici klasorlerine izin ver
+    _h = Path.home()
+    _allowed = [
+        str(Path.cwd()),
+        str(_h / "Desktop"), str(_h / "Masaustu"),
+        str(_h / "Documents"), str(_h / "Belgeler"),
+        str(_h / "Downloads"), str(_h / "Indirilenler"),
+        str(_h / ".dorina"),
+        "/tmp",
+    ]
+    try:
+        p = safe_resolve(str(p), _allowed)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
     if not p.exists():
         # Turkce klasor adlarini Ingilizceye cevir (Masaustu -> Desktop, Indirilenler -> Downloads, etc)
         _tr_map = {"Masaüstü": "Desktop", "Masaustu": "Desktop", "İndirilenler": "Downloads", "Indirilenler": "Downloads", "Belgeler": "Documents", "Resimler": "Pictures", "Müzik": "Music", "Video": "Videos"}
@@ -484,11 +498,18 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
     from history.file_history import file_history
     file_history.snapshot_before(path, "write_file")
     p = Path(path).expanduser()
-    
+
+    # Path traversal korumasi (mutlak yolsa erken kontrol)
+    if p.is_absolute():
+        try:
+            safe_resolve(str(p))
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+
     # Fix common LLM path hallucinations: /home/user → actual home
     if p.is_absolute() and str(p).startswith("/home/user"):
         p = Path(str(p).replace("/home/user", str(Path.home()), 1))
-    
+
     # Sadece belirli dizinlere yazma izni ver, degilse Desktop'a yonlendir
     from soul.personality import GODMODE
     if p.is_absolute() and not GODMODE:
@@ -558,7 +579,12 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
             if r.exists() and r.is_dir():
                 search_dirs.append(str(r))
     else:
-        search_dirs = [str(raw_path.resolve())] if raw_path.exists() else [str(_Path.cwd())]
+        # Path traversal korumasi
+        try:
+            resolved = safe_resolve(str(raw_path))
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        search_dirs = [str(resolved)] if resolved.exists() else [str(_Path.cwd())]
 
     # Exclude patterns — use /** suffix to exclude directories entirely
     exclude_globs = [
@@ -889,9 +915,23 @@ async def web_fetch_tool(
 def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: list = None, start_line: int = None, end_line: int = None, dry_run: bool = False) -> str:
     """Dosyada find-and-replace yap. Tekli veya çoklu destekler, Dry-run desteği."""
     p = Path(path).expanduser()
+    # Path traversal korumasi — sadece cwd + kullanici klasorlerine izin ver
+    _h = Path.home()
+    _allowed = [
+        str(Path.cwd()),
+        str(_h / "Desktop"), str(_h / "Masaustu"),
+        str(_h / "Documents"), str(_h / "Belgeler"),
+        str(_h / "Downloads"), str(_h / "Indirilenler"),
+        str(_h / ".dorina"),
+        "/tmp",
+    ]
+    try:
+        p = safe_resolve(str(p), _allowed)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
     if not p.exists():
         return json.dumps({"error": f"Dosya bulunamadı: {path}"})
-    
+
     try:
         content = p.read_text(encoding="utf-8", errors="ignore")
         

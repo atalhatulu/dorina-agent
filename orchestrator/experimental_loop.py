@@ -213,6 +213,25 @@ class AgentLoopV2:
                 self._add_tool_call_message(tool_calls)
                 await self._execute_tools(tool_calls)
                 self.context.messages = repair_message_sequence(self.context.messages)
+
+                # Bos/error tool sonucu esigi: 3+ kez ust uste bos sonuc → zorla yanit
+                _recent = self.context.get_messages()[-6:]
+                _empty_streak = sum(
+                    1 for m in _recent
+                    if m.get("role") == "tool"
+                    and ("error" in (m.get("content", "") or "").lower()
+                        or not m.get("content", "").strip())
+                )
+                if _empty_streak >= 3:
+                    _display.print_warning(
+                        "3+ tool bos/error sonucu. Mevcut bilgiyle yanit veriliyor..."
+                    )
+                    self.context.add_user_message(
+                        "3 arac ust uste hata/empty dondurdu. "
+                        "Bildigin kadarıyla yanit ver, eksigini kullaniciya sor."
+                    )
+                    continue
+
                 continue
 
             # Yanit — is bitti

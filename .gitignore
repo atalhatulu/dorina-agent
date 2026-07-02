@@ -76,6 +76,9 @@ docker-compose.override.yml
 *.backup
 .env.local
 
+# Claude Code local settings
+.claude/
+
 # Graphify
 graphify-out/
 .graphify_*.json

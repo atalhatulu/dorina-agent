@@ -53,6 +53,41 @@ def is_blocked_path(path: str) -> bool:
     return False
 
 
+def safe_resolve(path: str, allowed_prefixes: list[str] | None = None) -> Path:
+    """Yolu normalize et ve path traversal saldirisina karsi dogrula.
+
+    Returns:
+        Resolve edilmis Path objesi.
+
+    Raises:
+        ValueError: Path traversal tespit edilirse (cikis noktasi izin verilen
+                    dizinlerin disindaysa veya BLOCKED_PATHS icindeyse).
+    """
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    resolved = p.resolve()
+
+    # BLOCKED_PATHS kontrolu
+    for blocked in BLOCKED_PATHS:
+        if str(resolved).startswith(blocked):
+            raise ValueError(
+                f"Path traversal engellendi: '{path}' -> '{resolved}' "
+                f"(bloklanmis dizin: {blocked})"
+            )
+
+    # Izin verilen prefix kontrolu
+    if allowed_prefixes:
+        allowed = [Path(a).resolve() for a in allowed_prefixes]
+        if not any(str(resolved).startswith(str(a)) for a in allowed):
+            raise ValueError(
+                f"Path traversal engellendi: '{path}' -> '{resolved}' "
+                f"(izin verilen dizinlerin disinda)"
+            )
+
+    return resolved
+
+
 async def docker_available() -> bool:
     """Docker çalışıyor mu?"""
     try:
