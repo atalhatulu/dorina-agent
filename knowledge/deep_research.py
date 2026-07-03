@@ -1,7 +1,7 @@
 """Deep Research Pipeline — multi-step research with query analysis, parallel search, cross-referencing, and report generation.
 
 Pipeline:
-  Sorgu Analizi → Alt-sorgulara Bölme → Paralel Arama → Çapraz Referans → Rapor
+  Query Analysis → Sub-query Division → Parallel Search → Cross-reference → Report
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ class DeepResearcher:
             self.findings.extend(more_results)
             self.stats["parallel_batches"] += 1
 
-        log.info(f"[Research] {len(self.findings)} bulgu toplandı")
+        log.info(f"... {len(self.findings)} findings collected")
 
         # ── Step 3: Cross Reference ─────────────────────────────
         log.info("[Research] Step 3: Cross-referencing...")

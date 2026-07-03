@@ -462,7 +462,7 @@ def format_user_error(
         if is_en:
             provider_info = f"\n\n**Provider:** {provider or '-'}  |  **Model:** {model or '-'}"
         else:
-            provider_info = f"\n\n**Sağlayıcı:** {provider or '-'}  |  **Model:** {model or '-'}"
+            provider_info = f"\n\n**Provider:** {provider or '-'}  |  **Model:** {model or '-'}"
 
     header = msg_data["title"]
     if classified.status_code:
@@ -480,6 +480,6 @@ def format_user_error(
         f"{header}\n\n"
         f"**Ne oldu?** {msg_data['what']}\n\n"
         f"**Neden oldu?** {msg_data['why']}\n\n"
-        f"**Ne yapmalı?** {msg_data['action']}"
+        f"**What to do:** {msg_data['action']}"
         f"{provider_info}"
     )

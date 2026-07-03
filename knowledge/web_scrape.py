@@ -1,11 +1,11 @@
-"""Web içerik çekme - httpx ile."""
+"""Web content scraping with httpx."""
 
 from __future__ import annotations
 from core.logger import log
 
 
 class WebScraper:
-    """URL'den içerik çek."""
+    """Fetch content from URL."""
 
     def fetch_sync(self, url: str, timeout: int = 15) -> str | None:
         """URLden içerik çek (sync)."""
@@ -27,7 +27,7 @@ class WebScraper:
             return None
 
     async def fetch(self, url: str, timeout: int = 15) -> str | None:
-        """URL'den metin içerik çek."""
+        """Fetch text content from URL."""
         import httpx
 
         try:
@@ -61,7 +61,7 @@ class WebScraper:
                     return resp.text[:5000]
 
         except (httpx.RequestError, OSError) as e:
-            log.error(f"Web çekme hatası [{url}]: {e}")
+            log.error(f"Web scraping error [{url}]: {e}")
             return None
 
 

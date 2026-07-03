@@ -1,4 +1,4 @@
-"""Web arama motoru — DuckDuckGo ile multi-engine desteği."""
+"""Web search engine — DuckDuckGo with multi-engine support."""
 
 from __future__ import annotations
 from typing import Optional
@@ -7,10 +7,10 @@ from core.logger import log
 
 
 class WebSearch:
-    """Web arama motoru. DuckDuckGo ana sağlayıcı.
+    """Web search engine. DuckDuckGo with multi-engine support.
 
-    Entegrasyon noktaları:
-      - deep_research.py: Paralel arama için kullanır
+    Integration points:
+      - deep_research.py: Parallel search için kullanır
       - rag_engine.py: Research sonuçlarını eklemek için kullanır
       - tools/builtin/modules.py: web_search tool'u bu sınıfı kullanır
     """
@@ -36,14 +36,14 @@ class WebSearch:
         region: str = "wt-wt",
         use_cache: bool = True,
     ) -> list[dict]:
-        """Web'de ara, sonuçları döndür.
+        """Search the web, sonuçları döndür.
 
         Args:
             query: Arama sorgusu
-            max_results: Maksimum sonuç sayısı
-            safesearch: Güvenli arama ("on", "off", "moderate")
+            max_results: Maximum result count
+            safesearch: Safe search ("on", "off", "moderate")
             region: Bölge kodu ("wt-wt", "tr-tr", "en-us", etc.)
-            use_cache: Önbellek kullan (varsa)
+            use_cache: Use cache (varsa)
 
         Returns:
             Her biri {"title", "url", "snippet", "source"} olan sözlük listesi
@@ -77,7 +77,7 @@ class WebSearch:
             self.cache[cache_key] = formatted
             return formatted
         except (TimeoutError, OSError, ValueError) as e:
-            log.error(f"Web arama hatası: {e}")
+            log.error(f"Web search error: {e}")
             return []
 
     def search_news(self, query: str, max_results: int = 5) -> list[dict]:
@@ -98,13 +98,13 @@ class WebSearch:
                 for r in results
             ]
         except (TimeoutError, OSError, ValueError) as e:
-            log.error(f"Web haber arama hatası: {e}")
+            log.error(f"Web news search error: {e}")
             return []
 
     def search_multi(
         self, query: str, max_results: int = 5
     ) -> list[dict]:
-        """Multi-engine arama (web + news)."""
+        """Multi-engine search (web + news)."""
         web_results = self.search_web(query, max_results=max_results)
         news_results = self.search_news(query, max_results=max_results // 2)
         combined = web_results + news_results

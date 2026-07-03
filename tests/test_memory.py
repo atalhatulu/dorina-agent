@@ -61,7 +61,7 @@ class TestWorkingMemory:
         wm.add("assistant", "2")
         wm.add("user", "3")
         wm.add("assistant", "4")
-        assert wm.count() == 3  # max'ta kalmalı
+        assert wm.count() == 3  # should stay at max
 
     def test_clear(self):
         from memory.working import WorkingMemory

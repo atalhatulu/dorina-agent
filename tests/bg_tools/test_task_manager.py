@@ -8,7 +8,7 @@ def manager():
 
 @pytest.mark.asyncio
 async def test_task_start_and_complete(manager):
-    """Test 1: Görev başarıyla başlar ve tamamlanır."""
+    """Test 1: Task starts successfully and completes."""
     async def dummy_coro():
         return "Success"
         
@@ -31,7 +31,7 @@ async def test_task_start_and_complete(manager):
 
 @pytest.mark.asyncio
 async def test_task_failure(manager):
-    """Test 2: Görev hata fırlattığında doğru şekilde yakalanır ve raporlanır."""
+    """Test 2: Task that raises an error is properly caught and reported."""
     async def failing_coro():
         raise ValueError("Oops, something went wrong")
         
@@ -50,7 +50,7 @@ async def test_task_failure(manager):
 
 @pytest.mark.asyncio
 async def test_task_cancellation(manager):
-    """Test 3: Çalışan bir görev iptal edilebilir."""
+    """Test 3: A running task can be cancelled."""
     async def long_coro():
         await asyncio.sleep(5)
         return "Done"
