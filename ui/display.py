@@ -1,4 +1,5 @@
-"""Terminal UI - #D4622A turuncu tema, Text.append ile guvenli."""
+"""Terminal UI - #D4622A orange theme, safe with Text.append."""
+from core.constants import t
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -25,7 +26,7 @@ console = Console(
 _tool_outputs: list[dict] = []
 
 def store_tool_output(name: str, result: str):
-    """Tool çıktısını sakla, ctrl+o ile expand edilebilir."""
+    """Store tool output, expandable via ctrl+o."""
     _tool_outputs.append({
         "name": name,
         "result": result,
@@ -34,7 +35,7 @@ def store_tool_output(name: str, result: str):
     })
 
 def expand_last_tool():
-    """Son tool çıktısını ekrana bas."""
+    """Print the last tool output to screen."""
     if not _tool_outputs:
         return
     last = _tool_outputs[-1]
@@ -44,11 +45,11 @@ def expand_last_tool():
     for line in lines:
         console.print(f"  {line}", highlight=False, markup=False)
     if len(last["result"].split("\n")) > 50:
-        console.print(f"  [dim]... ({len(last['result'].split(chr(10)))-50} satır daha)[/dim]")
+        console.print(f"  [dim]... ({t('tool_output_more_lines', count=len(last['result'].split(chr(10)))-50)})[/dim]")
     console.print()
 
 def clear_tool_outputs():
-    """Yeni session başlangıcında temizle."""
+    """Clear at session start."""
     _tool_outputs.clear()
 
 INDENT = "  "
@@ -66,10 +67,10 @@ def _safe_str(s: str, max_len: int = 120) -> str:
 
 
 def print_user(message: str):
-    t = Text()
-    t.append(INDENT + "> ", style=f"bold {USER}")
-    t.append(message, style=f"italic {TEXT}")
-    console.print(t)
+    txt = Text()
+    txt.append(INDENT + "> ", style=f"bold {USER}")
+    txt.append(message, style=f"italic {TEXT}")
+    console.print(txt)
 
 
 def print_assistant(message: str):
@@ -81,7 +82,7 @@ def print_assistant(message: str):
     width = console.width - 4
     md_console = Console(width=width, highlight=False, soft_wrap=False)
     from rich.padding import Padding
-    padded_md = Padding(Markdown(message), (0, 0, 0, 2)) # Üst, Sağ, Alt, Sol
+    padded_md = Padding(Markdown(message), (0, 0, 0, 2)) # Top, Right, Bottom, Left
     md_console.print(padded_md, justify="left")
     console.print()
 
@@ -90,7 +91,7 @@ def print_assistant_stream(chunk: str):
     global _stream_buffer, _stream_started
     with _stream_lock:
         if not _stream_started and chunk:
-            # İlk chunk'ta INDENT ekle
+            # Add INDENT on first chunk
             _stream_buffer += INDENT + chunk
             _stream_started = True
         else:
@@ -112,7 +113,7 @@ def flush_stream():
         if _stream_buffer:
             console.print(_stream_buffer, end="", highlight=False, markup=False)
             _stream_buffer = ""
-        _stream_started = False  # ← sonraki yanıt için sıfırla
+        _stream_started = False  # reset for next response
 
 
 _current_tool_text = None
@@ -120,7 +121,7 @@ _current_tool_text = None
 def print_tool_start(name: str, args: dict | None = None):
     global _tool_start_time, _current_tool_text
     _tool_start_time = _time.time()
-    
+
     pascal_name = "".join(word.capitalize() for word in name.split("_"))
     arg_str = ""
     if args:
@@ -130,27 +131,27 @@ def print_tool_start(name: str, args: dict | None = None):
             val = str(args.get(key, ""))
             val = val.replace("\n", "\\n")
             arg_str = _safe_str(val, 60)
-        
+
         if not arg_str:
             import json as _json
             try:
                 arg_str = _safe_str(_json.dumps(args, ensure_ascii=False), 60)
             except (TypeError, ValueError, OverflowError):
                 arg_str = _safe_str(str(args), 60)
-            
-    t = Text()
-    t.append(INDENT)
-    t.append("● ", style=DIM)
-    t.append(f"{pascal_name}", style="bold")
-    t.append(f"({arg_str})", style="#66BB6A")  # parametreler - yesil
-    # Parametre token tahmini
+
+    txt = Text()
+    txt.append(INDENT)
+    txt.append("● ", style=DIM)
+    txt.append(f"{pascal_name}", style="bold")
+    txt.append(f"({arg_str})", style="#66BB6A")  # parameters - green
+    # Parameter token estimation
     global _in_tokens
     _in_tokens = 0
     if args:
         _in_tokens = count_tokens(str(args))
 
-    _current_tool_text = t
-    console.print(t, end="")
+    _current_tool_text = txt
+    console.print(txt, end="")
 
 
 def print_tool_done(name: str, result: str):
@@ -158,7 +159,7 @@ def print_tool_done(name: str, result: str):
     global _tool_start_time, _current_tool_text, _in_tokens
     _duration = f" \n~{max(0.0, _time.time() - _tool_start_time):.1f}s" if _tool_start_time else ""
     _tool_start_time = 0
-    # Input/output token tahmini
+    # Input/output token estimation
     _out_tokens = count_tokens(result or "")
     _in_str = f"  i: {_in_tokens}" if _in_tokens > 0 else ""
     _out_str = f"  o: {_out_tokens}" if _out_tokens > 0 else ""
@@ -183,25 +184,25 @@ def print_tool_done(name: str, result: str):
         elif "results" in data:
             r = data["results"]
             if r and isinstance(r[0], dict) and "title" in r[0]:
-                summary = f"{len(r)} sonuç"
+                summary = t("tool_output_count", count=len(r))
             else:
-                summary = f"{len(r)} sonuç"
+                summary = t("tool_output_count", count=len(r))
         elif "note" in data:
             summary = data["note"][:150]
         elif data.get("success"):
-            summary = data.get("message", "Başarılı")
-    except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
+            summary = data.get("message", t("tool_output_success"))
+    except (_json.JSONDecodeError, AttributeError, KeyError, TypeError):
         pass
 
     if is_multi:
         fl = _safe_str(raw.split("\n")[0], 100)
-        summary = f"{fl} ({raw.count(chr(10))+1} satır, {len(raw)} B)"
+        summary = f"{fl} ({t('tool_output_lines', count=raw.count(chr(10))+1)}, {len(raw)} B)"
 
-    # sudo password prompt: ayri satir + bariz arkaplan rengi
-    _sudo_style = "bold #ffffff on #cc0000"  # beyaz yazi, kirmizi arkaplan
+    # sudo password prompt: separate line + obvious background color
+    _sudo_style = "bold #ffffff on #cc0000"  # white text, red background
     if "sudo" in summary.lower() and "password" in summary.lower():
         _current_tool_text = None
-        console.print(f"\n{INDENT}[bold #ffffff on #cc0000] ── [sudo] password istiyor ── [/]")
+        console.print(f"\n{INDENT}[bold #ffffff on #cc0000] ── [sudo] password requested ── [/]")
         return
 
     if _current_tool_text:
@@ -228,19 +229,19 @@ def print_tool_error(name: str, error: str):
         try:
             p = _json.loads(raw)
             msg = p.get("error", "") or p.get("message", "") or msg
-        except (json.JSONDecodeError, KeyError, TypeError):
+        except (_json.JSONDecodeError, KeyError, TypeError):
             pass
     user_msg = _friendly_error(msg)
     import logging as _logging
-    _logging.getLogger("dorina").debug(f"Tool hatasi [{name}]: {raw[:300]}")
+    _logging.getLogger("dorina").debug(f"Tool error [{name}]: {raw[:300]}")
     location = _find_error_location(raw)
-    t = Text()
-    t.append(INDENT + "\u2717 ", style=ORANGE)
-    t.append(user_msg or msg)
+    txt = Text()
+    txt.append(INDENT + "✗ ", style=ORANGE)
+    txt.append(user_msg or msg)
     if location:
-        t.append(" ", style="")
-        t.append(location, style=DIM)
-    console.print(t)
+        txt.append(" ", style="")
+        txt.append(location, style=DIM)
+    console.print(txt)
 
 
 def _find_error_location(raw: str) -> str | None:
@@ -258,41 +259,41 @@ def _find_error_location(raw: str) -> str | None:
 def _friendly_error(msg: str) -> str | None:
     msg = msg[:120]
     if "closing tag" in msg and "doesn't match" in msg:
-        return "Arayuz bileseni hatasi (Detay: log)"
+        return t("error_friendly_ui_component")
     if "MarkupError" in msg:
-        return "Goruntu bileseni hatasi (Detay: log)"
+        return t("error_friendly_display")
     if "JSONDecodeError" in msg or "Expecting value" in msg:
-        return "Beklenmeyen yanit formati (Detay: log)"
+        return t("error_friendly_parse")
     if "Errno 2" in msg or "No such file" in msg or "FileNotFoundError" in msg:
         s = msg.rfind("/")
         fname = msg[s:] if s > 0 else msg
-        return f"Dosya bulunamadi: ...{fname[:40]}"
+        return t("error_friendly_file_not_found", path=f"...{fname[:40]}")
     if "Errno 13" in msg or "Permission denied" in msg or "PermissionError" in msg:
-        return "Erisim izni yok"
+        return t("error_friendly_permission")
     if "Errno 21" in msg or "Is a directory" in msg or "IsADirectoryError" in msg:
-        return "Bu bir dizin, dosya yolu belirtin"
+        return t("error_friendly_is_directory")
     if "timeout" in msg.lower() or "timed out" in msg.lower():
-        return "Baglanti zamani asti"
+        return t("error_friendly_timeout")
     if "ConnectionError" in msg or "Connection refused" in msg:
-        return "Baglanti kurulamadi"
+        return t("error_friendly_connection")
     if "401" in msg or "Unauthorized" in msg or "API key" in msg.lower():
-        return "API anahtari gecersiz"
+        return t("error_friendly_auth")
     if "402" in msg or "Payment Required" in msg:
-        return "API kredisi tukendi"
+        return t("error_friendly_billing")
     if "429" in msg or "Rate limit" in msg or "Too Many Requests" in msg:
-        return "Cok fazla istek, bekleyin"
+        return t("error_friendly_rate_limit")
     if "ModuleNotFoundError" in msg or "No module named" in msg:
         m = msg.split("'")[1] if "'" in msg else "?"
-        return f"Eksik paket: {m}"
+        return t("error_friendly_missing_module", package=m)
     if "chromadb" in msg.lower() or "Expected embeddings" in msg:
-        return "Bellek sistemi hatasi (Detay: log)"
+        return t("error_friendly_memory")
     return None
 
 
 def print_status_bar(text: str):
-    t = Text()
-    t.append(f"{INDENT}{text}", style=f"italic {DIM}")
-    console.print(t)
+    txt = Text()
+    txt.append(f"{INDENT}{text}", style=f"italic {DIM}")
+    console.print(txt)
 
 
 def print_divider():
@@ -300,8 +301,8 @@ def print_divider():
 
 
 def print_separator():
-    t = Text("-" * 40, style=DIM)
-    console.print(t)
+    txt = Text("-" * 40, style=DIM)
+    console.print(txt)
 
 
 def print_markdown(text: str):
@@ -310,35 +311,35 @@ def print_markdown(text: str):
 
 def print_table(title: str, columns: list[str], rows: list[list[str]]):
     from rich.table import Table
-    t = Table(title=title, title_style=f"bold {ORANGE}", border_style=DIM, box=box.HORIZONTALS)
+    table = Table(title=title, title_style=f"bold {ORANGE}", border_style=DIM, box=box.HORIZONTALS)
     for c in columns:
-        t.add_column(c, style=ORANGE)
+        table.add_column(c, style=ORANGE)
     for r in rows:
-        t.add_row(*[escape(str(cell)) for cell in r])
-    console.print(t)
+        table.add_row(*[escape(str(cell)) for cell in r])
+    console.print(table)
 
 
 def print_error(text: str):
-    t = Text()
-    t.append(INDENT + "\u2717 ", style=ORANGE)
-    t.append("Hata: ", style="bold")
-    t.append(str(text))
-    console.print(t)
+    txt = Text()
+    txt.append(INDENT + "✗ ", style=ORANGE)
+    txt.append(t("label_error") + ": ", style="bold")
+    txt.append(str(text))
+    console.print(txt)
 
 
 def print_success(text: str):
-    t = Text()
-    t.append(INDENT + "\u2713 ", style=GREEN)
-    t.append(str(text))
-    console.print(t)
+    txt = Text()
+    txt.append(INDENT + "✓ ", style=GREEN)
+    txt.append(str(text))
+    console.print(txt)
 
 
 def print_warning(text: str):
-    """WARNING mesaji — turuncu ikaz stili."""
-    t = Text()
-    t.append(INDENT + "⚠ ", style="bold #FFA500")
-    t.append(str(text), style="#FFA500")
-    console.print(t)
+    """Warning message — orange warning style."""
+    txt = Text()
+    txt.append(INDENT + "⚠ ", style="bold #FFA500")
+    txt.append(str(text), style="#FFA500")
+    console.print(txt)
 
 
 def print_info(text: str):
@@ -348,10 +349,10 @@ def print_info(text: str):
         color = "#E06C75"
     else:
         color = USER
-    
-    t = Text()
-    t.append(f"{INDENT}{text}", style=color)
-    console.print(t)
+
+    txt = Text()
+    txt.append(f"{INDENT}{text}", style=color)
+    console.print(txt)
 
 
 def print_panel(text: str, title: str = ""):
@@ -365,21 +366,21 @@ def print_session_summary(duration_sec: float, turn_count: int, tokens_in: int, 
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column("Key", style="bold cyan")
     table.add_column("Value", style="yellow")
-    
+
     mins = int(duration_sec // 60)
     secs = int(duration_sec % 60)
-    time_str = f"{mins}dk {secs}sn" if mins > 0 else f"{secs} saniye"
+    time_str = t("session_summary_min_sec", mins=mins, secs=secs) if mins > 0 else t("session_summary_seconds", secs=secs)
 
-    table.add_row("⏱️  Süre:", time_str)
-    table.add_row("🔄 Tur Sayısı:", str(turn_count))
-    table.add_row("📥 Gelen Token:", f"{tokens_in:,}")
-    table.add_row("📤 Çıkan Token:", f"{tokens_out:,}")
+    table.add_row("⏱️  " + t("session_summary_duration"), time_str)
+    table.add_row("🔄 " + t("session_summary_turns"), str(turn_count))
+    table.add_row("📥 " + t("session_summary_tokens_in"), f"{tokens_in:,}")
+    table.add_row("📤 " + t("session_summary_tokens_out"), f"{tokens_out:,}")
     if cost > 0:
-        table.add_row("💰 Maliyet:", f"${cost:.4f}")
+        table.add_row("💰 " + t("session_summary_cost"), f"${cost:.4f}")
 
     panel = Panel(
         Align.left(table),
-        title="[bold green]Oturum Özeti[/bold green]",
+        title="[bold green]" + t("session_summary_title") + "[/bold green]",
         border_style="green",
         expand=False
     )

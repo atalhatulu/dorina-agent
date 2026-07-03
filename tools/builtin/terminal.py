@@ -1,4 +1,4 @@
-"""Terminal tools — shell komutu calistirma ve batch Python."""
+"""Terminal tools — shell command execution and batch Python."""
 
 from __future__ import annotations
 import asyncio
@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 from tools.registry import register_tool
-from core.constants import DORINA_HOME
+from core.constants import DORINA_HOME, t
 from tools.security import is_destructive, redact_secrets
 from core.logger import log
 
@@ -31,11 +31,11 @@ def _run_in_sandbox(command: str, timeout: int) -> str | None:
     try:
         from sandbox.docker import sandbox as docker_sandbox
         if not docker_sandbox.available:
-            log.warning("Docker sandbox istek edildi ama Docker kullanilamiyor")
+            log.warning("Docker sandbox requested but Docker not available")
             return None
         return docker_sandbox.run_shell(command, timeout=timeout)
     except (ImportError, AttributeError) as e:
-        log.warning(f"Sandbox kullanilamadi: {e}")
+        log.warning(f"Sandbox unavailable: {e}")
         return None
 
 
@@ -44,11 +44,11 @@ def _run_python_in_sandbox(code: str, timeout: int) -> str | None:
     try:
         from sandbox.docker import sandbox as docker_sandbox
         if not docker_sandbox.available:
-            log.warning("Docker sandbox istek edildi ama Docker kullanilamiyor")
+            log.warning("Docker sandbox requested but Docker not available")
             return None
         return docker_sandbox.run_python(code, timeout=timeout)
     except (ImportError, AttributeError) as e:
-        log.warning(f"Sandbox kullanilamadi: {e}")
+        log.warning(f"Sandbox unavailable: {e}")
         return None
 
 
@@ -56,24 +56,24 @@ def _run_python_in_sandbox(code: str, timeout: int) -> str | None:
 
 @register_tool(
     name="terminal",
-    description="Shell komutu calistir. pty=True interaktif, sandbox=True guvenli.",
+    description="Run shell commands. pty=True for interactive, sandbox=True for safety.",
     parameters={
         "type": "object",
         "properties": {
-            "command": {"type": "string", "description": "Çalıştırılacak komut"},
-            "cwd": {"type": "string", "description": "Çalışma dizini (Opsiyonel)"},
-            "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 15},
-            "pty": {"type": "boolean", "description": "PTY (pseudo-terminal) kullan. Interaktif prompt'lar için gerekli", "default": False},
-            "background": {"type": "boolean", "description": "Arka planda çalıştır. Uzun süren komutlar için. Kullanici bloke olmaz.", "default": False},
-            "notify_on_complete": {"type": "boolean", "description": "background=True ile kullanilir. Komut bitince chate bildirim gonderir.", "default": False},
-            "sandbox": {"type": "boolean", "description": "Docker container'da calistir (guvenlik). Varsayilan: config.yaml tools.sandbox ayarina gore", "default": None},
+            "command": {"type": "string", "description": "Command to execute"},
+            "cwd": {"type": "string", "description": "Working directory (Optional)"},
+            "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 15},
+            "pty": {"type": "boolean", "description": "Use PTY (pseudo-terminal). Required for interactive prompts", "default": False},
+            "background": {"type": "boolean", "description": "Run in background for long-running commands. User is not blocked.", "default": False},
+            "notify_on_complete": {"type": "boolean", "description": "Use with background=True. Sends notification when command completes.", "default": False},
+            "sandbox": {"type": "boolean", "description": "Run in Docker container (security). Default: follows config.yaml tools.sandbox setting", "default": None},
         },
         "required": ["command"],
     },
     toolset="terminal",
 )
 async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: bool = False, background: bool = False, notify_on_complete: bool = False, sandbox: bool = None) -> str:
-    """Shell komutu çalıştır. PTY, cwd ve background desteği."""
+    """Run a shell command. Supports PTY, cwd and background execution."""
     # ── Sandbox routing ────────────────────────────────────
     if sandbox is None:
         sandbox = _sandbox_enabled_in_config()
@@ -90,7 +90,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
     SUDO_PWD = getattr(_sp, "SUDO_PASSWORD", None)
     HAS_SUDO = "sudo" in command.split() if command else False
 
-    # ── Sudo parolasi yoksa kullanicidan sor (*** maskeli, dogrulamali) ──
+    # ── Sudo password — prompt user if not set (*** masked, verified) ──
     if HAS_SUDO and not SUDO_PWD:
         try:
             import subprocess as _sp_verify, termios as _t, tty as _tty, sys as _sys
@@ -98,7 +98,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
             _con = _Console()
             _con.print("")
             while True:
-                _con.print("[bold yellow]🔑 sudo parolası: [/]", end="")
+                _con.print(f"[bold yellow]{t('terminal_sudo_password')}[/]", end="")
                 _fd = _sys.stdin.fileno()
                 _old = _t.tcgetattr(_fd)
                 _pwd = ""
@@ -132,19 +132,19 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                 if _proc.returncode == 0:
                     _sp.SUDO_PASSWORD = _pwd
                     break
-                _con.print("[bold red]✗ Yanlış parola, tekrar dene[/]")
+                _con.print(f"[bold red]{t('terminal_sudo_wrong')}[/]")
         except subprocess.TimeoutExpired:
-            _con.print("[bold red]✗ Parola doğrulama zaman aşımı[/]")
+            _con.print(f"[bold red]{t('terminal_sudo_timeout')}[/]")
         except (OSError, ValueError):
             pass
 
-    # Sudo parolasi tanimliysa -S ekle ve timeout'u artir
+    # Sudo password set — add -S flag and increase timeout
     if SUDO_PWD and HAS_SUDO and " -S " not in command:
         command = command.replace("sudo", "sudo -S ", 1)
         if timeout and timeout < 3600:
             timeout = 3600
 
-    # .venv/bin PATH'e ekle (pytest vs. icin)
+    # Add .venv/bin to PATH (for pytest etc.)
     _env = None
     _proj_root = Path(__file__).resolve().parent.parent.parent
     _venv_bin = _proj_root / ".venv" / "bin"
@@ -154,22 +154,22 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
 
     # git push/pull engelle
     if command.strip().startswith("git push") or command.strip().startswith("git pull"):
-        return json.dumps({"error": "git push/pull engellendi. Sadece local git komutlarina izin var."})
+        return json.dumps({"error": "git push/pull blocked. Only local git commands allowed."})
 
     if is_destructive(command):
-        return json.dumps({"error": "Bu komut engellendi (destructive pattern)"})
+        return json.dumps({"error": "Command blocked (destructive pattern)"})
 
     if not background and "sleep " in command:
         import re as _re
         _sleep_match = _re.search(r"sleep\s+(\d+(?:\.\d+)?)", command)
         _sleep_dur = float(_sleep_match.group(1)) if _sleep_match else 999
         if _sleep_dur > 3:
-            return json.dumps({"error": "LUTFEN DIKKAT: Uzun sleep'leri (3sn+) senkron terminal'de CALISTIRMA! Arayuzu dondurursun. Bunun yerine KESINLIKLE 'task_create_bash' aracini kullan."})
+            return json.dumps({"error": "ATTENTION: Do NOT run long sleep (3s+) in synchronous terminal! It freezes the interface. Use 'task_create_bash' tool instead."})
 
     if cwd:
         cwd_path = Path(cwd).expanduser()
         if not cwd_path.exists():
-            return json.dumps({"error": f"Dizin bulunamadi: {cwd}"})
+            return json.dumps({"error": f"Directory not found: {cwd}"})
         cwd = str(cwd_path)
 
     if background:
@@ -210,7 +210,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                         _out_path = f"/tmp/dorina_out_{int(time.time())}.txt"
                         Path(_out_path).write_text(full_out)
                         return json.dumps({"partial": True, "path": _out_path, "size": len(full_out), "preview": full_out[:200]})
-                    return json.dumps({"error": f"Komut zaman aşımı ({timeout}s)", "partial": full_out[:10000]})
+                    return json.dumps({"error": f"Command timed out ({timeout}s)", "partial": full_out[:10000]})
                 r, _, _ = _select.select([master_fd], [], [], 0.1)
                 if r:
                     try:
@@ -264,7 +264,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
             output = result.stdout or result.stderr
             return redact_secrets(output)[:50000]
     except subprocess.TimeoutExpired:
-        return json.dumps({"error": f"Komut zaman aşımı ({timeout}s)"})
+        return json.dumps({"error": f"Command timed out ({timeout}s)"})
     except (subprocess.CalledProcessError, OSError) as e:
         return json.dumps({"error": str(e)})
 
@@ -273,20 +273,20 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
 
 @register_tool(
     name="batch_python",
-    description="Python script'ini calistir ve ciktiyi getir. COK DOSYALI islemler, toplu veri analizi, regex taramalari, dosya icerigi manipule etmek icin IDEAL.",
+    description="Run Python script and get output. IDEAL for multi-file operations, batch data analysis, regex scans, file content manipulation.",
     parameters={
         "type": "object",
         "properties": {
-            "code": {"type": "string", "description": "Calistirilacak Python kodu. print() ile cikti al. 'with open(...)' ile dosya oku/yaz."},
-            "timeout": {"type": "integer", "description": "Zaman asimi (saniye)", "default": 30},
-            "sandbox": {"type": "boolean", "description": "Docker container'da calistir. Varsayilan: config.yaml tools.sandbox ayarina gore", "default": None},
+            "code": {"type": "string", "description": "Python code to execute. Use print() for output. Use 'with open(...)' to read/write files."},
+            "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+            "sandbox": {"type": "boolean", "description": "Run in Docker container. Default: follows config.yaml tools.sandbox setting", "default": None},
         },
         "required": ["code"],
     },
     toolset="file",
 )
 async def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) -> str:
-    """Python script'ini calistir. Toplu taramalar icin (import, dosya, regex)."""
+    """Run a Python script. For batch operations (imports, file ops, regex)."""
     if sandbox is None:
         sandbox = _sandbox_enabled_in_config()
     if sandbox:
@@ -307,10 +307,10 @@ async def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) 
             out = (r.stdout or "")[:10000]
             err = (r.stderr or "")[:2000]
             if r.returncode != 0:
-                return json.dumps({"error": f"Cikis kodu {r.returncode}", "stderr": err, "stdout": out})
-            return out or "Basarili (cikti yok)"
+                return json.dumps({"error": f"Exit code {r.returncode}", "stderr": err, "stdout": out})
+            return out or "Success (no output)"
         except subprocess.TimeoutExpired:
-            return json.dumps({"error": f"Zaman asimi ({timeout}sn)"})
+            return json.dumps({"error": f"Timeout ({timeout}s)"})
         except (subprocess.CalledProcessError, OSError) as e:
             return json.dumps({"error": str(e)})
         finally:

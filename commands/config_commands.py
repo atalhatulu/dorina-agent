@@ -1,6 +1,6 @@
 """Config commands: /model, /godmode, /audit, /personality.
 
-/model komutu:
+/model command:
   /model               → interactive provider selector + model picker
   /model key <p> <k>   → set API key for provider
   /model switch <p>    → quick switch to provider's first model
@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from core.constants import t
 
 if TYPE_CHECKING:
     from app import DorinaApp
@@ -41,7 +42,7 @@ async def cmd_model(app: "DorinaApp", cmd: str) -> None:
             if model is None:
                 return
             keys.switch_to(provider, model)
-            print_success(f"Model: {provider}/{model}")
+            print_success(t("model_current", model=f"{provider}/{model}"))
         else:
             # Different provider: check API key
             if keys.has_key(provider):
@@ -50,10 +51,10 @@ async def cmd_model(app: "DorinaApp", cmd: str) -> None:
                 if model is None:
                     return
                 keys.switch_to(provider, model)
-                print_success(f"Switched to {provider}/{model}")
+                print_success(t("model_switched", model=f"{provider}/{model}"))
             else:
                 # No key: prompt for it
-                print_info(f"{provider}: API key gerekli")
+                print_info(t("model_key_required", provider=provider))
                 console.print(f"  /model key {provider} <api_key>")
                 return
 
@@ -62,7 +63,7 @@ async def cmd_model(app: "DorinaApp", cmd: str) -> None:
         prov = parts[2]
         new_key = parts[3].strip()
         keys.save_key(prov, new_key)
-        print_success(f"{prov} API key guncellendi ({len(new_key)} chars)")
+        print_success(t("model_key_updated", provider=prov, len=len(new_key)))
 
     elif len(parts) >= 3 and parts[1] == "switch":
         # ── /model switch <provider> ──
@@ -73,11 +74,11 @@ async def cmd_model(app: "DorinaApp", cmd: str) -> None:
                 keys.switch_to(prov, models[0])
                 from core.model_utils import build_model_string
                 model_str = build_model_string(prov, models[0])
-                print_success(f"Switched to {model_str}")
+                print_success(t("model_switched", model=model_str))
             else:
-                print_error(f"{prov} icin model tanimli degil")
+                print_error(t("model_no_models", provider=prov))
         else:
-            print_error(f"Bilinmeyen provider: {prov}")
+            print_error(t("model_unknown_provider", provider=prov))
 
     elif len(parts) >= 2 and parts[1] == "list":
         # ── /model list ──
@@ -89,7 +90,7 @@ async def cmd_model(app: "DorinaApp", cmd: str) -> None:
         for name, info in PROVIDERS.items():
             has = keys.has_key(name)
             dot = "●" if name == p else "○"
-            key_s = f"[green]KEY VAR[/]" if has else f"[dim]key yok[/dim]"
+            key_s = f"[green]{t('provider_key_present')}[/]" if has else f"[dim]{t('provider_key_missing')}[/dim]"
             masked = keys.get_key(name)[:10] + "..." if has and len(keys.get_key(name)) > 10 else ""
             console.print(f"  {dot} {name:14s}  {key_s}  [dim]{masked}[/dim]")
         console.print("")
@@ -97,11 +98,11 @@ async def cmd_model(app: "DorinaApp", cmd: str) -> None:
         console.print("")
 
     else:
-        print_error("Kullanim: /model | /model key <p> <k> | /model switch <p> | /model list")
+        print_error(t("model_usage"))
 
 
 async def cmd_godmode(app: "DorinaApp", cmd: str) -> None:
-    """Toggle god mode — sinirsiz mod, guvenlik kisitlamalari kalkar."""
+    """Toggle god mode — unlimited, all security restrictions lifted."""
     from ui.display import print_success, print_error
     from ui.repl import set_style
     from core.config import settings
@@ -111,7 +112,7 @@ async def cmd_godmode(app: "DorinaApp", cmd: str) -> None:
     settings.save()
     if modes.is_on('godmode'):
         set_style('godmode')
-        print_success("GODMODE AKTIF — tum kisitlamalar kalkti")
+        print_success(t("godmode_activated"))
     else:
         if modes.is_on('audit'):
             set_style('audit')
@@ -119,7 +120,7 @@ async def cmd_godmode(app: "DorinaApp", cmd: str) -> None:
             set_style('temp')
         else:
             set_style('')
-        print_error("God mode kapandi — guvenlik kisitlamalari aktif")
+        print_error(t("godmode_deactivated"))
 
 
 async def cmd_audit(app: "DorinaApp", cmd: str) -> None:
@@ -130,7 +131,7 @@ async def cmd_audit(app: "DorinaApp", cmd: str) -> None:
     modes.toggle('audit')
     if modes.is_on('audit'):
         set_style('audit')
-        print_success("AUDIT MOD AKTIF")
+        print_success(t("audit_activated"))
     else:
         if modes.is_on('godmode'):
             set_style('godmode')
@@ -138,7 +139,7 @@ async def cmd_audit(app: "DorinaApp", cmd: str) -> None:
             set_style('temp')
         else:
             set_style('')
-        print_error("Audit mod kapandi")
+        print_error(t("audit_deactivated"))
 
 
 async def cmd_mods(app: "DorinaApp", cmd: str) -> None:
@@ -147,12 +148,12 @@ async def cmd_mods(app: "DorinaApp", cmd: str) -> None:
     from ui.display import console
 
     console.print("")
-    console.print("  [bold]Aktif Modlar[/bold]")
+    console.print(f"  [bold]{t('model_active_modes')}[/bold]")
     console.print("  ─────────────")
-    _god = "[bold #ff3333]GOD MODE[/bold #ff3333]" if modes.is_on('godmode') else "[dim]god mode: pasif[/dim]"
-    _aud = "[bold #E06C75]AUDIT[/bold #E06C75]" if modes.is_on('audit') else "[dim]audit: pasif[/dim]"
-    _tmp = "[bold #6C7086]TEMP[/bold #6C7086]" if modes.is_on('temp') else "[dim]temp: pasif[/dim]"
-    _spd = "[bold #98C379]SPEED[/bold #98C379]" if modes.is_on('speed') else "[dim]speed: pasif[/dim]"
+    _god = f"[bold #ff3333]{t('model_god_active')}[/bold #ff3333]" if modes.is_on('godmode') else f"[dim]{t('model_god_inactive')}[/dim]"
+    _aud = f"[bold #E06C75]{t('model_audit_active')}[/bold #E06C75]" if modes.is_on('audit') else f"[dim]{t('model_audit_inactive')}[/dim]"
+    _tmp = f"[bold #6C7086]{t('model_temp_active')}[/bold #6C7086]" if modes.is_on('temp') else f"[dim]{t('model_temp_inactive')}[/dim]"
+    _spd = f"[bold #98C379]{t('model_speed_active')}[/bold #98C379]" if modes.is_on('speed') else f"[dim]{t('model_speed_inactive')}[/dim]"
     console.print(f"    ⚡ {_god}")
     console.print(f"    🔍 {_aud}")
     console.print(f"    💭 {_tmp}")
@@ -161,48 +162,42 @@ async def cmd_mods(app: "DorinaApp", cmd: str) -> None:
 
 
 async def cmd_speed(app: "DorinaApp", cmd: str) -> None:
-    """Toggle speed mode — max 6 tool/tur, 10 tur limit."""
+    """Toggle speed mode — max 6 tools/turn, 10 turn limit."""
     from core.mode_manager import modes
     from ui.display import print_success, print_error
     modes.toggle('speed')
     if modes.is_on('speed'):
-        print_success("SPEED MOD AKTIF - max 6 tool/tur, 10 tur limit")
+        print_success(t("speed_activated"))
     else:
-        print_error("Speed mod kapandi")
+        print_error(t("speed_deactivated"))
 
 
 async def cmd_budget(app: "DorinaApp", cmd: str) -> None:
-    """Show/set token budget. Asilinca otomatik context compression tetiklenir."""
+    """Show/set token budget. Triggers auto context compression on overflow."""
     from core.mode_manager import modes
     from ui.display import print_success, print_info, console
     parts = cmd.split()
     if len(parts) > 1 and parts[1].isdigit():
         modes.budget = int(parts[1])
-        print_success(
-            f"Budget: {parts[1]} token. Asildiginda: "
-            f"1) LLM yaniti sonrasi uyari verir  "
-            f"2) Otomatik context compression baslatir  "
-            f"3) Eski turlar ozetlenir, son 2 tur korunur."
-        )
+        print_success(t("budget_set", budget=parts[1]))
     else:
         rem = modes.budget_remaining
         used = modes.budget_used
         budget = modes.budget
         if budget > 0:
             pct = used / budget * 100
-            console.print(f"  [bold]Token Budget:[/] {used:,} / {budget:,} (%{pct:.0f})")
-            console.print(f"  [dim]Kalan: {rem:,}[/dim]")
-            console.print(f"  [dim]Asilinca: uyari + otomatik context compression[/dim]")
+            console.print(t("budget_status", used=used, total=budget, pct=pct))
+            console.print(f"  [dim]{t('budget_remaining', remaining=rem)}[/dim]")
+            console.print(f"  [dim]{t('budget_overflow_hint')}[/dim]")
         else:
-            print_info(f"Kalan budget: limitsiz (0 = limitsiz). /budget <sayi> ile ayarla.")
-            console.print(f"  [dim]Asilinca ne olur:[/dim]")
-            console.print(f"  [dim]  1. LLM yanitindan sonra uyari mesaji[/dim]")
-            console.print(f"  [dim]  2. Otomatik context compression (eski turlar ozetlenir)[/dim]")
-            console.print(f"  [dim]  3. Agent calismaya devam eder, budget yenilenmez[/dim]")
-            console.print(f"  [dim]  4. /budget <sayi> ile sifirla[/dim]")
+            print_info(t("budget_unlimited"))
+            console.print(f"  [dim]{t('budget_overflow_detail_1')}[/dim]")
+            console.print(f"  [dim]{t('budget_overflow_detail_2')}[/dim]")
+            console.print(f"  [dim]{t('budget_overflow_detail_3')}[/dim]")
+            console.print(f"  [dim]{t('budget_overflow_detail_4')}[/dim]")
 
 
 async def cmd_personality(app: "DorinaApp", cmd: str) -> None:
     """Show/set personality."""
     from ui.display import console
-    console.print("[dim]Personality simdilik devre disi[/dim]")
+    console.print(f"[dim]{t('personality_disabled')}[/dim]")

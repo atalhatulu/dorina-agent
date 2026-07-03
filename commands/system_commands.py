@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from core.constants import t
 
 if TYPE_CHECKING:
     from app import DorinaApp
@@ -12,7 +13,7 @@ async def cmd_exit(app: "DorinaApp", cmd: str) -> None:
     """Exit the application."""
     from ui.display import print_info
 
-    print_info("Görüşürüz!")
+    print_info(t("exit_message"))
     app.running = False
 
 
@@ -32,28 +33,28 @@ async def cmd_help(app: "DorinaApp", cmd: str) -> None:
     from rich.table import Table
     from rich import box
 
-    tbl = Table(title="Komutlar", border_style="#D4622A", box=box.ROUNDED)
-    tbl.add_column("Komut", style="#D4622A", width=16)
-    tbl.add_column("İşlev", style="white")
+    tbl = Table(title=t("command_help_title"), border_style="#D4622A", box=box.ROUNDED)
+    tbl.add_column(t("command_help_column"), style="#D4622A", width=16)
+    tbl.add_column(t("command_help_description"), style="white")
     for cmd_name, desc in [
-        ("/new", "Yeni oturum başlat"),
-        ("/temp", "Geçici sohbet (kayıtsız)"),
-        ("/save <ad>", "Oturumu kaydet"),
-        ("/load <id>", "Oturum yükle"),
-        ("/sessions", "Oturumları listele"),
-        ("/tasks", "Arka plan görevleri"),
-        ("/crons", "Zamanlanmış görevler"),
-        ("/ara <sorgu>", "Geçmiş konuşmalarda ara"),
-        ("/skills", "Skill listesi"),
-        ("/tools", "Tool listesi"),
-        ("/model <isim>", "Model değiştir"),
-        ("/personality", "Kişiliği göster"),
-        ("/status", "Durum bilgisi"),
-        ("/help", "Bu yardım"),
-        ("/clear", "Ekranı temizle"),
-        ("/exit", "Çıkış"),
-        ("/export <fmt>", "Sohbeti disa aktar(json/md/html)"),
-        ("/dashboard", "Metrik dashboard"),
+        ("/new", t("command_help_new")),
+        ("/temp", t("command_help_temp")),
+        ("/save <name>", t("command_help_save")),
+        ("/load <id>", t("command_help_load")),
+        ("/sessions", t("command_help_sessions")),
+        ("/tasks", t("command_help_tasks")),
+        ("/crons", t("command_help_crons")),
+        ("/ara <query>", t("command_help_search")),
+        ("/skills", t("command_help_skills")),
+        ("/tools", t("command_help_tools")),
+        ("/model <name>", t("command_help_model")),
+        ("/personality", t("command_help_personality")),
+        ("/status", t("command_help_status")),
+        ("/help", t("command_help_help")),
+        ("/clear", t("command_help_clear")),
+        ("/exit", t("command_help_exit")),
+        ("/export <fmt>", t("command_help_export")),
+        ("/dashboard", t("command_help_dashboard")),
     ]:
         tbl.add_row(cmd_name, desc)
     console.print(tbl)

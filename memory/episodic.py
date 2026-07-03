@@ -1,4 +1,4 @@
-"""Epizodik bellek - oturum geçmişini SQLite'da sakla."""
+"""Episodic memory — store session history in SQLite."""
 
 import json
 import sqlite3
@@ -14,7 +14,7 @@ DB_PATH = DEFAULT_DATA_DIR / "episodic.db"
 
 
 class EpisodicMemory(BaseMemory):
-    """Geçmiş oturumları saklar."""
+    """Stores past sessions."""
 
     memory_type = "episodic"
 
@@ -47,39 +47,39 @@ class EpisodicMemory(BaseMemory):
         """)
         self.conn.commit()
 
-    # ── BaseMemory uyumluluk methodlari ────────────────────────
+    # ── BaseMemory compatibility methods ────────────────────────
 
     def add(self, key: str, content: str, metadata: Optional[dict] = None) -> None:
-        """BaseMemory uyumlu: key ile value ekle."""
+        """BaseMemory compatible: add a key-value pair."""
         category = (metadata or {}).get("category", "general")
         self.save_memory(key, content, category=category)
 
     def get(self, key: str) -> Any:
-        """BaseMemory uyumlu: key ile value getir."""
+        """BaseMemory compatible: get a value by key."""
         return self.get_memory(key)
 
     def search(self, query: str, n_results: int = 5) -> list[dict]:
-        """BaseMemory uyumlu: icerikte ara."""
+        """BaseMemory compatible: search content."""
         results = self.search_memories(query)
         return results[:n_results]
 
     def delete(self, key: str) -> bool:
-        """BaseMemory uyumlu: key ile memory sil."""
+        """BaseMemory compatible: delete memory by key."""
         cur = self.conn.execute("DELETE FROM memories WHERE key = ?", (key,))
         self.conn.commit()
         return cur.rowcount > 0
 
     def clear(self):
-        """BaseMemory uyumlu: tum memory'leri temizle."""
+        """BaseMemory compatible: clear all memories."""
         self.conn.execute("DELETE FROM memories")
         self.conn.commit()
 
     def count(self) -> int:
-        """BaseMemory uyumlu: memory sayisi."""
+        """BaseMemory compatible: memory count."""
         cur = self.conn.execute("SELECT COUNT(*) FROM memories")
         return cur.fetchone()[0]
 
-    # ── Orijinal EpisodicMemory API ────────────────────────────
+    # ── Original EpisodicMemory API ────────────────────────────
 
     def save_session(self, session_id: str, title: str, messages: list[dict], summary: str = ""):
         warnings.warn(

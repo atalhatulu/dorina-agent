@@ -1,7 +1,7 @@
-"""Cron scheduler — zamanlanmış görev yöneticisi.
+"""Cron scheduler — scheduled task manager.
 
-Hermes Agent'in cron/scheduler.py deseninden esinlenilmiştir.
-Basit dosya tabanlı scheduler: her saniye kontrol eder, due job'ları çalıştırır.
+Inspired by Hermes Agent's cron/scheduler.py pattern.
+Simple file-based scheduler: checks every second, runs due jobs.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class CronJob:
 
 
 class CronScheduler:
-    """Basit dosya tabanlı cron scheduler."""
+    """Simple file-based cron scheduler."""
 
     def __init__(self):
         self.jobs: list[CronJob] = []
@@ -55,7 +55,7 @@ class CronScheduler:
         JOBS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
     def add(self, name: str, schedule: str, prompt: str) -> str:
-        """Yeni cron job ekle. schedule: '30m', '2h', 'daily', cron format."""
+        """Add new cron job. schedule: '30m', '2h', 'daily', cron format."""
         import uuid
         job = CronJob(
             id=uuid.uuid4().hex[:8],
@@ -66,7 +66,7 @@ class CronScheduler:
         )
         self.jobs.append(job)
         self._save()
-        log.info(f"Cron eklendi: {name} ({schedule})")
+        log.info(f"Cron added: {name} ({schedule})")
         return job.id
 
     def remove(self, job_id_or_name: str):
@@ -74,23 +74,23 @@ class CronScheduler:
         self._save()
 
     def add_job(self, name: str, schedule: str, prompt: str) -> str:
-        """Yeni cron job ekle (add() alias'ı)."""
+        """Add new cron job (alias for add())."""
         return self.add(name, schedule, prompt)
 
     def list_jobs(self) -> list[CronJob]:
         return self.jobs
 
     def start(self):
-        """Arka planda scheduler'ı başlat."""
+        """Start the scheduler in the background."""
         if self._running:
             return
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-        log.info("Cron scheduler başlatıldı")
+        log.info("Cron scheduler started")
 
     def stop(self):
-        """Scheduler'ı durdur."""
+        """Stop the scheduler."""
         self._running = False
 
     def _loop(self):
@@ -105,8 +105,8 @@ class CronScheduler:
                 time.sleep(0.1)
 
     def _execute(self, job: CronJob):
-        """Job'u çalıştır."""
-        log.info(f"Cron çalışıyor: {job.name}")
+        """Execute a job."""
+        log.info(f"Cron running: {job.name}")
         job.run_count += 1
         job.last_run = datetime.now(timezone.utc).isoformat()
         job.next_run = self._calculate_next(job.schedule)
@@ -115,19 +115,19 @@ class CronScheduler:
         # Save output
         output_file = JOBS_FILE.parent / f"cron_output_{job.id}.txt"
         try:
-            # Job output'u
+            # Job output
             import subprocess
             res = subprocess.run(job.prompt, shell=True, capture_output=True, text=True)
             output_file.write_text(f"[{job.last_run}] Job: {job.name}\nPrompt: {job.prompt}\nExit: {res.returncode}\nOut: {res.stdout}\nErr: {res.stderr}\n")
         except (OSError, FileNotFoundError) as e:
-            log.error(f"Cron çalıştırma hatası [{job.name}]: {e}")
+            log.error(f"Cron execution error [{job.name}]: {e}")
 
         if job.schedule.startswith("in ") or job.schedule.startswith("once "):
             self.jobs = [j for j in self.jobs if j.id != job.id]
             self._save()
 
     def _calculate_next(self, schedule: str) -> str:
-        """Schedule'dan bir sonraki çalışma zamanını hesapla."""
+        """Calculate the next run time from a schedule string."""
         now = datetime.now(timezone.utc)
         
         if schedule.startswith("in ") or schedule.startswith("once "):

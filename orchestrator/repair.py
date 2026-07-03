@@ -33,13 +33,13 @@ def repair_message_sequence(messages: list) -> list:
                 if tc.get("id", "") in all_tool_ids
             ]
             if not valid_tcs:
-                # Hiçbir tool_call karşılığı yok — content varsa düz mesaj
+                # No tool_call match — if content exists, treat as plain message
                 if msg.get("content"):
                     cleaned.append({"role": "assistant", "content": msg["content"]})
                 # Yoksa tamamen at
                 continue
             elif len(valid_tcs) < len(msg["tool_calls"]):
-                # Bazıları orphan — sadece geçerlileri tut
+                # Some are orphaned — keep only valid ones
                 msg = {**msg, "tool_calls": valid_tcs}
                 cleaned.append(msg)
             else:

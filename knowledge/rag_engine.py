@@ -59,11 +59,11 @@ class RAGEngine:
         self._memory.add_file(filepath)
 
     def add_research_finding(self, query: str, finding_text: str, metadata: dict | None = None):
-        """Araştırma bulgusunu ekle."""
+        """Add a research finding."""
         self._memory.add_research_finding(query, finding_text, metadata)
 
     def add_research_report(self, question: str, report: str, stats: dict | None = None):
-        """Tam araştırma raporunu ekle."""
+        """Add the full research report."""
         self._memory.add_research_report(question, report, stats)
 
     def query(self, question: str, n_results: int = 3, filter_source: str | None = None) -> list[dict]:
@@ -75,11 +75,11 @@ class RAGEngine:
         return self._memory.search(question, n_results=n_results)
 
     def query_research(self, question: str, n_results: int = 3) -> list[dict]:
-        """Sadece research sonuçlarından sorgula."""
+        """Query only from research results."""
         return self._memory.query_research(question, n_results=n_results)
 
     def context_for_query(self, question: str, max_chars: int = 2000, include_research: bool = True) -> str:
-        """Soru için bağlam oluştur (LLM'e eklemek için)."""
+        """Build context for a question (to feed the LLM)."""
         return self._memory.context_for_query(question, max_chars=max_chars)
 
     def count(self) -> int:

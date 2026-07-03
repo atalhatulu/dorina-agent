@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from core.constants import DORINA_HOME
+from core.constants import DORINA_HOME, t
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
@@ -68,7 +68,7 @@ async def run_setup_wizard():
             models = PROVIDER_MODELS.get(provider, [])
             console.print(f"\n  Available models for [bold]{provider}[/bold]:")
             for m in models:
-                console.print(f"    \u2022 {m}")
+                console.print(f"    • {m}")
             key = Prompt.ask(f"\n  Enter your {provider} API key", password=True)
             if key:
                 km.save_key(provider, key)
@@ -101,7 +101,7 @@ async def run_setup_wizard():
     config_dir = DORINA_HOME
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "setup.json").write_text(json.dumps(config, indent=2))
-    
+
     # Update ~/.dorina/config.yaml with new model/provider
     yaml_path = config_dir / "config.yaml"
     try:
@@ -115,17 +115,17 @@ async def run_setup_wizard():
         if "provider" in config:
             yaml_data.setdefault("model", {})["provider"] = config["provider"]
         yaml_path.write_text(yaml.dump(yaml_data, default_flow_style=False, allow_unicode=True))
-        console.print(f"  [green]Config.yaml guncellendi[/green]")
+        console.print(f"  [green]{t('setup_config_updated')}[/green]")
     except ImportError:
-        console.print("  [dim]pyyaml kurulu degil, config.yaml guncellenemedi[/dim]")
+        console.print(f"  [dim]{t('setup_missing_pyyaml')}[/dim]")
     except (OSError, yaml.YAMLError) as e:
-        console.print(f"  [dim]Config.yaml guncellenemedi: {e}[/dim]")
+        console.print(f"  [dim]{t('setup_config_failed', error=e)}[/dim]")
 
     console.print(Panel.fit(
-        "[bold green]Setup complete![/bold green]\n"
-        f"  Model: {config.get('model', 'default')}\n"
-        f"  Language: {config['language']}\n\n"
-        "[dim]Type /setup to reconfigure.[/dim]",
+        f"[bold green]{t('setup_complete_title')}[/bold green]\n"
+        f"  {t('setup_complete_model', model=config.get('model', 'default'))}\n"
+        f"  {t('setup_complete_language', language=config['language'])}\n\n"
+        f"[dim]{t('setup_reconfigure')}[/dim]",
         border_style="green",
     ))
     return config
@@ -136,61 +136,60 @@ def needs_setup() -> bool:
 
 
 def run_user_profile_wizard() -> dict:
-    """Kullanici profili wizardi. Bilgiler ~/.dorina/user_profile.json'a kaydedilir."""
+    """User profile wizard. Info saved to ~/.dorina/user_profile.json."""
     console.print(Panel.fit(
-        "[bold #D4622A]Dorina - Ilk Kurulum[/bold #D4622A]\\n\\n"
-        "Bir kere soruyorum, sonra bir daha sormam.\\n"
-        "Bilgiler ~/.dorina/user_profile.json'a kaydedilir.",
+        "[bold #D4622A]Dorina - First Setup[/bold #D4622A]\\n\\n"
+        "I ask once, never again.\\n"
+        "Info saved to ~/.dorina/user_profile.json.",
         border_style="#D4622A",
     ))
-    
+
     profile = {}
-    profile["name"] = Prompt.ask("  Adin", default="Kullanici")
-    profile["profession"] = Prompt.ask("  Meslek / kullanim alani", default="Gelistirici")
-    
-    age = Prompt.ask("  Yas (opsiyonel)", default="")
+    profile["name"] = Prompt.ask(f"  {t('setup_name')}", default="User")
+    profile["profession"] = Prompt.ask(f"  {t('setup_profession')}", default="Developer")
+
+    age = Prompt.ask(f"  {t('setup_age')}", default="")
     if age and age.isdigit():
         profile["age"] = int(age)
-    
-    # Isleim sistemini otomatik tespit et
+
+    # Auto-detect operating system
     import platform as _p
     _os_str = f"{_p.system()} {_p.release()}"
-    os_confirm = Confirm.ask(f"  Isleim sistemi: [bold]{_os_str}[/bold]", default=True)
+    os_confirm = Confirm.ask(f"  Operating system: [bold]{_os_str}[/bold]", default=True)
     if os_confirm:
         profile["os"] = _os_str
     else:
-        profile["os"] = Prompt.ask("  Isleim sistemin")
-    
-    lang = Prompt.ask("  Tercih dili", choices=["tr", "en"], default="tr")
-    profile["language"] = lang
-    
+        profile["os"] = Prompt.ask(f"  {t('setup_ask_os')}")
+
+    profile["language"] = Prompt.ask(f"  {t('setup_language')}", choices=["tr", "en"], default="tr")
+
     default_dir = str(Path.cwd())
-    proj_dir = Prompt.ask(f"  Ana proje dizini", default=default_dir)
+    proj_dir = Prompt.ask(f"  {t('setup_project_dir')}", default=default_dir)
     profile["project_dir"] = proj_dir if proj_dir else default_dir
-    
-    editor = Prompt.ask("  Editor / IDE (opsiyonel)", default="")
+
+    editor = Prompt.ask(f"  {t('setup_editor')}", default="")
     if editor:
         profile["editor"] = editor
-    
-    # Kisiselik secimi
+
+    # Personality style selection
     personality = Prompt.ask(
-        "  Dorina'nin konusma stili",
+        f"  {t('setup_style')}",
         choices=["p", "d", "a"],
         default="d",
     )
-    style_map = {"p": "professional", "d": "dengeli", "a": "arkadas"}
-    profile["personality_style"] = style_map.get(personality, "dengeli")
-    
+    style_map = {"p": "professional", "d": "balanced", "a": "friendly"}
+    profile["personality_style"] = style_map.get(personality, "balanced")
+
     config_dir = DORINA_HOME
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "user_profile.json").write_text(
         json.dumps(profile, indent=2, ensure_ascii=False)
     )
-    
-    console.print(f"  [green]Profil kaydedildi! Hos geldin {profile['name']}![/green]")
+
+    console.print(f"  [green]{t('setup_profile_saved', name=profile['name'])}[/green]")
     return profile
 
 
 def has_user_profile() -> bool:
-    """Kullanici profili var mi?"""
+    """Check if a user profile exists."""
     return (DORINA_HOME / "user_profile.json").exists()

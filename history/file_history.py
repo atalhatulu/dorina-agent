@@ -1,8 +1,8 @@
 """
-File History — Claude Code'dan esinlenilmiş dosya sürüm sistemi.
+File History — version system inspired by Claude Code's file history.
 
-Her write_file/patch çağrısından ÖNCE dosyanın snapshot'ını alır.
-İstenirse geri sarılabilir. Maksimum 100 snapshot tutar.
+Takes a snapshot BEFORE every write_file/patch call.
+Supports rollback. Keeps a maximum of 100 snapshots.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Optional
 
 
 class FileHistory:
-    """Dosya değişikliklerini snapshot'la, geri sar."""
+    """Snapshot file changes, rollback support."""
 
     def __init__(self, base_dir: str | None = None):
         self.base = Path(base_dir or Path.cwd())
@@ -43,8 +43,8 @@ class FileHistory:
 
     def snapshot_before(self, file_path: str, tool_name: str = "") -> Optional[str]:
         """
-        Dosyayı değiştirmeden ÖNCE snapshot al.
-        Dönen: backup dosya adı veya None (dosya yoksa)
+        Take a snapshot BEFORE modifying a file.
+        Returns: backup filename or None (file doesn't exist)
         """
         p = Path(file_path)
         if not p.is_absolute():
@@ -77,7 +77,7 @@ class FileHistory:
         return backup_name
 
     def get_history(self, file_path: str = "", limit: int = 20) -> list[dict]:
-        """Bir dosyanın veya tüm snapshot'ların geçmişini getir."""
+        """Get history of a file or all snapshots."""
         snapshots = self._index["snapshots"]
         if file_path:
             p = str(Path(file_path).resolve())
@@ -86,9 +86,9 @@ class FileHistory:
 
     def restore(self, snapshot_index: int = -1, file_path: str = "") -> Optional[str]:
         """
-        Snapshot'u geri yükle.
-        snapshot_index: -1 = son, -2 = sondan bir önceki...
-        file_path: belirli bir dosyaysa sadece onu geri sar
+        Restore a snapshot.
+        snapshot_index: -1 = latest, -2 = second latest...
+        file_path: if set, only roll back that specific file
         """
         snapshots = self._index["snapshots"]
         if file_path:
@@ -111,27 +111,27 @@ class FileHistory:
         return snap["file"]
 
     def diff(self, file_path: str, snapshot_index: int = -1) -> str:
-        """Mevcut dosya ile snapshot arasındaki farkı göster."""
+        """Show diff between current file and a snapshot."""
         snapshots = self.get_history(file_path)
         if not snapshots:
-            return "Snapshot yok"
+            return "No snapshot available"
 
         snap = snapshots[snapshot_index] if abs(snapshot_index) <= len(snapshots) else snapshots[0]
         backup_path = self.backup_dir / snap["backup"]
         if not backup_path.exists():
-            return "Backup dosyasi bulunamadi"
+            return "Backup file not found"
 
         current = Path(snap["file"])
         if not current.exists():
-            return "Dosya mevcut degil"
+            return "File does not exist"
 
         old_lines = backup_path.read_text().splitlines()
         new_lines = current.read_text().splitlines()
         diff = difflib.unified_diff(old_lines, new_lines, fromfile="snapshot", tofile="current", lineterm="")
-        return "\n".join(list(diff)[:50]) or "Fark yok"
+        return "\n".join(list(diff)[:50]) or "No differences"
 
     def stats(self) -> dict:
-        """İstatistikler."""
+        """Statistics."""
         snapshots = self._index["snapshots"]
         files = set(s["file"] for s in snapshots)
         total_size = sum(s["size"] for s in snapshots)

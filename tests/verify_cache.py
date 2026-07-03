@@ -1,6 +1,6 @@
 """
-Doğrulama önbelleği — test sonuçlarını hash'lerle sakla.
-Sadece dosya değiştiğinde yeniden test et.
+Verification cache — store test results keyed by file hashes.
+Only re-run tests when files change.
 """
 
 import json
@@ -32,19 +32,19 @@ class VerifyCache:
         return ""
 
     def needs_test(self, key: str, files: list[str]) -> bool:
-        """Bu testin tekrar çalıştırılması gerekli mi?"""
+        """Does this test need a re-run?"""
         if key not in self._cache:
-            return True  # Hiç çalışmamış
+            return True  # Never run before
         cached = self._cache[key]
         for f in files:
             fhash = self._file_hash(f)
             cached_hash = cached.get("files", {}).get(f, "")
             if fhash != cached_hash:
-                return True  # Dosya değişmiş
-        return False  # Her şey aynı, test gerekmez
+                return True  # File changed
+        return False  # Everything same, no re-run needed
 
     def mark_passed(self, key: str, files: list[str]):
-        """Test geçti olarak işaretle."""
+        """Mark test as passed."""
         self._cache[key] = {
             "files": {f: self._file_hash(f) for f in files},
             "status": "passed",
@@ -52,7 +52,7 @@ class VerifyCache:
         self._save()
 
     def status(self, key: str) -> str:
-        """Son bilinen durum."""
+        """Last known status."""
         return self._cache.get(key, {}).get("status", "unknown")
 
 

@@ -7,6 +7,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Any
 
+from core.constants import get_language
+
 
 class FailoverReason:
     """API error categories — determines recovery strategy."""
@@ -187,7 +189,7 @@ def classify_api_error(
             )
             if reason == FailoverReason.RATE_LIMIT:
                 c.should_rotate_credential = True
-            # upstream_rate_limit: model fallback, credential rotate DEĞIL
+            # upstream_rate_limit: model fallback, NOT credential rotate
             if reason == FailoverReason.UPSTREAM_RATE_LIMIT:
                 c.should_rotate_credential = False
             return c
@@ -241,7 +243,7 @@ def sanitize_tool_error(error_msg: str, max_len: int = 2000) -> str:
 
 # ── User-facing error formatting ──────────────────────────
 
-ERROR_USER_MESSAGES: dict[str, dict[str, str]] = {
+ERROR_USER_MESSAGES_TR: dict[str, dict[str, str]] = {
     FailoverReason.TOOL_FORMAT_ERROR: {
         "title": "🔧 Mesaj Sırası Hatası",
         "what": "LLM'in çağırdığı araç (tool) ile dönen sonuç arasındaki mesaj sırası bozuldu.",
@@ -327,6 +329,102 @@ ERROR_USER_MESSAGES: dict[str, dict[str, str]] = {
     },
 }
 
+ERROR_USER_MESSAGES_EN: dict[str, dict[str, str]] = {
+    FailoverReason.TOOL_FORMAT_ERROR: {
+        "title": "🔧 Message Order Error",
+        "what": "The message order between the tool call and its result was corrupted.",
+        "why": "This typically happens when Ctrl+C interrupts a tool operation, or an unexpected "
+               "message appears between the assistant's tool_calls and the tool result. "
+               "Models like DeepSeek require strict assistant(tool_calls) → tool message ordering.",
+        "action": "The system automatically repaired the message order and is retrying. "
+                  "This usually resolves in a few seconds.\n"
+                  "  → Use /retry to try again manually\n"
+                  "  → Use /new to start a fresh session",
+    },
+    FailoverReason.NETWORK: {
+        "title": "🌐 Network Error",
+        "what": "Could not connect to the API server or the connection was lost.",
+        "why": "Your internet connection may be unstable, the API service may be temporarily "
+               "down, or there may be a DNS/proxy issue.",
+        "action": "Wait a few seconds and try again. If the problem persists, check your "
+                  "internet connection or try a different network.\n"
+                  "  → Use /retry to try again",
+    },
+    FailoverReason.AUTH: {
+        "title": "🔑 Authentication Error",
+        "what": "The API key is invalid, expired, or unauthorized.",
+        "why": "Your API key may be incorrect, expired, or you may not have permission "
+               "for this endpoint.",
+        "action": "Check or renew your API key.\n"
+                  "  → Use /setup to update API keys\n"
+                  "  → Use /keys to view current keys",
+    },
+    FailoverReason.RATE_LIMIT: {
+        "title": "⏳ Rate Limit Exceeded",
+        "what": "Temporarily blocked for sending too many requests to the API.",
+        "why": "Too many API calls were made in a short period. The provider enforces rate limits.",
+        "action": "Wait a while and try again. The system will automatically attempt to "
+                  "fall back to an alternative provider.\n"
+                  "  → Use /retry to try again (auto fallback)",
+    },
+    FailoverReason.UPSTREAM_RATE_LIMIT: {
+        "title": "⏳ Upstream Rate Limit",
+        "what": "The upstream model provider is enforcing a rate limit on the API provider.",
+        "why": "This typically happens when using aggregators like OpenRouter. "
+               "Your own API key is valid, but the upstream provider is rate-limited.",
+        "action": "The system will automatically attempt to switch to a different model.\n"
+                  "  → Use /retry to try again\n"
+                  "  → Use /model to pick a different model",
+    },
+    FailoverReason.TIMEOUT: {
+        "title": "⏱️ Timeout Error",
+        "what": "The API request took too long and timed out.",
+        "why": "The server may be responding slowly, the request may be too large, "
+               "or there may be network latency.",
+        "action": "Try again with a shorter query or wait before retrying.\n"
+                  "  → Use /retry to try again",
+    },
+    FailoverReason.TOOL_ERROR: {
+        "title": "🔧 Tool Error",
+        "what": "An error occurred while executing a tool.",
+        "why": "Invalid parameters may have been sent to the tool, the tool may be "
+               "temporarily unavailable, or there may be a permission error.",
+        "action": "Check the parameters. If it's a permission error, grant the "
+                  "necessary permissions.\n"
+                  "  → Try with different parameters\n"
+                  "  → Use /help to see available tools",
+    },
+    FailoverReason.PARSE_ERROR: {
+        "title": "📄 Parse Error",
+        "what": "The API response was not in the expected format.",
+        "why": "The API may have changed, the model may have produced a malformed response, "
+               "or data may have been corrupted during transmission.",
+        "action": "The system will automatically retry. If the problem persists, try "
+                  "using a different model.\n"
+                  "  → Use /retry to try again\n"
+                  "  → Use /model to pick a different model",
+    },
+    FailoverReason.UNKNOWN: {
+        "title": "❓ Unknown Error",
+        "what": "An unexpected error occurred.",
+        "why": "The cause could not be determined. It may be a temporary issue.",
+        "action": "Try again. If the problem persists, start a new session with /new.\n"
+                  "  → Use /retry to try again\n"
+                  "  → Use /new to start a fresh session",
+    },
+}
+
+
+def _get_error_message(reason: str) -> dict[str, str]:
+    """Return user-facing error message dict in the active language."""
+    if get_language() == "tr":
+        return ERROR_USER_MESSAGES_TR.get(
+            reason, ERROR_USER_MESSAGES_TR[FailoverReason.UNKNOWN]
+        )
+    return ERROR_USER_MESSAGES_EN.get(
+        reason, ERROR_USER_MESSAGES_EN[FailoverReason.UNKNOWN]
+    )
+
 
 def format_user_error(
     error: Exception | ClassifiedError | str,
@@ -334,42 +432,50 @@ def format_user_error(
     provider: str = "",
     model: str = "",
 ) -> str:
-    """Kullanıcıya anlamlı hata mesajı formatla.
+    """Format a user-friendly error message in the active language.
 
     Args:
-        error: ClassifiedError, Exception veya string hata mesajı
-        provider: API sağlayıcı adı
-        model: Model adı
+        error: ClassifiedError, Exception, or error string
+        provider: API provider name
+        model: Model name
 
     Returns:
-        Kullanıcıya gösterilecek formatlı hata mesajı (Markdown)
+        Formatted error message (Markdown)
     """
     from core.logger import log
 
-    # ClassifiedError ise doğrudan kullan
+    # Use directly if already classified
     if isinstance(error, ClassifiedError):
         classified = error
     elif isinstance(error, Exception):
         classified = classify_api_error(error, provider=provider, model=model)
     else:
-        # String -> classify et
         exc = Exception(str(error))
         classified = classify_api_error(exc, provider=provider, model=model)
 
-    msg_data = ERROR_USER_MESSAGES.get(
-        classified.reason,
-        ERROR_USER_MESSAGES[FailoverReason.UNKNOWN],
-    )
+    msg_data = _get_error_message(classified.reason)
 
-    # Provider/model bilgisi varsa ekle
+    is_en = get_language() != "tr"
+    # Add provider/model info if available
     provider_info = ""
     if provider or model:
-        provider_info = f"\n\n**Sağlayıcı:** {provider or '-'}  |  **Model:** {model or '-'}"
+        if is_en:
+            provider_info = f"\n\n**Provider:** {provider or '-'}  |  **Model:** {model or '-'}"
+        else:
+            provider_info = f"\n\n**Sağlayıcı:** {provider or '-'}  |  **Model:** {model or '-'}"
 
     header = msg_data["title"]
     if classified.status_code:
         header += f" (HTTP {classified.status_code})"
 
+    if is_en:
+        return (
+            f"{header}\n\n"
+            f"**What happened?** {msg_data['what']}\n\n"
+            f"**Why?** {msg_data['why']}\n\n"
+            f"**What to do?** {msg_data['action']}"
+            f"{provider_info}"
+        )
     return (
         f"{header}\n\n"
         f"**Ne oldu?** {msg_data['what']}\n\n"

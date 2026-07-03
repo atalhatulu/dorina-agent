@@ -1,14 +1,18 @@
 """
-Context Compression — semantic-aware context management.
+Context Compression — 2-tier semantic-aware context management.
 
-Hermes Agent'in context_compactor.py deseninden esinlenilmiştir.
+Strategy:
+  Tier 1 (fast path — default):
+    - Remove oldest user/assistant/tool triples until under threshold
+    - Keep system prompt + latest N turns
+    - O(1) latency, zero token cost, no LLM call
 
-Strateji:
-1. Token limiti %50 dolunca sıkıştırmayı başlat
-2. User-Asistan-Tool üçlülerini KORU (parçalama)
-3. Eski turları özetle, yeni turları olduğu gibi tut
-4. Özetleri biriktir (önceki özetleri de koru)
-5. LLM çağrısı başarısız olursa fallback: en eski üçlüleri sil
+  Tier 2 (LLM summarization — fallback):
+    - Only when turn count > MAX_TURNS * 0.8 (~40 turns)
+    - Or explicit /compress command
+    - Calls LLM to summarize old turns into a condensed system message
+
+Based on Hermes Agent's context_compactor.py pattern.
 """
 
 from __future__ import annotations
@@ -17,9 +21,10 @@ import re
 from core.logger import log
 from core.tokenizer import count_tokens, count_messages_tokens
 
-COMPRESSION_THRESHOLD = 0.50  # %50 dolulukta sıkıştırmayı başlat
-KEEP_LATEST_TURNS = 2         # En az bu kadar son turu koru (dokunma)
-SUMMARY_MAX_CHARS = 1500      # Özet maksimum uzunluk
+COMPRESSION_THRESHOLD = 0.50  # Start compression at 50% capacity
+KEEP_LATEST_TURNS = 4         # Latest turns preserved in Tier 1 truncation
+SUMMARY_MAX_CHARS = 1500      # Summary maximum length
+TIER2_TURN_THRESHOLD = 30     # Minimum turns before triggering Tier 2
 
 
 class ContextCompressor:
@@ -31,16 +36,17 @@ class ContextCompressor:
     def __init__(self, max_tokens: int = 128000):
         self.max_tokens = max_tokens
         self.compression_count = 0
-        self._previous_summaries: list[str] = []  # Birikimli özetler
+        self._previous_summaries: list[str] = []  # Accumulated summaries
+        self._last_turns_len = 0                   # Previous compress_fast turn count
 
     def estimate_tokens(self, messages: list[dict]) -> int:
         return count_messages_tokens(messages)
 
     def _split_into_turns(self, messages: list[dict]) -> list[list[dict]]:
-        """Mesajları user-asistan-tool üçlülerine ayır (natural conversation turns).
-        
-        Her tur: [user → assistant(tool_calls) → tool* → assistant] zinciridir.
-        System mesajı ayrı bir tur olarak başa eklenir.
+        """Split messages into user-assistant-tool triples (natural conversation turns).
+
+        Each turn: chain of [user → assistant(tool_calls) → tool* → assistant].
+        System messages are prepended as a separate turn.
         """
         if not messages:
             return []
@@ -52,7 +58,7 @@ class ContextCompressor:
             role = m.get("role", "")
             
             if role == "system":
-                # System mesajı her zaman kendi başına
+                # System message always stands alone
                 if current:
                     turns.append(current)
                 turns.append([m])
@@ -60,24 +66,24 @@ class ContextCompressor:
                 continue
             
             if role == "user":
-                # Yeni user mesajı = yeni tur
+                # New user message = new turn
                 if current:
                     turns.append(current)
                 current = [m]
             elif role == "assistant":
                 current.append(m)
-                # tool_calls varsa devam (tool sonuçları gelecek)
+                # If tool_calls present, continue (tool results will follow)
                 if not m.get("tool_calls"):
-                    # tool_calls yoksa tur bitti
+                    # No tool_calls = turn is complete
                     if current:
-                        # Eğer current sadece assistant'tan oluşuyorsa (önceki tur user'ı burada değil)
-                        # bu bir hata, user ile başlamalı
+                        # If current only contains assistant (no preceding user),
+                        # that's a bug — turns should start with user
                         pass
             elif role == "tool":
                 current.append(m)
                 # Tool sonrasi assistant mesaji ayni turda olabilir
             else:
-                # Bilinmeyen roller (function, vs) veri kaybini onlemek icin ekle
+                # Unknown roles (function, etc.) — include to avoid data loss
                 current.append(m)
         
         if current:
@@ -92,19 +98,86 @@ class ContextCompressor:
         ratio = estimated / self.max_tokens
         return ratio > COMPRESSION_THRESHOLD
 
-    async def compress(self, messages: list[dict], llm_callback) -> list[dict]:
-        """Compress context preserving full recent turns, summarizing old ones."""
-        if len(messages) < 6:  # En az 2 user-asistan-tool üçlüsü
+    async def compress(
+        self,
+        messages: list[dict],
+        llm_callback=None,
+        force_tier2: bool = False,
+        turn_count: int = 0,
+    ) -> list[dict]:
+        """Auto-select Tier 1 (fast truncation) or Tier 2 (LLM summarization).
+
+        Args:
+            messages: Current message list.
+            llm_callback: Async callable for LLM summarization (required for Tier 2).
+            force_tier2: If True, always use LLM summarization (e.g. /compress).
+            turn_count: Current turn count — used to decide when to upgrade to Tier 2.
+
+        Returns:
+            Compressed message list.
+        """
+        if len(messages) < 6:
             return messages
 
+        use_tier2 = force_tier2 or (turn_count >= TIER2_TURN_THRESHOLD and llm_callback is not None)
+
+        if use_tier2:
+            return await self._compress_llm(messages, llm_callback)
+        return self._compress_fast(messages)
+
+    # ────────────────────────────────────────────────────────────────
+    # TIER 1 — O(1) truncation (default, no LLM call)
+    # ────────────────────────────────────────────────────────────────
+
+    def _compress_fast(self, messages: list[dict]) -> list[dict]:
+        """Fast path: remove oldest turns, keep system + latest KEEP_LATEST_TURNS."""
+        turns = self._split_into_turns(messages)
+        if len(turns) < 3:
+            return messages
+
+        # Keep the latest KEEP_LATEST_TURNS turns intact
+        keep_count = min(KEEP_LATEST_TURNS, len(turns) - 1)
+        keep_turns = turns[-keep_count:]
+        compress_turns = turns[:-keep_count]
+
+        # System messages remain protected (split_into_turns separates them)
+        system_turns = [t for t in compress_turns if t[0].get("role") == "system"]
+        if system_turns:
+            # System message goes first
+            result = system_turns + keep_turns
+        else:
+            result = keep_turns
+
+        # Flatten
+        flat = []
+        for t in result:
+            flat.extend(t)
+
+        self._last_turns_len = len(turns)
+        self.compression_count += 1
+        log.info(
+            f"Context compressed (Tier 1): {len(compress_turns)} old turns removed, "
+            f"kept last {keep_count} ({len(messages)} msgs → {len(flat)} msgs)"
+        )
+        return flat
+
+    # ────────────────────────────────────────────────────────────────
+    # TIER 2 — LLM summarization (for long conversations)
+    # ────────────────────────────────────────────────────────────────
+
+    async def _compress_llm(self, messages: list[dict], llm_callback) -> list[dict]:
+        """LLM-based compression: summarize old turns with a condensed system message."""
         self.compression_count += 1
 
-        # 1. Mesajları turlara ayır
+        # If no LLM callback available, fall back to Tier 1 truncation
+        if llm_callback is None:
+            log.warning("No LLM callback for Tier 2, falling back to Tier 1")
+            return self._compress_fast(messages)
+
         turns = self._split_into_turns(messages)
         if len(turns) < 2:
             return messages
 
-        # 2. Son KEEP_LATEST_TURNS turu aynen koru
         if len(turns) <= KEEP_LATEST_TURNS + 1:
             keep_count = max(1, len(turns) - 1)
         else:
@@ -113,14 +186,14 @@ class ContextCompressor:
         keep_turns = turns[-keep_count:]
         compress_turns = turns[:-keep_count]
 
-        # 3. Sıkıştırılacak turları düz metne çevir
+        # Convert turns to plain text for summarization
         exchange_text = self._format_turns(compress_turns)
 
-        # 4. LLM ile özet çıkarmayı dene
+        # Try LLM summarization
         summary = ""
         try:
             summary = await llm_callback(
-                f"Summarize this conversation exchange concisely in Turkish. "
+                f"Summarize this conversation exchange concisely. "
                 f"Extract: decisions, file contents, user preferences, technical setup, task status. "
                 f"Keep important names, IPs, commands, and filenames.\n\n"
                 f"Previous summaries:\n{chr(10).join(self._previous_summaries[-3:])}\n\n"
@@ -133,19 +206,19 @@ class ContextCompressor:
         except (TimeoutError, OSError, json.JSONDecodeError, KeyError) as e:
             log.warning(f"LLM compression failed ({e}), using truncation fallback")
 
-        # 5. Fallback: özet çıkmazsa eski turların sadece ilk mesajını tut
+        # Fall back to truncation
         if not summary:
             fallback_text = self._format_turns(compress_turns)
             if len(fallback_text) > SUMMARY_MAX_CHARS:
                 fallback_text = fallback_text[:SUMMARY_MAX_CHARS] + "\n[...]"
             summary = f"[Older conversation history truncated]\n{fallback_text[:SUMMARY_MAX_CHARS]}"
 
-        # 6. Özeti biriktir
+        # Accumulate summary
         self._previous_summaries.append(str(summary))
         if len(self._previous_summaries) > 3:
             self._previous_summaries = self._previous_summaries[-3:]
 
-        # 7. Sonucu oluştur: önceki özetler + yeni özet + korunan turlar
+        # Previous summaries + new summary + kept turns
         summaries_text = "\n".join(
             f"[Previous summary {i+1}]: {s[:300]}"
             for i, s in enumerate(self._previous_summaries[:-1])
@@ -161,21 +234,20 @@ class ContextCompressor:
             "compressed": True,
         }
 
-        # 8. Keep turns'leri düzleştir
         keep_messages = []
         for t in keep_turns:
             keep_messages.extend(t)
 
         result = [compressed_msg] + keep_messages
         log.info(
-            f"Context compressed: {len(compress_turns)} old turns → 1 summary "
+            f"Context compressed (Tier 2): {len(compress_turns)} old turns → 1 summary "
             f"({len(messages)} msgs → {len(result)} msgs, "
             f"kept last {keep_count} turns)"
         )
         return result
 
     def _format_turns(self, turns: list[list[dict]]) -> str:
-        """Turn listesini özet için düz metne çevir."""
+        """Convert turn list to plain text for summarization."""
         lines = []
         for turn in turns:
             turn_text = []
@@ -199,7 +271,7 @@ class ContextCompressor:
             if turn_text:
                 lines.extend(turn_text)
                 lines.append("---")
-        return "\n".join(lines[-50:])  # En fazla 50 satır
+        return "\n".join(lines[-50:])  # Max 50 lines
 
     def reset(self):
         self.compression_count = 0

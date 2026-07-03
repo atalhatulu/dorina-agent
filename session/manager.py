@@ -1,4 +1,4 @@
-"""Oturum yönetimi - SQLAlchemy ile + Fernet şifreleme."""
+"""Session management — SQLAlchemy + Fernet encryption."""
 
 from __future__ import annotations
 from pathlib import Path
@@ -27,7 +27,7 @@ def _get_fernet():
     try:
         from cryptography.fernet import Fernet
     except ImportError:
-        log.warning("cryptography paketi yok — session şifrelemesi kapali")
+        log.warning("cryptography package missing — session encryption disabled")
         return None
 
     # Try secrets.yaml first
@@ -55,7 +55,7 @@ def _get_fernet():
             _fernet_instance = Fernet(key)
             return _fernet_instance
         except (ValueError, TypeError):
-            log.warning(f"Gecersiz session key ({_KEY_FILE}), yenisi olusturuluyor...")
+            log.warning(f"Invalid session key ({_KEY_FILE}), regenerating...")
             _KEY_FILE.unlink(missing_ok=True)
             key = Fernet.generate_key()
             _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -117,7 +117,7 @@ class SessionModel(Base):
     __tablename__ = "sessions"
     
     id = Column(String, primary_key=True)
-    title = Column(String, default="İsimsiz")
+    title = Column(String, default="Untitled")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     messages = Column(Text, default="[]")
@@ -125,7 +125,7 @@ class SessionModel(Base):
     model = Column(String, default="")
     token_count = Column(Integer, default=0)
     message_count = Column(Integer, default=0)
-    # Genisletilmis alanlar
+    # Extended fields
     tool_calls = Column(Text, default="[]")  # JSON list: [{name, args_preview, result_preview, duration}]
     token_total = Column(Integer, default=0)
     cost = Column(Integer, default=0)  # mikrodolar ($0.001 = 1)
@@ -134,7 +134,7 @@ class SessionModel(Base):
 
 # --- DB INITIALIZATION ---
 Base.metadata.create_all(engine)
-# Migration: eski DB'ye yeni kolonlari ekle (SQLAlchemy 2.x uyumlu)
+# Migration: add new columns to existing DB (SQLAlchemy 2.x compatible)
 from sqlalchemy import text as _text
 with engine.connect() as _conn:
     for col, col_type in [("tool_calls", "TEXT DEFAULT '[]'"), ("token_total", "INTEGER DEFAULT 0"), ("cost", "INTEGER DEFAULT 0"), ("tags", "TEXT DEFAULT '[]'"), ("message_count", "INTEGER DEFAULT 0")]:
@@ -146,14 +146,14 @@ with engine.connect() as _conn:
 # -------------------------
 
 class SessionManager:
-    """Oturum CRUD işlemleri."""
+    """Session CRUD operations."""
 
     def __init__(self):
         self.db = SessionLocal()
         self.current_id: str | None = None
 
-    def create(self, title: str = "İsimsiz", model: str = "") -> str:
-        """Yeni oturum oluştur."""
+    def create(self, title: str = "Untitled", model: str = "") -> str:
+        """Create a new session."""
         session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:6]
         session = SessionModel(
             id=session_id,
@@ -164,7 +164,7 @@ class SessionManager:
         self.db.add(session)
         self.db.commit()
         self.current_id = session_id
-        log.info(f"Yeni oturum: {session_id}")
+        log.info(f"New session: {session_id}")
         return session_id
 
     _last_messages_hash: str = ""
@@ -219,7 +219,7 @@ class SessionManager:
             self.db.commit()
 
     def load(self, session_id: str) -> Optional[dict]:
-        """Oturum yükle."""
+        """Load a session."""
         session = self.db.query(SessionModel).filter_by(id=session_id).first()
         if session:
             self.current_id = session_id
@@ -235,7 +235,7 @@ class SessionManager:
         return None
 
     def list_sessions(self, limit: int = 20) -> list[dict]:
-        """Oturumları listele."""
+        """List sessions."""
         sessions = (
             self.db.query(SessionModel)
             .order_by(SessionModel.updated_at.desc())
@@ -261,7 +261,7 @@ class SessionManager:
         return result
 
     def search(self, query: str) -> list[dict]:
-        """Oturumlarda ara."""
+        """Search sessions."""
         sessions = (
             self.db.query(SessionModel)
             .filter(
@@ -283,7 +283,7 @@ class SessionManager:
         ]
 
     def delete(self, session_id: str) -> bool:
-        """Silinen oturum. Returns True if a row was deleted."""
+        """Delete a session. Returns True if a row was deleted."""
         result = self.db.query(SessionModel).filter_by(id=session_id).delete()
         self.db.commit()
         if self.current_id == session_id:
@@ -291,7 +291,7 @@ class SessionManager:
         return result > 0
 
     def rename(self, session_id: str, title: str):
-        """Session başlığını değiştir."""
+        """Rename a session."""
         session = self.db.query(SessionModel).filter_by(id=session_id).first()
         if session:
             session.title = title

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from core.constants import t
 
 if TYPE_CHECKING:
     from app import DorinaApp
@@ -17,21 +18,21 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
     from rich.panel import Panel
 
     tbl = Table(border_style="#D4622A", box=box.ROUNDED)
-    tbl.add_column("Alan", style="bold #D4622A")
-    tbl.add_column("Değer", style="white")
+    tbl.add_column(t("debug_field"), style="bold #D4622A")
+    tbl.add_column(t("debug_value"), style="white")
 
     # Tools
     try:
         from tools.registry import registry
         all_tools = registry.list()
-        tbl.add_row("Tool (toplam)", str(len(all_tools)))
+        tbl.add_row(t("debug_tools_total"), str(len(all_tools)))
     except (ImportError, AttributeError):
-        tbl.add_row("Tool (toplam)", "N/A")
+        tbl.add_row(t("debug_tools_total"), "N/A")
 
     try:
         from tools.toolset import get_active_toolsets
         active = get_active_toolsets()
-        tbl.add_row("Toolset (aktif)", f"{len(active)}: {', '.join(sorted(active))}")
+        tbl.add_row(t("debug_toolset_active"), f"{len(active)}: {', '.join(sorted(active))}")
     except (ImportError, AttributeError):
         pass
 
@@ -39,8 +40,8 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
     try:
         from orchestrator.experimental_loop import loop_v2 as loop
         msg_count = len(loop.context.get_messages())
-        tbl.add_row("Mesaj (context)", str(msg_count))
-        tbl.add_row("Tur", str(getattr(loop, 'turn', '?')))
+        tbl.add_row(t("debug_messages_context"), str(msg_count))
+        tbl.add_row(t("debug_turn"), str(getattr(loop, 'turn', '?')))
     except (ImportError, AttributeError):
         pass
 
@@ -48,17 +49,17 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
     try:
         from skills.manager import skills
         all_sk = skills.list_skills()
-        tbl.add_row("Skill (toplam)", str(len(all_sk)))
+        tbl.add_row(t("debug_skills_total"), str(len(all_sk)))
     except (ImportError, AttributeError):
         pass
 
     try:
         from orchestrator.experimental_loop import loop_v2 as loop
         active = getattr(loop, '_active_skills', None) or []
-        tbl.add_row("Skill (aktif)", str(len(active)))
+        tbl.add_row(t("debug_skills_active"), str(len(active)))
         if active:
             names = ", ".join(s['name'] for s in active)
-            tbl.add_row("Skill isimleri", names[:80])
+            tbl.add_row(t("debug_skill_names"), names[:80])
     except (ImportError, AttributeError):
         pass
 
@@ -68,17 +69,17 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
         from orchestrator.experimental_loop import loop_v2 as loop
         enriched = getattr(loop, '_enriched_system_prompt', None)
         if enriched:
-            tbl.add_row("Sistem prompt (karakter)", str(len(enriched)))
-            tbl.add_row("Sistem prompt (~token)", str(count_tokens(enriched)))
+            tbl.add_row(t("debug_system_prompt_chars"), str(len(enriched)))
+            tbl.add_row(t("debug_system_prompt_tokens"), str(count_tokens(enriched)))
     except (ImportError, AttributeError):
         pass
 
     # Token usage
     try:
         from ui.status_bar import status
-        tbl.add_row("Token in", f"{status.tokens_in:,}")
-        tbl.add_row("Token out", f"{status.tokens_out:,}")
-        tbl.add_row("Maliyet", f"${status.cost:.6f}")
+        tbl.add_row(t("debug_tokens_in"), f"{status.tokens_in:,}")
+        tbl.add_row(t("debug_tokens_out"), f"{status.tokens_out:,}")
+        tbl.add_row(t("debug_cost"), f"${status.cost:.6f}")
     except (ImportError, AttributeError):
         pass
 
@@ -86,16 +87,16 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
     try:
         from soul.personality import GODMODE, AUDIT_MODE
         if GODMODE:
-            tbl.add_row("Godmode", "⚡ AKTİF", style="bold red")
+            tbl.add_row(t("debug_godmode"), f"⚡ {t('debug_godmode_active')}", style="bold red")
         if AUDIT_MODE:
-            tbl.add_row("Audit", "🔍 ACIK", style="bold #E06C75")
+            tbl.add_row(t("debug_audit"), f"🔍 {t('debug_audit_active')}", style="bold #E06C75")
     except (ImportError, AttributeError):
         pass
 
     # Model
     try:
         from core.config import settings
-        tbl.add_row("Model", f"{settings.model.provider}/{settings.model.default.split('/')[-1]}")
+        tbl.add_row(t("debug_model"), f"{settings.model.provider}/{settings.model.default.split('/')[-1]}")
     except (ImportError, AttributeError):
         pass
 
@@ -109,10 +110,10 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
         schema_tokens = n_tools * 250
         sys_tokens = count_tokens(enriched or "")
         total_est = sys_tokens + msg_tokens + schema_tokens
-        tbl.add_row("Tahmini toplam token", str(total_est))
-        tbl.add_row("  - Sistem prompt", str(sys_tokens))
-        tbl.add_row("  - Konuşma geçmişi", str(msg_tokens))
-        tbl.add_row("  - Tool şemaları", f"{schema_tokens} ({n_tools} tool x ~250)")
+        tbl.add_row(t("debug_estimated_total_tokens"), str(total_est))
+        tbl.add_row(t("debug_system_prompt_part"), str(sys_tokens))
+        tbl.add_row(t("debug_conversation_history"), str(msg_tokens))
+        tbl.add_row(t("debug_tool_schemas", count=n_tools, per_tool=250), f"{schema_tokens}")
     except (ImportError, AttributeError):
         pass
 
@@ -122,4 +123,4 @@ async def cmd_debug(app: "DorinaApp", cmd: str) -> None:
 async def cmd_trace(app: "DorinaApp", cmd: str) -> None:
     """Toggle trace mode — log every tool call with full params."""
     from ui.display import console
-    console.print("[dim]Trace modu henuz implemente edilmedi. /debug kullanin.[/dim]")
+    console.print(f"[dim]{t('trace_not_implemented')}[/dim]")

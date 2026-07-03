@@ -1,4 +1,4 @@
-"""Kullanıcı tercihleri - oturumdan oturuma kalıcı."""
+"""User preferences — persistent across sessions."""
 
 import json
 from pathlib import Path
@@ -9,7 +9,7 @@ PREFS_FILE = DEFAULT_DATA_DIR / "preferences.json"
 
 
 class Preferences:
-    """Kullanıcı tercihlerini yönetir."""
+    """Manages user preferences."""
 
     def __init__(self):
         self.data: dict = {}

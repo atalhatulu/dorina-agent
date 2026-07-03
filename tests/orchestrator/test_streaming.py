@@ -151,8 +151,13 @@ async def test_think_stream_no_stream_arg():
 
     original = engine._get_llm
     engine._get_llm = lambda: MockLLM()
+    # Direct mode'da mock calismaz — litellm yoluna zorla
+    from providers.router import _DIRECT_PROVIDERS
+    _saved = set(_DIRECT_PROVIDERS)
+    _DIRECT_PROVIDERS.clear()
     try:
         result = await engine.think("system", [{"role": "user", "content": "hi"}])
         assert result["content"] == "normal response"
     finally:
         engine._get_llm = original
+        _DIRECT_PROVIDERS.update(_saved)

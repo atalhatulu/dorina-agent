@@ -13,13 +13,13 @@ from tools.security import is_blocked_path, safe_resolve
 from core.logger import log
 
 
-# ─── DOSYA OKUMA ──────────────────────────────────────────
+# ─── FILE READ ─────────────────────────────────────────────
 
 def _search_file_broad(filename: str, limit_hits: int = 5) -> list:
     """Search file across CWD, home, Downloads, Desktop, Documents."""
     from pathlib import Path as _Path
 
-    # Eğer /root/... yolu verildiyse ama root yoksa, home'a çevir
+    # If /root/... path given but root doesn't exist, convert to home
     p = _Path(filename)
     if str(p).startswith("/root/") and not p.exists():
         alt = _Path(str(p).replace("/root/", str(_Path.home()) + "/", 1))
@@ -61,15 +61,15 @@ def _search_file_broad(filename: str, limit_hits: int = 5) -> list:
 
 @register_tool(
     name="read_file",
-    description="Dosya oku. offset/limit ile sayfalama.",
+    description="Read file. Pagination with offset/limit.",
     parameters={
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Dosya yolu"},
-            "start_line": {"type": "integer", "description": "Başlangıç satırı (1-indexed)", "default": 1},
-            "end_line": {"type": "integer", "description": "Bitiş satırı (opsiyonel)"},
-            "limit": {"type": "integer", "description": "Okunacak satır sayısı", "default": 200},
-            "offset": {"type": "integer", "description": "Başlangıç satırı (alternatif)", "default": 1},
+            "start_line": {"type": "integer", "description": "Start line (1-indexed)", "default": 1},
+            "end_line": {"type": "integer", "description": "End line (optional)"},
+            "limit": {"type": "integer", "description": "Number of lines to read", "default": 200},
+            "offset": {"type": "integer", "description": "Start line (alternative)", "default": 1},
         },
         "required": ["path"],
     },
@@ -82,13 +82,13 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
     p = Path(path).expanduser()
     if not p.is_absolute():
         p = Path.cwd() / p
-    # Path traversal korumasi — sadece cwd + kullanici klasorlerine izin ver
+    # Path traversal protection — only allow cwd + user directories
     _h = Path.home()
     _allowed = [
         str(Path.cwd()),
-        str(_h / "Desktop"), str(_h / "Masaustu"),
-        str(_h / "Documents"), str(_h / "Belgeler"),
-        str(_h / "Downloads"), str(_h / "Indirilenler"),
+        str(_h / "Desktop"),
+        str(_h / "Documents"),
+        str(_h / "Downloads"),
         str(_h / ".dorina"),
         "/tmp",
     ]
@@ -97,7 +97,7 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
     except ValueError as e:
         return json.dumps({"error": str(e)})
     if not p.exists():
-        # Turkce klasor adlarini Ingilizceye cevir (Masaustu -> Desktop, Indirilenler -> Downloads, etc)
+        # Map Turkish dir names → English (for users with Turkish locale)
         _tr_map = {"Masaüstü": "Desktop", "Masaustu": "Desktop", "İndirilenler": "Downloads", "Indirilenler": "Downloads", "Belgeler": "Documents", "Resimler": "Pictures", "Müzik": "Music", "Video": "Videos"}
         _path_str = str(p)
         for _tr, _en in _tr_map.items():
@@ -107,7 +107,7 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
                     p = _fixed
                     break
         else:
-            # Hala bulunamadiysa _search_file_broad dene
+            # Try broad search if still not found
             matches = _search_file_broad(path)
             if matches:
                 p = Path(matches[0])
@@ -116,8 +116,8 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
 
     if p.is_dir():
         return json.dumps({
-            "error": "Belirttiginiz yol bir KLASOR (dizin). 'read_file' sadece dosyalari okuyabilir.",
-            "suggestion": "Klasor icerigini gormek icin 'terminal' araci ile 'ls -la' veya 'tree' kullanin."
+            "error": "The specified path is a DIRECTORY. 'read_file' can only read files.",
+            "suggestion": "Use the 'terminal' tool with 'ls -la' or 'tree' to view directory contents."
         })
 
     # 1. Binary check
@@ -126,12 +126,12 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
             chunk = bf.read(1024)
             if b"\x00" in chunk:
                 return json.dumps({
-                    "error": "Bu dosya muhtemelen BINARY (metin degil). Okunmasi engellendi.",
+                    "error": "This file appears to be BINARY (not text). Read blocked.",
                     "path": str(p),
                     "size": p.stat().st_size
                 })
     except (OSError, ValueError) as e:
-        return json.dumps({"error": f"Dosya okunurken hata: {e}"})
+        return json.dumps({"error": f"Error reading file: {e}"})
 
     # Normalize parameters
     _start = start_line if start_line is not None else (offset if offset is not None else 1)
@@ -142,7 +142,7 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
         _limit = limit
 
     if _limit <= 0:
-        return json.dumps({"error": "Geçersiz satır aralığı (end_line < start_line)"})
+        return json.dumps({"error": "Invalid line range (end_line < start_line)"})
     if _limit > 2000:
         _limit = 2000 # Hard cap for safety
 
@@ -162,31 +162,31 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
                 if _start <= i < _start + _limit:
                     collected.append(f"{i}|{line.rstrip()}")
                 if i >= _start + _limit:
-                    # Devamını sadece saymak için döngüyü hızlıca bitir
+                    # Finish the loop quickly — just counting remaining lines
                     pass
-            # Hızlı satır sayma hilesi
+            # Fast line counting trick
             for _ in _f:
                 total += 1
     except (OSError, ValueError) as e:
-        return json.dumps({"error": f"Dosya okunurken hata: {e}"})
+        return json.dumps({"error": f"Error reading file: {e}"})
 
-    # ── Akilli okuma: kucuk dosya tam, buyuk dosya ilk 500 ──
+    # ── Smart reading: small file fully, large file first 500 lines ──
     _new_read = len(collected)
     _total_read = _already_read + _new_read
     read_file_tool._read_budget[_budget_key] = _total_read
 
     if total > 500 and _start <= 1:
-        # Buyuk dosya: ilk 500 satiri goster
+        # Large file: show first 500 lines
         collected = collected[:500]
         result = "\n".join(collected)
         if total > 500:
-            result += f"\n---\n⚠ Dosya {total} satir, ilk 500 gosteriliyor. Devami icin search_files kullan."
+            result += f"\n---\n⚠ File is {total} lines, showing first 500. Use search_files for more."
     else:
         result = "\n".join(collected)
 
-    # Budget uyarisi (500+ satir okunduysa)
+    # Budget warning (500+ lines read)
     if _total_read > 500:
-        result += f"\n---\n⚠ Bu dosyadan {_total_read} satir okundu. Daha fazla satir icin search_files kullan."
+        result += f"\n---\n⚠ Read {_total_read} lines from this file. Use search_files for more."
 
     meta = json.dumps({
         "total_lines": total,
@@ -197,17 +197,17 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
     return result + f"\n---\n{meta}"
 
 
-# ─── Dosya Yazma ──────────────────────────────────────────
+# ─── FILE WRITE ────────────────────────────────────────────
 
 @register_tool(
     name="write_file",
-    description="Dosya yaz. Parent dizinleri otomatik olusturur.",
+    description="Write file. Automatically creates parent directories.",
     parameters={
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "File path"},
             "content": {"type": "string", "description": "Content to write"},
-            "overwrite": {"type": "boolean", "description": "Eğer dosya mevcutsa üstüne yaz", "default": True},
+            "overwrite": {"type": "boolean", "description": "Overwrite if file exists", "default": True},
         },
         "required": ["path", "content"],
     },
@@ -219,7 +219,7 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
     file_history.snapshot_before(path, "write_file")
     p = Path(path).expanduser()
 
-    # Path traversal korumasi (mutlak yolsa erken kontrol)
+    # Path traversal protection (early check if absolute path)
     if p.is_absolute():
         try:
             safe_resolve(str(p))
@@ -230,7 +230,7 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
     if p.is_absolute() and str(p).startswith("/home/user"):
         p = Path(str(p).replace("/home/user", str(Path.home()), 1))
 
-    # Sadece belirli dizinlere yazma izni ver, degilse Desktop'a yonlendir
+    # Only allow writing to specific directories, redirect to Desktop if not allowed
     from soul.personality import GODMODE
     if p.is_absolute() and not GODMODE:
         _allowed = [Path.home() / d for d in ("Desktop", "Documents", "Downloads", ".dorina")]
@@ -239,7 +239,7 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
             p = Path.home() / "Desktop" / p.name
 
     if p.exists() and not overwrite:
-        return json.dumps({"error": f"Dosya zaten var: {path}. Üzerine yazmak için overwrite=true kullanın veya patch tool'unu deneyin."})
+        return json.dumps({"error": f"File already exists: {path}. Use overwrite=true to overwrite, or try the patch tool."})
 
     if not p.is_absolute():
         # Default projects directory
@@ -254,17 +254,17 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
     return json.dumps({"success": True, "path": str(p), "bytes": len(content)})
 
 
-# ─── DOSYA ARA ────────────────────────────────────────────
+# ─── FILE SEARCH ────────────────────────────────────────────
 
 @register_tool(
     name="search_files",
-    description="Dosya icinde (grep) veya dosya adinda ara.",
+    description="Search within files (grep) or by filename.",
     parameters={
         "type": "object",
         "properties": {
-            "pattern": {"type": "string", "description": "Aranacak desen"},
-            "path": {"type": "string", "description": "Dizin (default: .)", "default": "."},
-            "file_glob": {"type": "string", "description": "Dosya filtresi (orn: *.py)", "default": ""},
+            "pattern": {"type": "string", "description": "Search pattern"},
+            "path": {"type": "string", "description": "Directory (default: .)", "default": "."},
+            "file_glob": {"type": "string", "description": "File filter (e.g., *.py)", "default": ""},
         },
         "required": ["pattern"],
     },
@@ -276,7 +276,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
     import shlex
     from pathlib import Path as _Path
 
-    # Ripgrep varsa kullan, yoksa fallback
+    # Use ripgrep if available, fallback otherwise
     has_rg = False
     try:
         await asyncio.to_thread(subprocess.run, ["rg", "--version"], capture_output=True, timeout=5)
@@ -299,7 +299,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
             if r.exists() and r.is_dir():
                 search_dirs.append(str(r))
     else:
-        # Path traversal korumasi
+        # Path traversal protection
         try:
             resolved = safe_resolve(str(raw_path))
         except ValueError as e:
@@ -325,7 +325,7 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
                     "engine": "ripgrep",
                     "matches": lines,
                     "count": len(lines),
-                    "note": f"Dosya isminde '{pattern}' arandı (.gitignore uygulandi)"
+                    "note": f"Searched for '{pattern}' in filenames (.gitignore applied)"
                 }, ensure_ascii=False)
         except (subprocess.TimeoutExpired, OSError):
             pass
@@ -393,25 +393,25 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
             lines = list(all_results.keys())[:30]
             return "\n".join(lines)
 
-    return json.dumps({"error": "Eşleşme bulunamadı", "searched": search_dirs}, ensure_ascii=False)
+    return json.dumps({"error": "No matches found", "searched": search_dirs}, ensure_ascii=False)
 
 
 # ─── FILE PATCH (find-replace) ──────────────────────────
 
 @register_tool(
     name="patch",
-    description="Dosyada bul-değiştir. Tekli veya batch. start_line/end_line ile hedefli arama.",
+    description="Find and replace in file. Single or batch. Target with start_line/end_line.",
     parameters={
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Dosya yolu"},
-            "old_string": {"type": "string", "description": "Bulunacak metin (tekli değişiklik için)"},
-            "new_string": {"type": "string", "description": "Yeni metin (tekli değişiklik için)"},
-            "start_line": {"type": "integer", "description": "Sadece bu satırdan itibaren ara (opsiyonel)"},
-            "end_line": {"type": "integer", "description": "Sadece bu satıra kadar ara (opsiyonel)"},
+            "path": {"type": "string", "description": "File path"},
+            "old_string": {"type": "string", "description": "Text to find (for single change)"},
+            "new_string": {"type": "string", "description": "New text (for single change)"},
+            "start_line": {"type": "integer", "description": "Search from this line only (optional)"},
+            "end_line": {"type": "integer", "description": "Search up to this line only (optional)"},
             "changes": {
                 "type": "array",
-                "description": "Aynı anda birden fazla değişiklik yapmak için list: [{'old_string': 'eski', 'new_string': 'yeni'}, ...]",
+                "description": "For multiple changes at once: [{'old_string': 'old', 'new_string': 'new'}, ...]",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -421,22 +421,22 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
                     "required": ["old_string", "new_string"]
                 }
             },
-            "dry_run": {"type": "boolean", "description": "Değişiklik yapmadan sadece göster (önizleme)", "default": False},
+            "dry_run": {"type": "boolean", "description": "Preview without making changes", "default": False},
         },
         "required": ["path"],
     },
     toolset="file",
 )
 def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: list = None, start_line: int = None, end_line: int = None, dry_run: bool = False) -> str:
-    """Dosyada find-and-replace yap. Tekli veya çoklu destekler, Dry-run desteği."""
+    """Find-and-replace in file. Supports single or batch changes. Dry-run support."""
     p = Path(path).expanduser()
-    # Path traversal korumasi — sadece cwd + kullanici klasorlerine izin ver
+    # Path traversal protection — only allow cwd + user directories
     _h = Path.home()
     _allowed = [
         str(Path.cwd()),
-        str(_h / "Desktop"), str(_h / "Masaustu"),
-        str(_h / "Documents"), str(_h / "Belgeler"),
-        str(_h / "Downloads"), str(_h / "Indirilenler"),
+        str(_h / "Desktop"),
+        str(_h / "Documents"),
+        str(_h / "Downloads"),
         str(_h / ".dorina"),
         "/tmp",
     ]
@@ -445,7 +445,7 @@ def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: l
     except ValueError as e:
         return json.dumps({"error": str(e)})
     if not p.exists():
-        return json.dumps({"error": f"Dosya bulunamadı: {path}"})
+        return json.dumps({"error": f"File not found: {path}"})
 
     try:
         content = p.read_text(encoding="utf-8", errors="ignore")
@@ -457,7 +457,7 @@ def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: l
             ops.append({"old_string": old_string, "new_string": new_string})
 
         if not ops:
-            return json.dumps({"error": "Hiçbir değişiklik belirtilmedi (old_string veya changes gerekli)."})
+            return json.dumps({"error": "No changes specified (old_string or changes required)."})
 
         total_count = 0
         new_content = content
@@ -477,7 +477,7 @@ def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: l
 
             count = target_block.count(old_str)
             if count == 0:
-                return json.dumps({"error": f"Aranan metin belirtilen aralikta bulunamadı: {old_str[:50]}"})
+                return json.dumps({"error": f"Pattern not found in the specified range: {old_str[:50]}"})
 
             total_count += count
 
@@ -503,7 +503,7 @@ def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: l
                 "dry_run": True,
                 "count": total_count,
                 "preview": preview_lines[:20],
-                "message": f"{total_count} değişiklik bulundu (dry-run — dosyaya yazılmadı)",
+                "message": f"{total_count} changes found (dry-run — not written to file)",
             }, ensure_ascii=False)
 
         p.write_text(new_content, encoding="utf-8")
@@ -547,7 +547,7 @@ def patch_tool(path: str, old_string: str = "", new_string: str = "", changes: l
             "bytes": len(new_content),
             "verification": {
                 "changed_lines": _verification[:10],  # max 10 changed regions
-                "summary": f"{len(_verification)} satir degisti. Degisiklik dogru mu diye TEKRAR read_file yapma. Verification yukarida."
+                "summary": f"{len(_verification)} lines changed. DO NOT re-read the file to verify — verification is shown above."
             },
         })
     except (OSError, ValueError, json.JSONDecodeError) as e:

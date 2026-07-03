@@ -1,17 +1,17 @@
 """
 Active toolset manager — replaces the old ChromaDB-based selector.
 
-LLM'e her turda tüm tool'ları göndermek yerine, sadece aktif toolset'lerin
-tool'ları gönderilir. Agent ihtiyaç duydukça tools_enable() ile yeni toolset açar.
+Instead of sending every tool to the LLM each turn, only active toolset
+tools are sent. The agent opens new toolsets via tools_enable() as needed.
 
-Default: FILE + WEB (en sık kullanılanlar)
+Default: FILE + WEB (most frequently used)
 """
 
 from __future__ import annotations
 from typing import Optional
 
-# ── Aktif toolset'ler ─────────────────────────────────────
-# Session başında default olarak açık olanlar — config.yaml tools.default_toolsets'den okunur
+# ── Active toolsets ───────────────────────────────────────
+# Opened by default at session start — read from config.yaml tools.default_toolsets
 try:
     from core.config import settings
     _cfg_tools = getattr(settings, "tools", None)
@@ -24,12 +24,12 @@ except (AttributeError, ImportError):
 
 ACTIVE_TOOLSETS: set[str] = set(DEFAULT_TOOLSETS)
 
-# ── Toolset tanımları (system prompt'ta gösterilecek) ─────
+# ── Toolset labels (shown in system prompt) ───────────────
 TOOLSET_LABELS = {
     "file":        "📁 FILE       — read, write, patch, search, batch_python",
     "web":         "🌐 WEB        — web_search, web_fetch",
     "terminal":    "💻 TERMINAL   — shell commands",
-    "delegation":  "🤖 AGENT      — delegate_task, delegate_batch",
+    "delegation":  "🤖 AGENT      — delegate_task, delegate_batch, delegate_goal",
     "mcp":         "🔌 MCP        — mcp_call, mcp_list, mcp_status",
     "system":      "⚙️ SYSTEM     — tools_enable, cron, save_memory, read_memory",
 }
@@ -38,48 +38,48 @@ ACTIVE_TOOLSET_LABELS = {k: v for k, v in TOOLSET_LABELS.items() if k in DEFAULT
 
 
 def tools_enable(toolset: str) -> str:
-    """Aktif toolset listesine yeni bir toolset ekler."""
+    """Add a new toolset to the active list."""
     normalized = toolset.lower().strip()
     if normalized not in TOOLSET_LABELS:
         available = ", ".join(sorted(TOOLSET_LABELS.keys()))
-        return f"❌ Bilinmeyen toolset: '{toolset}'. Kullanılabilir: {available}"
+        return f"❌ Unknown toolset: '{toolset}'. Available: {available}"
     if normalized in ACTIVE_TOOLSETS:
-        return f"ℹ️  '{toolset}' zaten aktif."
+        return f"ℹ️  '{toolset}' already active."
     ACTIVE_TOOLSETS.add(normalized)
-    return f"✅ '{toolset}' toolset'i aktifleştirildi. {TOOLSET_LABELS.get(normalized, '')}"
+    return f"✅ '{toolset}' enabled. {TOOLSET_LABELS.get(normalized, '')}"
 
 
 def tools_disable(toolset: str) -> str:
-    """Aktif toolset listesinden bir toolset çıkarır."""
+    """Remove a toolset from the active list."""
     normalized = toolset.lower().strip()
     if normalized not in ACTIVE_TOOLSETS:
-        return f"ℹ️  '{toolset}' zaten aktif değil."
+        return f"ℹ️  '{toolset}' not currently active."
     if normalized in DEFAULT_TOOLSETS:
-        return f"⚠️  '{toolset}' default bir toolset, kapatılamaz."
+        return f"⚠️  '{toolset}' is a default toolset and cannot be disabled."
     ACTIVE_TOOLSETS.discard(normalized)
-    return f"✅ '{toolset}' devre dışı bırakıldı."
+    return f"✅ '{toolset}' disabled."
 
 
 def get_active_toolsets() -> frozenset[str]:
-    """Şu an aktif olan toolset'leri döndürür."""
+    """Return currently active toolsets."""
     return frozenset(ACTIVE_TOOLSETS)
 
 
 def get_active_schemas(user_input: str = "") -> list[dict]:
-    """Aktif toolset'lerdeki tool'larin schema'larini dondurur.
-    Gorev salt-okunur tespit edilirse sadece okuma tool'lari gonderilir (token tasarrufu).
+    """Return schemas for tools in active toolsets.
+    If the task is read-only, only reading tools are sent (token savings).
 
-    tools_enable her zaman eklenir (system toolset'ine ait ama meta-tool olarak acik)."""
+    tools_enable is always included (belongs to the system toolset but stays open as a meta-tool)."""
     from tools.registry import registry
 
-    # Gorev salt-okunur mu? (incele, analiz, bak, oku, listele, ara, audit, review)
+    # Is the task read-only? (inspect, review, audit, search, etc.)
     _readonly_keywords = {"incele", "analiz", "kontrol", "bak", "goster", "listele", "ara", "oku", "audit", "review", "inspect", "ne yap", "nasil", "açıkla", "anlat"}
     _is_readonly = any(k in user_input.lower() for k in _readonly_keywords) if user_input else False
 
     active = get_active_toolsets()
     schemas = []
     for tool in registry.list():
-        # tools_enable her zaman aktif (meta-tool)
+        # tools_enable always active (meta-tool)
         if tool.name == "tools_enable":
             schemas.append({
                 "type": "function",
@@ -92,7 +92,7 @@ def get_active_schemas(user_input: str = "") -> list[dict]:
             continue
         if tool.toolset not in active:
             continue
-        # Salt-okunur gorev: sadece okuma araclari
+        # Read-only task: only reading tools
         if _is_readonly and tool.name not in {
             "read_file", "search_files", "web_search", "web_fetch",
             "terminal",
@@ -110,20 +110,20 @@ def get_active_schemas(user_input: str = "") -> list[dict]:
 
 
 def toolset_summary() -> str:
-    """System prompt'ta gösterilecek kategori listesi."""
-    lines = ["## KULLANILABILIR ARACLAR"]
-    lines.append("Her araç bir kategoriye aittir. İhtiyacın olan kategoriyi tools_enable ile aç.")
+    """Category list shown in system prompt."""
+    lines = ["## AVAILABLE TOOLS"]
+    lines.append("Each tool belongs to a category. Use tools_enable to open the category you need.")
     lines.append("")
     for key in sorted(TOOLSET_LABELS.keys()):
         label = TOOLSET_LABELS[key]
         status = "✅" if key in ACTIVE_TOOLSETS else "🔒"
         lines.append(f"  {status} {label}")
     lines.append("")
-    lines.append("📌 Default açık: FILE, WEB, TERMINAL. tools_enable('delegation') ile AGENT, tools_enable('mcp') ile GITHUB araçlarını eklersin. tools_enable her zaman kullanılabilir.")
+    lines.append("📌 Default: FILE, WEB, TERMINAL. tools_enable('delegation') to add AGENT, tools_enable('mcp') to add GITHUB. tools_enable is always available.")
     return "\n".join(lines)
 
 
 def reset():
-    """Session sonunda sıfırla."""
+    """Reset at session end."""
     ACTIVE_TOOLSETS.clear()
     ACTIVE_TOOLSETS.update(DEFAULT_TOOLSETS)

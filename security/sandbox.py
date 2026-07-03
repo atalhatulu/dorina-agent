@@ -20,24 +20,24 @@ class Sandbox(SandboxInterface):
         self._ready = False
 
     def initialize(self):
-        """Docker bağlantısını başlat."""
+        """Initialize Docker connection."""
         try:
             import docker
             self.client = docker.from_env()
             self.client.ping()
             self._ready = True
-            log.info("Docker SDK sandbox hazir")
+            log.info("Docker SDK sandbox ready")
         except (ImportError, ConnectionError, Exception):
             self._ready = False
-            log.warning("Docker SDK sandbox kullanilamiyor")
+            log.warning("Docker SDK sandbox not available")
 
     def is_available(self) -> bool:
         return self._ready
 
     def run_python(self, code: str, timeout: int = 30) -> dict[str, Any]:
-        """Python kodunu güvenli container'da çalıştır."""
+        """Run Python code in a secure container."""
         if not self._ready:
-            return {"error": "Docker kullanilamiyor", "output": code[:200]}
+            return {"error": "Docker not available", "output": code[:200]}
 
         try:
             container = self.client.containers.run(
@@ -57,9 +57,9 @@ class Sandbox(SandboxInterface):
             return {"error": str(e)}
 
     def run_shell(self, command: str, timeout: int = 30) -> dict[str, Any]:
-        """Shell komutunu container'da çalıştır."""
+        """Run shell command in a secure container."""
         if not self._ready:
-            return {"error": "Docker kullanilamiyor"}
+            return {"error": "Docker not available"}
 
         try:
             container = self.client.containers.run(

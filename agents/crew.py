@@ -13,24 +13,24 @@ class AgentCrew:
 
     def add_member(self, role: str, goal: str):
         self.members.append({"role": role, "goal": goal})
-        log.info(f"Crew'e eklendi: {role}")
+        log.info(f"Added to crew: {role}")
 
     def add_agent(self, role: str, goal: str):
-        """Crew'e yeni agent ekle (add_member() alias'ı)."""
+        """Add a new agent to the crew (alias for add_member())."""
         self.add_member(role, goal)
 
     def run(self, task: str) -> str:
-        log.info(f"Crew basladi: {task}")
+        log.info(f"Crew started: {task}")
         for m in self.members:
-            log.info(f"  [{m['role']}] calisiyor...")
-        return f"Crew tamamladi: {task}"
+            log.info(f"  [{m['role']}] working...")
+        return f"Crew completed: {task}"
 
     def run_crew(self, task: str) -> str:
-        """Multi-agent simülasyonu: her agent sırayla 'görev yapıyorum' döner."""
-        log.info(f"Crew basladi: {task}")
+        """Multi-agent simulation: each agent returns a status in turn."""
+        log.info(f"Crew started: {task}")
         results = []
         for m in self.members:
-            result = f"[{m['role']}] görev yapıyorum: {task}"
+            result = f"[{m['role']}] working on: {task}"
             log.info(result)
             results.append(result)
         return "\n".join(results)
@@ -38,9 +38,9 @@ class AgentCrew:
     def fork_subagent(self, goal: str, tools: list[str] | None = None,
                       bubble_permissions: bool = True) -> str:
         """
-        Claude Code tarzı fork subagent.
-        Yeni bir subagent oluştur, belirli tool'larla çalıştır.
-        bubble_permissions=True ise izinleri parent'a bildirir.
+        Claude Code-style fork subagent.
+        Creates a new subagent with specific tools.
+        If bubble_permissions=True, permissions bubble to parent.
         """
         fork_id = uuid.uuid4().hex[:8]
         fork = {
@@ -54,11 +54,11 @@ class AgentCrew:
         self._forks[fork_id] = fork
         # Status: pending → running
         fork["status"] = "running"
-        permission_note = " (izinler parent'a bildirilir)" if bubble_permissions else ""
+        permission_note = " (permissions bubble to parent)" if bubble_permissions else ""
         log.info(f"Fork subagent [{fork_id}]: {goal[:50]}{permission_note}")
-        # Simule et
+        # Simulate
         fork["status"] = "completed"
-        fork["result"] = f"Subagent tamamladi: {goal[:80]}"
+        fork["result"] = f"Subagent completed: {goal[:80]}"
         return json.dumps({
             "fork_id": fork_id,
             "status": "completed",
@@ -68,7 +68,7 @@ class AgentCrew:
         }, ensure_ascii=False)
 
     def list_forks(self) -> list[dict]:
-        """Tüm fork subagent'ları listele."""
+        """List all fork subagents."""
         return [
             {
                 "id": f["id"],
@@ -81,7 +81,7 @@ class AgentCrew:
         ]
 
     def get_fork(self, fork_id: str) -> dict | None:
-        """Belirli bir fork'un durumunu döndür."""
+        """Return the status of a specific fork."""
         return self._forks.get(fork_id)
 
 

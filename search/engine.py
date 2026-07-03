@@ -1,15 +1,15 @@
 """Search engine — provider abstraction with Strategy pattern.
 
-DuckDuckGo (varsayılan fallback) + Google Custom Search API (opsiyonel) desteği.
-Arama sonuçlarını yapılandırılmış formata çevirir.
+Supports DuckDuckGo (default fallback) + Google Custom Search API (optional).
+Converts search results to structured format.
 
-Kullanım:
+Usage:
     from search.engine import search_engine
 
     # DuckDuckGo (default)
     results = search_engine.search("python ai agent")
 
-    # Google Custom Search (API key ayarlanmışsa)
+    # Google Custom Search (if API key configured)
     results = search_engine.search("python ai agent", provider="google")
 """
 
@@ -31,7 +31,7 @@ from core.config import settings
 
 @dataclass
 class SearchResult:
-    """Yapılandırılmış arama sonucu."""
+    """Structured search result."""
     title: str = ""
     url: str = ""
     snippet: str = ""
@@ -67,7 +67,7 @@ class SearchResponse:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
     def to_text(self, max_results: int = 5) -> str:
-        """Sonuçları okunabilir metin formatında döndür."""
+        """Return results as readable text."""
         if self.error:
             return f"Search error: {self.error}"
         if not self.results:
@@ -165,7 +165,7 @@ class DuckDuckGoProvider(SearchProvider):
 
 
 class GoogleCustomSearchProvider(SearchProvider):
-    """Google Custom Search API provider — opsiyonel.
+    """Google Custom Search API provider — optional.
 
     Requires:
         - GOOGLE_API_KEY env var or config
@@ -267,13 +267,13 @@ class GoogleCustomSearchProvider(SearchProvider):
 class SearchEngine:
     """Main search engine — provider selection with fallback.
 
-    Strategy pattern: provider abstraction sayesinde yeni arama motorları
-    kolayca eklenebilir. Sadece SearchProvider arayüzünü implemente etmek yeterli.
+    Strategy pattern: new search engines can be easily added via the
+    SearchProvider interface. Simply implement the SearchProvider ABC.
 
-    Provider seçimi:
-      1. Belirtilen provider'ı dene (ör: "google")
-      2. Başarısız olursa DuckDuckGo fallback
-      3. O da başarısız olursa hata döndür
+    Provider selection:
+      1. Try the specified provider (e.g., "google")
+      2. Fall back to DuckDuckGo on failure
+      3. Return error if DuckDuckGo also fails
     """
 
     def __init__(self):

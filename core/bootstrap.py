@@ -1,6 +1,6 @@
-"""Uygulama baslatma — env ayarlari, log supurasyonu, API key yukleme.
+"""Application bootstrap — env setup, log suppression, API key loading.
 
-main.py'den cikarilmistir: bu modul startup'ta bir kez cagrilir.
+Extracted from main.py: this module is called once at startup.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def suppress_noisy_logs():
-    """LLM kutuphanelerinin gereksiz log'larini sustur."""
+    """Suppress verbose logs from LLM libraries."""
     os.environ.setdefault("LITELLM_LOG", "WARNING")
     os.environ.setdefault("OPENAI_LOG_LEVEL", "WARNING")
     os.environ.setdefault("LITELLM_SUPPRESS_DEBUG_INFO", "1")
@@ -25,7 +25,7 @@ def suppress_noisy_logs():
 
 
 def ensure_project_root():
-    """Proje kokunu PYTHONPATH'e ekle."""
+    """Add project root to PYTHONPATH."""
     _root = str(Path(__file__).resolve().parent.parent)
     if _root not in sys.path:
         sys.path.insert(0, _root)

@@ -1,12 +1,12 @@
 """
-Öğrenen Dorina — Kendini geliştiren AI Agent çekirdeği.
+Self-evolving Dorina — self-improving AI Agent core.
 
-Nasıl çalışır:
-1. Kullanıcı etkileşimlerini izler
-2. Tekrar eden desenleri bulur
-3. Skill'e dönüştürür
-4. Kod hatalarını tespit eder ve düzeltir
-5. Eksik tool/modül tespit edip ekler
+How it works:
+1. Monitors user interactions
+2. Finds recurring patterns
+3. Converts them into skills
+4. Detects and fixes code bugs
+5. Detects and adds missing tools/modules
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from core.event_bus import bus
 from core.constants import DORINA_HOME
 
 
-# ─── SELF REVIEW KALDIRILDI — gereksiz LLM cagrisi, sadece testler yeterli
+# ─── SELF REVIEW REMOVED — unnecessary LLM call, tests are sufficient
 
 
 # Remove bare except
@@ -34,7 +34,7 @@ LEARNINGS_FILE = DORINA_HOME / "knowledge" / "learned" / "learnings.json"
 
 
 def log_learning(task_type: str, what_failed: str, what_worked: str):
-    """Öğrenilen dersi kalıcı hafızaya kaydet."""
+    """Save a learned lesson to persistent memory."""
     data = {"learnings": []}
     if LEARNINGS_FILE.exists():
         try:
@@ -59,7 +59,7 @@ def log_learning(task_type: str, what_failed: str, what_worked: str):
 
 
 def get_relevant_learnings(task_description: str) -> str:
-    """Benzer görevler için geçmiş dersleri getir."""
+    """Retrieve past lessons for similar tasks."""
     if not LEARNINGS_FILE.exists():
         return ""
     try:
@@ -77,22 +77,22 @@ def get_relevant_learnings(task_description: str) -> str:
         desc_words = set(l.get("task_type", "").lower().split())
         overlap = task_words & desc_words
         if len(overlap) >= 2:
-            relevant.append(f"[{l['task_type']}] Basarisiz: {l['what_failed']} "
-                          f"| Cozum: {l['what_worked']}")
+            relevant.append(f"[{l['task_type']}] Failed: {l['what_failed']} "
+                          f"| Fix: {l['what_worked']}")
 
     if not relevant:
         return ""
 
-    return "Gecmis dersler:\n" + "\n".join(relevant[-5:])
+    return "Past lessons:\n" + "\n".join(relevant[-5:])
 
 
 async def run_review(code: str, trigger: str = "manual") -> str:
-    """Self-review kaldirildi. Sadece test sonuclarina guven."""
+    """Self-review removed. Only trust test results."""
     return ""
 
 # Remove bare except
 class SelfEvolution:
-    """Kendini geliştiren agent motoru."""
+    """Self-improving agent engine."""
 
     def __init__(self):
         self.basedir = Path(__file__).parent.parent
@@ -103,30 +103,30 @@ class SelfEvolution:
         self.history_file.parent.mkdir(parents=True, exist_ok=True)
         self._load_history()
         self._subscribe_events()
-        # Kullanıcı onayı callback'i — dışarıdan set edilebilir
+        # User approval callback — settable externally
         self.confirm_callback = None
 
     def _load_history(self):
-        """Geçmiş öğrenmeleri yükle."""
+        """Load past learnings from history file."""
         if self.history_file.exists():
             data = safe_json_loads(self.history_file, {})
             self.learned_patterns = data.get("patterns", [])
 
     def _save_history(self):
-        """Öğrenmeleri kaydet."""
+        """Save learnings to history file."""
         self.history_file.write_text(json.dumps({
-            "patterns": self.learned_patterns[-100:],  # son 100 desen
+            "patterns": self.learned_patterns[-100:],  # last 100 patterns
             "last_updated": datetime.now().isoformat(),
         }, indent=2, ensure_ascii=False))
 
     def _subscribe_events(self):
-        """Event bus'e abone ol."""
+        """Subscribe to event bus."""
         bus.subscribe("tool:called", self._on_tool_called)
 
-    # ─── 1. DESEN TANIMA ──────────────────────────────
+    # ─── 1. PATTERN RECOGNITION ──────────────────────────
 
     def _on_tool_called(self, event: str, name: str, **kw):
-        """Tool çağrılarını izle, tekrar eden desenleri bul."""
+        """Track tool calls, find recurring patterns."""
         now = time.time()
         
         # Track last 10 calls
@@ -146,7 +146,7 @@ class SelfEvolution:
                 self._discover_pattern(tool, count)
 
     def _discover_pattern(self, tool_name: str, frequency: int):
-        """Tekrar eden deseni skill'e dönüştür."""
+        """Turn recurring pattern into a skill."""
         pattern = {
             "tool": tool_name,
             "frequency": frequency,
@@ -170,49 +170,49 @@ class SelfEvolution:
             self._auto_create_skill(tool_name)
 
     def _auto_create_skill(self, tool_name: str):
-        """Sık kullanılan tool için otomatik skill oluştur (kullanıcı onayı ile)."""
+        """Auto-create skill for frequently used tool (with user approval)."""
         skill_path = self.skill_dir / f"auto-{tool_name}.md"
         if skill_path.exists():
-            return  # Zaten var
+            return  # Already exists
 
-        # Kullanıcı onayı iste
+        # Ask for user approval
         if self.confirm_callback is not None:
             confirmed = self.confirm_callback(tool_name)
             if not confirmed:
-                log.info(f"Skill olusturma iptal edildi (kullanici onayi): {tool_name}")
+                log.info(f"Skill creation cancelled (user denied): {tool_name}")
                 return
         else:
-            log.info(f"Skill olusturma icin onay gerekli: {tool_name}")
-            return  # Onay callback'i yoksa varsayılan olarak iptal et
+            log.info(f"Skill creation requires approval: {tool_name}")
+            return  # No approval callback — default to cancel
         
         skill_content = f"""---
 name: auto-{tool_name}
-description: Otomatik öğrenilen skill — {tool_name} tool'unu kullanma deseni
+description: Auto-learned skill — pattern for using the {tool_name} tool
 author: SelfEvolution
 created: {datetime.now().strftime("%Y-%m-%d %H:%M")}
 ---
 
 # Auto-Learned: {tool_name}
 
-Bu skill, kullanım desenlerinden otomatik oluşturuldu.
+This skill was auto-created from usage patterns.
 
 ## When to Use?
 
-{tool_name} tool'unu çağırmak gerektiğinde.
+When {tool_name} tool needs to be called.
 
 ## Steps
 
-1. {tool_name} tool'unu uygun parametrelerle çağır
-2. Sonucu kontrol et
-3. Hata varsa alternatif parametrelerle dene
+1. Call the {tool_name} tool with appropriate parameters
+2. Check the result
+3. If error, try alternative parameters
 """
         skill_path.write_text(skill_content)
-        log.info(f"🧠 Otomatik skill olusturuldu: {tool_name}")
+        log.info(f"🧠 Auto skill created: {tool_name}")
 
     # ─── 2. SELF-CODE AUDIT ───────────────────────────
 
     def scan_for_bugs(self) -> list[dict]:
-        """Tüm Python dosyalarını tara, potansiyel hataları bul."""
+        """Scan all Python files for potential bugs."""
         bugs = []
         py_files = list(self.basedir.rglob("*.py"))
         
@@ -232,7 +232,7 @@ Bu skill, kullanım desenlerinden otomatik oluşturuldu.
         return bugs
 
     def detect_dead_code(self) -> list[dict]:
-        """Kullanılmayan fonksiyonları bul."""
+        """Find unused functions."""
         dead = []
         # Simple detection: defined but never called functions
         functions = {}
@@ -258,10 +258,10 @@ Bu skill, kullanım desenlerinden otomatik oluşturuldu.
             if fname not in calls and not fname.startswith("_"):
                 dead.append({"function": func_name, "file": file_path})
         
-        return dead[:20]  # ilk 20
+        return dead[:20]  # first 20
 
     def suggest_improvements(self) -> list[dict]:
-        """Potansiyel iyileştirmeleri öner."""
+        """Suggest potential improvements."""
         suggestions = []
         
         # Functions used but not in tool registry
@@ -281,14 +281,14 @@ Bu skill, kullanım desenlerinden otomatik oluşturuldu.
                         suggestions.append({
                             "file": str(f.relative_to(self.basedir)),
                             "function": func_name,
-                            "suggestion": "Tool registry'de kayitli degil",
+                            "suggestion": "Not registered in tool registry",
                         })
         return suggestions
 
     # ─── 3. AUTO-FIX ──────────────────────────────────
 
     def try_fix_bug(self, bug: dict) -> bool:
-        """Bir hatayı düzeltmeyi dene."""
+        """Try to fix a bug automatically."""
         file_path = self.basedir / bug["file"]
         if not file_path.exists():
             return False
@@ -303,15 +303,15 @@ Bu skill, kullanım desenlerinden otomatik oluşturuldu.
                 lines[line_idx] = f"# FIXME: {lines[line_idx]}  # {bug['msg']}"
                 file_path.write_text("\n".join(lines))
                 bug["fixed"] = True
-                log.info(f"🔧 Otomatik duzeltme: {bug['file']}:{bug['line']}")
+                log.info(f"🔧 Auto-fix: {bug['file']}:{bug['line']}")
                 return True
         return False
 
-    # ─── 4. PERIODIC IMPROVEMENT ───────────────────────
+    # ─── 4. PERIODIC IMPROVEMENT ──────────────────────
 
     def run_self_check(self) -> dict:
-        """Tam kendi kendini denetleme çalıştır."""
-        log.info("🔍 Kendi kendini denetleme basliyor...")
+        """Run complete self-check."""
+        log.info("🔍 Self-check starting...")
         
         result = {
             "time": datetime.now().isoformat(),
@@ -323,7 +323,7 @@ Bu skill, kullanım desenlerinden otomatik oluşturuldu.
             "total_skills": len(list(self.skill_dir.glob("*.md"))),
         }
         
-        # Hata tara
+        # Scan for bugs
         bugs = self.scan_for_bugs()
         result["bugs_found"] = len(bugs)
         for bug in bugs:
@@ -338,7 +338,7 @@ Bu skill, kullanım desenlerinden otomatik oluşturuldu.
         suggestions = self.suggest_improvements()
         result["suggestions"] = len(suggestions)
         
-        log.info(f"✅ Kendi denetim tamam: {result}")
+        log.info(f"✅ Self-check complete: {result}")
         return result
 
 

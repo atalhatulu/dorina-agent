@@ -1,4 +1,4 @@
-"""Global sabitler ve yollar."""
+"""Global constants and paths."""
 
 from __future__ import annotations
 import json
@@ -10,7 +10,7 @@ from core.version_manager import get_version_manager
 
 NAME = "dorina-agent"
 
-# Dorina home directory — tum kullanici verileri burada
+# Dorina home directory — all user data lives here
 DORINA_HOME = Path.home() / ".dorina"
 
 # Default paths under DORINA_HOME
@@ -24,7 +24,7 @@ DEFAULT_CACHE_DIR = DORINA_HOME / "data" / "cache"
 DEFAULT_CHROMA_DIR = DORINA_HOME / "data" / "rag_knowledge"
 DEFAULT_BG_TOOLS_DIR = DORINA_HOME / "bg_tools"
 
-# Kullanici calisma alani
+# User workspace
 DEFAULT_WORKSPACE = Path.home() / "Documents" / "DorinaProjects"
 
 
@@ -40,22 +40,22 @@ def ensure_dorina_home():
         example = Path(__file__).resolve().parent.parent / "config.yaml.example"
         if example.exists():
             DEFAULT_CONFIG.write_text(example.read_text())
-            print(f"  [info] Config olusturuldu: {DEFAULT_CONFIG}")
-    # soul.md yoksa projedekinden kopyala
+            print(f"  [info] Config created: {DEFAULT_CONFIG}")
+    # Copy soul.md from project if missing
     _soul_path = DORINA_HOME / "SOUL.md"
     if not _soul_path.exists():
         _soul_example = Path(__file__).resolve().parent.parent / "soul.md"
         if _soul_example.exists():
             _soul_path.write_text(_soul_example.read_text())
-            print(f"  [info] soul.md olusturuldu: {_soul_path}")
+            print(f"  [info] soul.md created: {_soul_path}")
 
-    # Sistem dizinlerini tara (bir kere) — islice ile erken dur, tum dosyayi listeleme
+    # Scan system directories (one-time) — use islice to stop early, don't list all files
     _sys_mem = DORINA_HOME / "memories" / "SYSTEM.md"
     if not _sys_mem.exists():
         _lines = []
-        for _dir_name, _path in [("MASAUSTU", Path.home() / "Desktop"),
-                                  ("BELGELER", Path.home() / "Documents"),
-                                  ("INDIRILENLER", Path.home() / "Downloads")]:
+        for _dir_name, _path in [("DESKTOP", Path.home() / "Desktop"),
+                                  ("DOCUMENTS", Path.home() / "Documents"),
+                                  ("DOWNLOADS", Path.home() / "Downloads")]:
             if _path.exists():
                 _items = []
                 try:
@@ -65,16 +65,16 @@ def ensure_dorina_home():
                             break
                 except PermissionError:
                     pass
-                _lines.append(f"- {_dir_name}: {_path} ({len(_items)} oge)")
+                _lines.append(f"- {_dir_name}: {_path} ({len(_items)} items)")
                 if _items:
                     _lines.append(f"  * {', '.join(_items[:8])}")
         _lines.append(f"- DORINA_HOME: {DORINA_HOME}")
-        _lines.append(f"- PROJE: {Path(__file__).resolve().parent.parent}")
+        _lines.append(f"- PROJECT: {Path(__file__).resolve().parent.parent}")
         _sys_mem.write_text("\n".join(_lines) + "\n")
-        print(f"  [info] Sistem hafizasi olusturuldu: {_sys_mem}")
+        print(f"  [info] System memory created: {_sys_mem}")
 
 
-# Version from VersionManager — dinamik, dosyadan okur
+# Version from VersionManager — dynamic, read from file
 def _get_version() -> str:
     try:
         return get_version_manager().current
@@ -103,7 +103,7 @@ STATE_ERROR = "error"
 DEFAULT_MODEL = ""
 DEFAULT_PROVIDER = "deepseek"
 
-# Token limitleri
+# Token limits
 MAX_WORKING_MESSAGES = 30  # ~8-10 tur konusma, context zenginligi icin yeterli
 MAX_TOOL_CALLS_PER_TURN = 100  # high ceiling: tool selection guards quality, not hard limits
 MAX_TURNS = 50
@@ -115,7 +115,7 @@ MEMORY_SEMANTIC = "semantic"
 MEMORY_PROCEDURAL = "procedural"
 
 # ── P0-05: Skill Trigger Conditions ─────────────────────────────
-# Session başlangıcında skill injection için trigger condition'ları
+# Session startup skill injection trigger conditions
 SKILL_TRIGGER_KEYWORDS = {
     "code": {"python", "javascript", "rust", "go", "code", "yazılım", "program", "debug", "hata ayıkla", "refactor", "test yaz",
              "review", "testing", "implementation", "engineering", "security", "optimization", "simplification",
@@ -135,20 +135,20 @@ SKILL_TRIGGER_KEYWORDS = {
                  "refine", "explore", "convergent", "divergent", "meta", "guideline"},
 }
 
-# Session başlangıcında hangi skill'lerin otomatik yükleneceği
-SKILL_AUTO_LOAD_THRESHOLD = 2  # Kaç keyword eşleşirse skill otomatik yüklenir
+# Which skills auto-load at session start
+SKILL_AUTO_LOAD_THRESHOLD = 2  # How many keyword matches trigger auto-loading
 
 # ── P0-06: Prompt Caching ──────────────────────────────────────
-# Cache TTL (saniye)
+# Cache TTL (seconds)
 CACHE_TTL = 3600  # 1 saat
 
-# Maximum cache boyutu (karakter)
+# Maximum cache size (characters)
 MAX_CACHE_SIZE = 100000  # 100KB
 
 # Provider-specific cache control
 CACHE_ENABLED_PROVIDERS = {"deepseek", "anthropic"}
 
-# Cache stratejisi
+# Cache strategy
 CACHE_STRATEGY = "conservative"
 
 

@@ -1,7 +1,7 @@
-"""Checkpoint/Snapshot sistemi — agent durumunu SQLite'da sakla.
+"""Checkpoint/Snapshot system — store agent state in SQLite.
 
-Her N adımda otomatik checkpoint, manuel snapshot komutu ile anlık görüntü.
-Eskiden JSON dosyalarina yazardi (P2-24), simdi SQLite kullaniyor.
+Auto-checkpoints every N turns, manual snapshots via command.
+Previously wrote to JSON files (P2-24), now uses SQLite.
 """
 
 from __future__ import annotations
@@ -78,9 +78,9 @@ def _checkpoint_path(name: str) -> str:
 
 
 class CheckpointManager:
-    """Agent durum checkpoint'lerini yönetir — SQLite ile.
+    """Manages agent state checkpoints — backed by SQLite.
 
-    Kullanim:
+    Usage:
         cm = CheckpointManager()
         await cm.save(state_data, name="my_snapshot", cp_type="manual")
         data = await cm.load("my_snapshot")

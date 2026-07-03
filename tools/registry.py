@@ -1,6 +1,6 @@
-"""Tool kayıt sistemi - tüm tool'lar burada kayıtlı.
+"""Tool registry — every tool is registered here.
 
-Her tool: {name, description, parameters: schema, handler: callable}
+Each tool: {name, description, parameters: schema, handler: callable}
 """
 
 from __future__ import annotations
@@ -13,48 +13,48 @@ from hooks.lifecycle import pipeline
 
 @dataclass
 class ToolDef:
-    """Bir tool'un tanımı."""
+    """Definition of a single tool."""
     name: str
     description: str
     parameters: dict  # JSON schema
     handler: Callable
     toolset: str = "default"
     requires_env: list[str] = field(default_factory=list)
-    check_fn: Callable | None = None  # Döndürülebilir mi kontrolü
+    check_fn: Callable | None = None  # Availability check
     is_async: bool = False
 
 
 class ToolRegistry:
-    """Tool'ların kayıt defteri + hook yönetimi."""
+    """Tool registry + hook management."""
 
     def __init__(self):
         self._tools: dict[str, ToolDef] = {}
 
-    # ── Tool kayıt / kaldırma ──────────────────────────────────
+    # ── Register / unregister ─────────────────────────────────
 
     def register(self, tool: ToolDef):
-        """Tool kaydet."""
+        """Register a tool."""
         self._tools[tool.name] = tool
         bus.publish("tool:registered", name=tool.name, toolset=tool.toolset)
-        log.debug(f"Tool kaydedildi: {tool.name} [{tool.toolset}]")
+        log.debug(f"Tool registered: {tool.name} [{tool.toolset}]")
 
     def unregister(self, name: str):
-        """Tool kaldır."""
+        """Remove a tool."""
         self._tools.pop(name, None)
         bus.publish("tool:unregistered", name=name)
 
     def get(self, name: str) -> ToolDef | None:
-        """İsme göre tool bul."""
+        """Find a tool by name."""
         return self._tools.get(name)
 
     def list(self, toolset: str | None = None) -> list[ToolDef]:
-        """Tool'ları listele. İsteğe bağlı toolset filtresi."""
+        """List tools. Optional toolset filter."""
         if toolset:
             return [t for t in self._tools.values() if t.toolset == toolset]
         return list(self._tools.values())
 
     def schemas(self, toolset: str | None = None) -> list[dict]:
-        """LLM'e göndermek için JSON schema listesi (toolset'e göre filtreler)."""
+        """Return JSON schema list for the LLM (filtered by toolset)."""
         return [
             {
                 "type": "function",
@@ -68,7 +68,7 @@ class ToolRegistry:
         ]
 
     def schemas_for(self, names: list[str]) -> list[dict]:
-        """Sadece belirtilen tool isimlerinin schema'larini dondurur."""
+        """Return schemas only for the specified tool names."""
         return [
             {
                 "type": "function",
@@ -83,7 +83,7 @@ class ToolRegistry:
         ]
 
     def available_tools(self) -> list[str]:
-        """Kullanılabilecek tool isimleri."""
+        """Return names of available tools."""
         return [
             t.name for t in self._tools.values()
             if t.check_fn is None or t.check_fn()
@@ -92,33 +92,33 @@ class ToolRegistry:
     def count(self) -> int:
         return len(self._tools)
 
-    # ── Hook yönetimi (pipeline üzerinden) ────────────────────
+    # ── Hook management (via pipeline) ────────────────────────
 
     def register_hook(self, stage: str, callback: Callable):
-        """Tool pipeline'ına hook ekle.
+        """Add a hook to the tool pipeline.
 
         Args:
             stage: "pre_execution" | "param_transform" | "post_processing"
-            callback: Hook fonksiyonu
+            callback: Hook function
         """
         pipeline.register(stage, callback)
-        log.info(f"Hook kaydedildi: stage={stage}, callback={callback.__name__}")
+        log.info(f"Hook registered: stage={stage}, callback={callback.__name__}")
 
     def unregister_hook(self, stage: str, callback: Callable):
-        """Tool pipeline'ından hook kaldır."""
+        """Remove a hook from the tool pipeline."""
         pipeline.unregister(stage, callback)
-        log.info(f"Hook kaldırıldı: stage={stage}, callback={callback.__name__}")
+        log.info(f"Hook unregistered: stage={stage}, callback={callback.__name__}")
 
     def list_hooks(self) -> dict[str, list[str]]:
-        """Tüm kayıtlı hook'ları listele."""
+        """List all registered hooks."""
         return pipeline.list_hooks()
 
     def hook_count(self, stage: str | None = None) -> int:
-        """Hook sayısını döndür."""
+        """Return the number of hooks."""
         return pipeline.stage_count(stage)
 
     def clear_hooks(self, stage: str | None = None):
-        """Hook'ları temizle."""
+        """Clear all hooks."""
         pipeline.unregister_all(stage)
 
 
@@ -134,13 +134,13 @@ def register_tool(
     requires_env: list[str] | None = None,
     check_fn: Callable | None = None,
 ):
-    """Decorator ile tool kaydetme.
+    """Decorator-based tool registration.
 
-    Kullanım:
+    Usage:
         @register_tool(name="x", description="...", parameters={...})
         def my_tool(param1: str) -> str: ...
 
-    Async fonksiyonlar otomatik algılanır (is_async=True).
+    Async functions are auto-detected (is_async=True).
     """
     import inspect as _inspect
     def decorator(handler: Callable) -> Callable:

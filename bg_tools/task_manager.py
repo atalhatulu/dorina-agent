@@ -39,10 +39,10 @@ class TaskManager:
                 result = await coro
                 if task.status != "cancelled":
                     task.status = "done"
-                    task.result = str(result or "Tamamlandı")
+                    task.result = str(result or "Completed")
                     task.finished_at = time.time()
                     self._pending_notifications.append(
-                        f"✓ [{name}] tamamlandı ({task.elapsed}): {task.result[:80]}"
+                        f"✓ [{name}] completed ({task.elapsed}): {task.result[:80]}"
                     )
                     log.info(f"BG task done: {name} ({task.elapsed})")
             except asyncio.CancelledError:
@@ -55,7 +55,7 @@ class TaskManager:
                     task.error = str(e)
                     task.finished_at = time.time()
                     self._pending_notifications.append(
-                        f"✗ [{name}] başarısız: {str(e)[:80]}"
+                        f"✗ [{name}] failed: {str(e)[:80]}"
                     )
                     log.error(f"BG task failed: {name}: {e}")
 

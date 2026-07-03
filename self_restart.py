@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Kendi kendini restart eden script.
-Maksimum restart sayısı ile kontrollü çalışır.
+Self-restarting script.
+Runs with a maximum restart counter for controlled execution.
 """
 
 import os
 import sys
 import time
 
-# Restart sayacı dosyası
+# Restart counter file
 COUNTER_FILE = "/tmp/self_restart_counter.txt"
 MAX_RESTARTS = 5
 
@@ -30,22 +30,22 @@ def main():
 
     print(f"{'='*50}")
     print(f"🔄 Self-Restart Script v1.0")
-    print(f"📊 Restart sayısı: {counter}/{MAX_RESTARTS}")
+    print(f"📊 Restart count: {counter}/{MAX_RESTARTS}")
     print(f"🐍 Python: {sys.version.split()[0]}")
-    print(f"📂 Çalışma dizini: {os.getcwd()}")
+    print(f"📂 Working directory: {os.getcwd()}")
     print(f"🆔 PID: {os.getpid()}")
     print(f"{'='*50}")
 
     if counter >= MAX_RESTARTS:
-        print(f"\n✅ Maksimum restart sayısına ulaşıldı ({MAX_RESTARTS}). Script sonlanıyor.")
-        print("🧹 Temizlik yapılıyor...")
+        print(f"\n✅ Maximum restart count reached ({MAX_RESTARTS}). Script terminating.")
+        print("🧹 Cleaning up...")
         os.remove(COUNTER_FILE)
         sys.exit(0)
 
-    print(f"\n⏳ 3 saniye içinde yeniden başlıyorum...")
+    print(f"\n⏳ Restarting in 3 seconds...")
     time.sleep(3)
 
-    print(f"♻️ Restart #{counter} başlatılıyor...")
+    print(f"♻️ Starting restart #{counter}...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 if __name__ == "__main__":

@@ -1,11 +1,11 @@
-"""Yapılandırılmış loglama — Hermes-inspired.
+"""Structured logging — Hermes-inspired.
 
-Log dosyaları:
-  ~/.dorina/logs/agent.log   — INFO+, tüm aktivite
-  ~/.dorina/logs/errors.log  — WARNING+, hata ve uyarılar
+Log files:
+  ~/.dorina/logs/agent.log   — INFO+, all activity
+  ~/.dorina/logs/errors.log  — WARNING+, errors and warnings
 
-Özellikler:
-  - RotatingFileHandler (5MB, 3 yedek)
+Features:
+  - RotatingFileHandler (5 MB, 3 backups)
   - Session ID thread-local context
   - Secret redaction
   - Rich console output

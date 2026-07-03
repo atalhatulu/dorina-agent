@@ -20,25 +20,25 @@ class TestGraphifyToolsGraphYok:
         from tools.builtin.graphify_tools import graphify_query_tool
         r = json.loads(graphify_query_tool("event bus"))
         assert "error" in r
-        assert "olusturulmamis" in r["error"]
+        assert "not built" in r["error"] or "olusturulmamis" in r["error"]
 
     def test_path_graph_yok(self):
         from tools.builtin.graphify_tools import graphify_path_tool
         r = json.loads(graphify_path_tool("Config", "Database"))
         assert "error" in r
-        assert "olusturulmamis" in r["error"]
+        assert "not built" in r["error"] or "olusturulmamis" in r["error"]
 
     def test_god_nodes_graph_yok(self):
         from tools.builtin.graphify_tools import graphify_god_nodes_tool
         r = json.loads(graphify_god_nodes_tool())
         assert "error" in r
-        assert "olusturulmamis" in r["error"]
+        assert "not built" in r["error"] or "olusturulmamis" in r["error"]
 
     def test_stats_graph_yok(self):
         from tools.builtin.graphify_tools import graphify_stats_tool
         r = json.loads(graphify_stats_tool())
         assert "error" in r
-        assert "olusturulmamis" in r["error"]
+        assert "not built" in r["error"] or "olusturulmamis" in r["error"]
 
 
 class TestGraphifyToolsImport:

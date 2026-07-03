@@ -1,4 +1,4 @@
-"""Bellek modülü testleri."""
+"""Memory module tests."""
 
 import pytest
 

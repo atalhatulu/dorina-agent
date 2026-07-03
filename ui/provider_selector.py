@@ -12,6 +12,7 @@ from prompt_toolkit import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, FormattedTextControl, Window, Container, Float, FloatContainer
 from rich.console import Console
+from core.constants import t
 from providers.keys import keys, PROVIDERS
 
 console = Console()
@@ -31,12 +32,14 @@ async def _pick_one(title: str, items: list[tuple[str, str]], current: str = "")
             if i == idx[0]:
                 result.append(("class:selected", f"▸{prefix}"))
                 result.append(("class:selected bold", f"{disp:30s}"))
-                result.append(("", f"  [{'KEY VAR' if keys.has_key(pid) else 'key yok':>8}]\n"))
+                _has = t("provider_key_present") if keys.has_key(pid) else t("provider_key_missing")
+                result.append(("", f"  [{_has:>8}]\n"))
             else:
                 result.append(("", f" {prefix}"))
                 result.append(("", f"{disp:30s}  "))
                 key_status = ("green" if keys.has_key(pid) else "red")
-                result.append((key_status, f"[{'KEY VAR' if keys.has_key(pid) else 'key yok':>8}]\n"))
+                _has = t("provider_key_present") if keys.has_key(pid) else t("provider_key_missing")
+                result.append((key_status, f"[{_has:>8}]\n"))
         result.append(("dim", "\n ↑↓ navigate  Enter/Space select  Esc cancel\n"))
         return result
 

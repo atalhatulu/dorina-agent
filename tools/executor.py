@@ -1,4 +1,4 @@
-"""Tool çalıştırma motoru - parametre doğrulama + çalıştırma + hook pipeline."""
+"""Tool execution engine — parameter validation + execution + hook pipeline."""
 
 from __future__ import annotations
 import json
@@ -15,7 +15,7 @@ from tools.toolset import get_active_toolsets
 
 
 class ToolError(Exception):
-    """Tool çalıştırma hatası."""
+    """Tool execution error."""
     def __init__(self, message: str, tool_name: str = ""):
         self.tool_name = tool_name
         super().__init__(f"[{tool_name}] {message}")
@@ -48,77 +48,77 @@ def _validate_required_params(tool: ToolDef, arguments: dict) -> list[str]:
 _RECOVERY_HINTS: dict[str, dict] = {
     FailoverReason.AUTH: {
         "recoverable": False,
-        "hint": "API anahtarini kontrol et veya /setup ile guncelle",
+        "hint": "Check API key or update via /setup",
     },
     FailoverReason.AUTH_PERMANENT: {
         "recoverable": False,
-        "hint": "API anahtari kalici olarak gecersiz, /setup ile yenile",
+        "hint": "API key permanently invalid, renew via /setup",
     },
     FailoverReason.BILLING: {
         "recoverable": False,
-        "hint": "Hesap bakiyeni ve kullanim limitini kontrol et",
+        "hint": "Check account balance and usage limits",
     },
     FailoverReason.RATE_LIMIT: {
         "recoverable": True,
-        "hint": "Rate limit asildi, birkac saniye bekleyip tekrar dene",
+        "hint": "Rate limit exceeded, wait a few seconds and retry",
     },
     FailoverReason.UPSTREAM_RATE_LIMIT: {
         "recoverable": True,
-        "hint": "Upstream saglayici limitli, /model ile farkli model dene",
+        "hint": "Upstream provider rate limited, try /model to switch",
     },
     FailoverReason.OVERLOADED: {
         "recoverable": True,
-        "hint": "Servis gecici olarak yogun, birkac saniye bekleyip tekrar dene",
+        "hint": "Service temporarily overloaded, wait a few seconds and retry",
     },
     FailoverReason.SERVER_ERROR: {
         "recoverable": True,
-        "hint": "Sunucu hatasi, birkac saniye bekleyip tekrar dene",
+        "hint": "Server error, wait a few seconds and retry",
     },
     FailoverReason.TIMEOUT: {
         "recoverable": True,
-        "hint": "Zaman asimi, daha kisa bir islemle tekrar dene",
+        "hint": "Timeout, try with a shorter operation",
     },
     FailoverReason.CONTEXT_OVERFLOW: {
         "recoverable": True,
-        "hint": "Context cok buyudu, otomatik sikistirma devreye girecek",
+        "hint": "Context too large, automatic compression will kick in",
     },
     FailoverReason.PAYLOAD_TOO_LARGE: {
         "recoverable": True,
-        "hint": "Istek cok buyuk, daha kucuk parcaya bol",
+        "hint": "Request too large, split into smaller parts",
     },
     FailoverReason.MODEL_NOT_FOUND: {
         "recoverable": True,
-        "hint": "Model bulunamadi, /model ile farkli model sec",
+        "hint": "Model not found, use /model to select a different model",
     },
     FailoverReason.CONTENT_POLICY_BLOCKED: {
         "recoverable": False,
-        "hint": "Icerik politikasi engelledi, farkli bir yaklasim dene",
+        "hint": "Content policy blocked, try a different approach",
     },
     FailoverReason.FORMAT_ERROR: {
         "recoverable": True,
-        "hint": "Format hatasi, sistem otomatik duzeltecek",
+        "hint": "Format error, system will auto-repair",
     },
     FailoverReason.TOOL_FORMAT_ERROR: {
         "recoverable": True,
-        "hint": "Tool format hatasi, mesaj sirasi onarilacak",
+        "hint": "Tool format error, message sequence will be repaired",
     },
     FailoverReason.NETWORK: {
         "recoverable": True,
-        "hint": "Baglanti hatasi, birkac saniye bekleyip tekrar dene",
+        "hint": "Connection error, wait a few seconds and retry",
     },
     FailoverReason.TOOL_ERROR: {
         "recoverable": True,
-        "hint": "Arac hatasi, parametreleri kontrol et",
+        "hint": "Tool error, check parameters",
     },
     FailoverReason.PARSE_ERROR: {
         "recoverable": True,
-        "hint": "Yanit ayristirilamadi, tekrar dene",
+        "hint": "Response could not be parsed, retry",
     },
 }
 
 
 class ToolExecutor:
-    """Tool'ları çağırır, sonuçları toplar."""
+    """Calls tools and collects results."""
 
     def __init__(self):
         self.call_count = 0
@@ -138,14 +138,14 @@ class ToolExecutor:
 
         tool = registry.get(tool_name)
         if not tool:
-            return tool_name, None, None, json.dumps({"error": f"Tool bulunamadı: {tool_name}"})
+            return tool_name, None, None, json.dumps({"error": f"Tool not found: {tool_name}"})
 
-        # ── Graph verisi varken batch_python blokajı ────────────────────
+        # ── Block batch_python when graph data exists ────────────────────
         if self._graph_data_available and tool_name in ("batch_python",):
-            msg = "Graphify verisi zaten alindi. batch_python ile tekrar dosya tarama."
-            log.debug(f"Graph blokajı: {tool_name} engellendi (graphify zaten calisti)")
+            msg = "Graphify data already collected. No need to re-scan with batch_python."
+            log.debug(f"Graph block: {tool_name} blocked (graphify already ran)")
             bus.publish("tool:aborted", name=tool_name, reason="graph_data_available")
-            return tool_name, None, None, json.dumps({"error": msg, "aborted": True, "hint": "graphify_query sonucunu kullan, ek dosya tarama gerekmez"})
+            return tool_name, None, None, json.dumps({"error": msg, "aborted": True, "hint": "use graphify_query result instead, no extra file scan needed"})
 
         # Resolve parameters — arguments must already be a dict
         resolved_args = arguments
@@ -154,8 +154,8 @@ class ToolExecutor:
         missing = _validate_required_params(tool, resolved_args)
         if missing:
             error_msg = (
-                f"Eksik zorunlu parametreler: {', '.join(missing)}. "
-                f"Tool '{tool_name}' için şu parametreler zorunludur: {tool.parameters.get('required', [])}"
+                f"Missing required parameters: {', '.join(missing)}. "
+                f"Tool '{tool_name}' requires: {tool.parameters.get('required', [])}"
             )
             log.debug(f"Parameter validation failed [{tool_name}]: missing={missing}")
             bus.publish("tool:error", name=tool_name, error=error_msg)
@@ -164,7 +164,7 @@ class ToolExecutor:
         # ── HOOK: Pre-execution validation (can abort) ──
         bus.publish("tool:executing", name=tool_name, arguments=resolved_args)
         if not pipeline.run_pre_execution(tool_name, resolved_args):
-            abort_msg = f"Tool '{tool_name}' pre-execution hook tarafından iptal edildi"
+            abort_msg = f"Tool '{tool_name}' cancelled by pre-execution hook"
             log.info(abort_msg)
             bus.publish("tool:aborted", name=tool_name, reason="hook_rejected")
             return tool_name, None, None, json.dumps({"error": abort_msg, "aborted": True})
@@ -175,7 +175,7 @@ class ToolExecutor:
         # ── Approval check ──
         if _approval.needs_approval(tool_name, resolved_args):
             if not _approval.approve(tool_name, resolved_args):
-                denied_msg = f"Tool '{tool_name}' kullanıcı tarafından reddedildi"
+                denied_msg = f"Tool '{tool_name}' denied by user"
                 log.info(denied_msg)
                 bus.publish("tool:aborted", name=tool_name, reason="user_denied")
                 return tool_name, None, None, json.dumps({"error": denied_msg, "aborted": True})
@@ -183,7 +183,7 @@ class ToolExecutor:
         # Update counter (failsafe — loop removed hard limits per user request)
         self.call_count += 1
         if self.call_count > MAX_TOOL_CALLS_PER_TURN:
-            raise ToolError(f"Failsafe: tur başı max {MAX_TOOL_CALLS_PER_TURN} tool", tool_name)
+            raise ToolError(f"Failsafe: max {MAX_TOOL_CALLS_PER_TURN} tools per turn", tool_name)
 
         # Fire event
         bus.publish("tool:called", name=tool_name, arguments=resolved_args)
@@ -204,7 +204,7 @@ class ToolExecutor:
         error_sanitized = sanitize_tool_error(str(error))
         bus.publish("tool:error", name=tool_name, error=str(error))
         log.error(
-            f"Tool hatası [{tool_name}]: {error}",
+            f"Tool error [{tool_name}]: {error}",
             extra={"tool": tool_name, "error_type": type(error).__name__},
         )
         try:
@@ -221,10 +221,10 @@ class ToolExecutor:
         classified = classify_api_error(error)
         recovery = _RECOVERY_HINTS.get(classified.reason, {
             "recoverable": True,
-            "hint": "Bilinmeyen hata, tekrar dene",
+            "hint": "Unknown error, retry",
         })
         return json.dumps({
-            "error": f"Tool '{tool_name}' hatasi: {classified.reason}",
+            "error": f"Tool '{tool_name}' error: {classified.reason}",
             "recoverable": recovery["recoverable"],
             "recovery_hint": recovery["hint"],
         })
@@ -232,14 +232,14 @@ class ToolExecutor:
     # ── Public API ─────────────────────────────────────────────────────────
 
     def execute(self, tool_name: str, arguments: dict, timeout: int = 30) -> str:
-        """Bir tool'u senkron çağır. Sonucu JSON string döndür.
-        arguments bir dict olmalıdır.
+        """Call a tool synchronously. Returns JSON string result.
+        arguments must be a dict.
         """
         tool_name, tool, resolved_args, err = self._setup(tool_name, arguments)
         if err:
             return err
 
-        # Otomatik toolset aktiflestirme — tool bulundu ama toolset kapaliysa ac
+        # Auto-enable toolset — tool found but toolset is closed
         if tool.toolset and tool.toolset not in get_active_toolsets():
             from tools.toolset import ACTIVE_TOOLSETS
             ACTIVE_TOOLSETS.add(tool.toolset)
@@ -280,7 +280,7 @@ class ToolExecutor:
             return self._handle_error(tool_name, e)
 
     def execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30) -> str:
-        """Bir tool'u string JSON argümanla çağır. Önce parse eder, sonra execute()'e yönlendirir."""
+        """Call a tool with string JSON arguments. Parses first, then delegates to execute()."""
         try:
             import re as _re
             args = json.loads(arguments_str)
@@ -297,7 +297,7 @@ class ToolExecutor:
         return self.execute(tool_name, args, timeout=timeout)
 
     def execute_multi(self, calls: list[dict]) -> list[dict]:
-        """Birden çok tool'u sırayla çağır.
+        """Call multiple tools sequentially.
 
         calls: [{"name": "...", "arguments": {...}}, ...]
         """
@@ -320,12 +320,12 @@ class ToolExecutor:
         return results
 
     def reset_count(self):
-        """Tool çağrı sayacını sıfırla (yeni tur)."""
+        """Reset tool call counter (new turn)."""
         self.call_count = 0
 
     async def async_execute(self, tool_name: str, arguments: dict, timeout: int = 30) -> str:
-        """Bir tool'u async çağır. Sonucu JSON string döndür.
-        arguments bir dict olmalıdır.
+        """Call a tool asynchronously. Returns JSON string result.
+        arguments must be a dict.
         """
         tool_name, tool, resolved_args, err = self._setup(tool_name, arguments)
         if err:
@@ -349,7 +349,7 @@ class ToolExecutor:
             return self._handle_error(tool_name, e)
 
     async def async_execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30) -> str:
-        """Bir tool'u string JSON argümanla async çağır. Önce parse eder, sonra async_execute()'e yönlendirir."""
+        """Call a tool asynchronously with string JSON arguments. Parses first, then delegates to async_execute()."""
         try:
             import re as _re
             args = json.loads(arguments_str)
@@ -366,7 +366,7 @@ class ToolExecutor:
         return await self.async_execute(tool_name, args, timeout=timeout)
 
     async def async_execute_multi(self, calls: list[dict]) -> list[dict]:
-        """Birden çok tool'u async sırayla çağır.
+        """Call multiple tools asynchronously in sequence.
 
         calls: [{"name": "...", "arguments": {...}}, ...]
         """

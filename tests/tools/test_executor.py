@@ -49,7 +49,7 @@ class TestToolExecutor:
         result = executor.execute("nonexistent_tool", {})
         data = json.loads(result)
         assert "error" in data
-        assert "Tool bulunamadı" in data["error"]
+        assert "Tool not found" in data["error"]
 
     def test_execute_multi(self, patch_registry):
         from tools.registry import ToolDef
@@ -95,7 +95,7 @@ class TestToolExecutor:
         elif results[1]["result"] is not None:
             data = json.loads(results[1]["result"])
             assert "error" in data
-            assert "Tool bulunamadı" in data["error"]
+            assert "Tool not found" in data["error"]
 
     def test_call_count_increment(self, patch_registry):
         from tools.registry import ToolDef

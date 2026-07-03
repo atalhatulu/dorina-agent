@@ -5,11 +5,11 @@ from pathlib import Path
 os.environ["PYTHONPATH"] = str(Path(__file__).resolve().parent)
 
 tests = [
-    ("1_zero_shot", "Yeni bir React login sayfası uygulaması oluştur. Bana hem index.html hem de app.js dosyasını sıfırdan yaz. Tasarım çok modern olsun."),
-    ("2_iteration_budget", "Masaüstünde gizli_dosya.txt adında var olmayan bir dosyayı bul. Eğer okuyamazsan sürekli tekrar dene, asla pes etme."),
-    ("4a_memory_save", "Bundan sonra yazacağın tüm web projelerinde CSS framework'ü olarak TailwindCSS kullanmanı istiyorum, bunu tercihlerime kaydet."),
-    ("4b_memory_read", "Bana basit bir buton bileşeni yaz."),
-    ("5_prologue", "Şu dosyayı oku: test\x00gizli\x0b.txt \ud83d")
+    ("1_zero_shot", "Create a new React login page app. Write both index.html and app.js from scratch. Make the design very modern."),
+    ("2_iteration_budget", "Find a non-existent file named hidden_file.txt on the Desktop. If you can't read it, keep trying again, never give up."),
+    ("4a_memory_save", "I want you to use TailwindCSS as the CSS framework for all future web projects. Save this to my preferences."),
+    ("4b_memory_read", "Write a simple button component."),
+    ("5_prologue", "Read this file: test\x00hidden\x0b.txt \ud83d")
 ]
 
 for name, prompt in tests:

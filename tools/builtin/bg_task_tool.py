@@ -4,6 +4,7 @@ import threading
 from tools.registry import register_tool
 from bg_tools.task_manager import task_manager, BackgroundTask
 from core.logger import log
+from core.constants import t
 
 
 @register_tool(
@@ -108,20 +109,20 @@ def task_create_bash(command: str, label: str = "", notify_on_complete: bool = F
                 stdout, stderr = proc.communicate(timeout=300)
                 _out = stdout.decode("utf-8", errors="replace")[:2000]
                 _err = stderr.decode("utf-8", errors="replace")[:500]
-                # timeout'tan (kod 124) veya normal bitisten sonra ciktiyi goster
+                # Show output after timeout (code 124) or normal completion
                 if proc.returncode in (0, 124):
                     task.status = "done"
                     task.result = _out
                     task.finished_at = time.time()
                     _preview = _out[:80] if _out.strip() else _err[:80]
-                    _notify(f"✓ [{name}] tamamlandı ({task.elapsed}s): {_preview}")
+                    _notify(f"✓ [{name}] completed ({task.elapsed}s): {_preview}")
                 else:
                     task.status = "failed"
                     task.error = _err or _out[:500]
                     task.finished_at = time.time()
                     _preview = (_err or _out)[:80]
-                    _notify(f"⚠ [{name}] çıktı: {_preview}")
-                # Failed task'leri otomatik sil
+                    _notify(f"⚠ [{name}] exit: {_preview}")
+                # Auto-clean failed tasks
                 if task.status == "failed":
                     task_manager.clear_failed()
             except subprocess.TimeoutExpired:
@@ -130,12 +131,12 @@ def task_create_bash(command: str, label: str = "", notify_on_complete: bool = F
                 task.status = "failed"
                 task.error = "timeout (300s)"
                 task.finished_at = time.time()
-                _notify(f"⏱ [{name}] zaman aşımı (300s)")
+                _notify(f"⏱ [{name}] timeout (300s)")
             except (OSError, ValueError) as e:
                 task.status = "failed"
                 task.error = str(e)[:200]
                 task.finished_at = time.time()
-                _notify(f"✗ [{name}] hata: {str(e)[:80]}")
+                _notify(f"✗ [{name}] error: {str(e)[:80]}")
 
         threading.Thread(target=_wait_and_notify, daemon=True).start()
 

@@ -1,6 +1,6 @@
 """Search engine — DuckDuckGo (fallback) + Google Custom Search (opsiyonel).
 
-Kullanım:
+Usage:
     from search.engine import search_engine
 
     results = search_engine.search("python ai")

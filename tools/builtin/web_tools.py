@@ -9,25 +9,25 @@ from core.utils import safe_json_loads
 from core.logger import log
 
 
-# ─── WEB ARAMA ────────────────────────────────────────────
+# ─── WEB SEARCH ───────────────────────────────────────────
 
 @register_tool(
     name="web_search",
-    description="Web'de ara. DuckDuckGo kullanir.",
+    description="Search the web using DuckDuckGo.",
     parameters={
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "Arama sorgusu"},
-            "max_results": {"type": "integer", "description": "Max sonuç", "default": 5},
-            "safe_search": {"type": "boolean", "description": "Güvenli arama filtresi aktif", "default": True},
-            "language": {"type": "string", "description": "Dil filtresi (örn: tr, en, de). Boş bırakılırsa tüm diller.", "default": ""},
+            "query": {"type": "string", "description": "Search query"},
+            "max_results": {"type": "integer", "description": "Max results", "default": 5},
+            "safe_search": {"type": "boolean", "description": "Safe search filter enabled", "default": True},
+            "language": {"type": "string", "description": "Language filter (e.g., tr, en, de). Leave empty for all languages.", "default": ""},
         },
         "required": ["query"],
     },
     toolset="web",
 )
 async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = True, language: str = "") -> str:
-    """Web araması yap. DuckDuckGo kullanır. Hata alırsa alternatif dener."""
+    """Search the web using DuckDuckGo. Falls back to alternative method on error."""
     from knowledge.web_search import web_search
 
     extra_kwargs = {"max_results": max_results}
@@ -45,7 +45,7 @@ async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = 
         extra_kwargs["region"] = region_map.get(language.lower(), "wt-wt")
 
     try:
-        # Ana sorgu - DuckDuckGo
+        # Primary query — DuckDuckGo
         results = web_search.search_web(query, **extra_kwargs)
 
         if len(results) < 2:
@@ -58,9 +58,9 @@ async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = 
 
     except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ImportError) as e:
         _err_msg = str(e)
-        _error_info = " (muhtemelen Google/DDG engelledi)"
+        _error_info = " (possibly blocked by Google/DDG)"
 
-        # Alternatif: web_fetch ile dogrudan ara
+        # Alternative: use web_fetch directly
         try:
             _alt_query = query.replace(" ", "+")
             _url = f"https://html.duckduckgo.com/html/?q={_alt_query}"
@@ -69,30 +69,30 @@ async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = 
                 "success": True,
                 "query": query,
                 "alternative": True,
-                "note": f"DuckDuckGo dogrudan sorgu engellendi{_error_info}, web_fetch ile HTML sayfasi cekildi",
-                "results": [{"title": "DuckDuckGo HTML sonucu", "body": str(_alt_result)[:2000], "source": _url}]
+                "note": f"DuckDuckGo direct query blocked{_error_info}, fetched HTML page via web_fetch",
+                "results": [{"title": "DuckDuckGo HTML result", "body": str(_alt_result)[:2000], "source": _url}]
             }, ensure_ascii=False)
         except (httpx.HTTPError, OSError, json.JSONDecodeError, ImportError):
-            return json.dumps({"error": f"Arama basarisiz{_error_info}: {_err_msg[:200]}"})
+            return json.dumps({"error": f"Search failed{_error_info}: {_err_msg[:200]}"})
 
 
 # ─── WEB FETCH ──────────────────────────────────────────
 
 @register_tool(
     name="web_fetch",
-    description="URL'den icerik cek. method, headers, css_selector ile ozellestir.",
+    description="Fetch content from a URL. Customizable with method, headers, css_selector.",
     parameters={
         "type": "object",
         "properties": {
             "url": {"type": "string", "description": "URL"},
-            "max_size": {"type": "integer", "description": "Maksimum karakter sayısı (varsayılan 5000, max 100000)", "default": 5000},
-            "extract_text": {"type": "boolean", "description": "HTML'den metin çıkarma (varsayılan True)", "default": True},
-            "css_selector": {"type": "string", "description": "Sadece belirtilen CSS seçicisine uyan içeriği çıkar", "default": ""},
-            "headers": {"type": "string", "description": "Özel HTTP başlıkları (JSON string)", "default": ""},
-            "timeout": {"type": "integer", "description": "Zaman aşımı (saniye)", "default": 15},
-            "raw": {"type": "boolean", "description": "İçeriği parse etmeden ham olarak döndür", "default": False},
-            "method": {"type": "string", "description": "HTTP metodu (GET, POST vb.)", "default": "GET"},
-            "data": {"type": "string", "description": "POST isteği için veri/gövde", "default": ""},
+            "max_size": {"type": "integer", "description": "Maximum character count (default 5000, max 100000)", "default": 5000},
+            "extract_text": {"type": "boolean", "description": "Extract text from HTML (default True)", "default": True},
+            "css_selector": {"type": "string", "description": "Only extract content matching the given CSS selector", "default": ""},
+            "headers": {"type": "string", "description": "Custom HTTP headers (JSON string)", "default": ""},
+            "timeout": {"type": "integer", "description": "Timeout (seconds)", "default": 15},
+            "raw": {"type": "boolean", "description": "Return raw content without parsing", "default": False},
+            "method": {"type": "string", "description": "HTTP method (GET, POST, etc.)", "default": "GET"},
+            "data": {"type": "string", "description": "Data/body for POST requests", "default": ""},
         },
         "required": ["url"],
     },
@@ -109,7 +109,7 @@ async def web_fetch_tool(
     method: str = "GET",
     data: str = ""
 ) -> str:
-    """URLden içerik çek (async). Gelişmiş seçeneklerle."""
+    """Fetch content from URL (async). With advanced options."""
     import httpx
     import json
     import time
@@ -147,13 +147,13 @@ async def web_fetch_tool(
             resp.raise_for_status()
             break
         except httpx.HTTPStatusError as e:
-            err_msg = f"HTTP hatası: {e.response.status_code} - {e.response.reason_phrase}"
+            err_msg = f"HTTP error: {e.response.status_code} - {e.response.reason_phrase}"
             break
         except (httpx.RequestError, TimeoutError, OSError) as e:
             err_msg = str(e)
-            # Network unreachable gibi kalici hatalarda retry yapma
+            # Skip retry on permanent network errors
             if "Network is unreachable" in err_msg or "getaddrinfo" in err_msg or "Name or service" in err_msg:
-                return json.dumps({"error": f"🌐 Ağ hatası — siteye erişilemiyor: {err_msg[:150]}", "truncated": False})
+                return json.dumps({"error": f"🌐 Network error — cannot reach site: {err_msg[:150]}", "truncated": False})
             if attempt == retries:
                 break
             await asyncio.sleep(1)
@@ -204,7 +204,7 @@ async def web_fetch_tool(
     if len(result_content) > max_size:
         result_content = result_content[:max_size]
         truncated = True
-        result_content += f"\n\n[... İÇERİK KESİLDİ. TOPLAM UZUNLUK: {len(raw_text)}, GÖSTERİLEN: {max_size} ...]"
+        result_content += f"\n\n[... CONTENT TRUNCATED. TOTAL LENGTH: {len(raw_text)}, SHOWN: {max_size} ...]"
 
     return json.dumps({
         "content": result_content,

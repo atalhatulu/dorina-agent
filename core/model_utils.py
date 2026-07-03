@@ -1,11 +1,10 @@
-"""
-Model string utilities — litellm-format model string üretimi.
+"""Model string utilities — litellm-format model string generation.
 
-Tüm provider/model → "provider/model" dönüşümleri tek merkezden yapılır.
-litellm özel durumlar:
-  - google/gemini provider'ları → "gemini/" prefix (litellm kuralı)
+All provider/model → "provider/model" conversions happen in one place.
+litellm special cases:
+  - google/gemini providers → "gemini/" prefix (litellm convention)
   - openrouter → "openrouter/" prefix
-  - Zaten "/" içeren model string'leri olduğu gibi geçer.
+  - Model strings already containing "/" are passed through as-is.
 """
 
 

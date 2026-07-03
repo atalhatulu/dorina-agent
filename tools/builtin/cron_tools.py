@@ -1,4 +1,4 @@
-"""Cron job tools — tek tool, 4 islem."""
+"""Cron job tools — one tool, 4 actions."""
 from __future__ import annotations
 import json
 from tools.registry import register_tool
@@ -6,19 +6,19 @@ from tools.registry import register_tool
 
 @register_tool(
     name="cron",
-    description="Zamanlanmis gorevleri (cron) yonet: listele/ekle/sil/temizle.",
+    description="Manage scheduled cron jobs: list/add/remove/clear.",
     parameters={
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
                 "enum": ["list", "add", "remove", "clear"],
-                "description": "Islem: list (goruntule), add (ekle), remove (sil), clear (hepsini sil)",
+                "description": "Action: list (show), add (create), remove (delete), clear (delete all)",
             },
-            "name": {"type": "string", "description": "Gorev adi (add icin zorunlu)"},
-            "schedule": {"type": "string", "description": "Zamanlama: '30m', 'every 2h', '0 9 * * *' (add icin zorunlu)"},
-            "prompt": {"type": "string", "description": "Calistirilacak prompt (add icin zorunlu)"},
-            "job_id": {"type": "string", "description": "Silinecek gorevin ID'si (remove icin zorunlu)"},
+            "name": {"type": "string", "description": "Job name (required for add)"},
+            "schedule": {"type": "string", "description": "Schedule: '30m', 'every 2h', '0 9 * * *' (required for add)"},
+            "prompt": {"type": "string", "description": "Prompt to run (required for add)"},
+            "job_id": {"type": "string", "description": "Job ID to remove (required for remove)"},
         },
         "required": ["action"],
     },
@@ -32,19 +32,19 @@ def cron_tool(action: str, name: str = "", schedule: str = "", prompt: str = "",
             return json.dumps({"success": True, "jobs": [(j.name, j.schedule) for j in jobs]}, ensure_ascii=False)
         elif action == "add":
             if not all([name, schedule, prompt]):
-                return json.dumps({"error": "add icin name, schedule ve prompt gerekli"})
+                return json.dumps({"error": "add requires name, schedule and prompt"})
             cron.add_job(name=name, schedule=schedule, prompt=prompt)
-            return json.dumps({"success": True, "message": f"Gorev eklendi: {name}"}, ensure_ascii=False)
+            return json.dumps({"success": True, "message": f"Job added: {name}"}, ensure_ascii=False)
         elif action == "remove":
             if not job_id:
-                return json.dumps({"error": "remove icin job_id gerekli"})
+                return json.dumps({"error": "remove requires job_id"})
             cron.remove(job_id)
-            return json.dumps({"success": True, "message": f"Gorev silindi: {job_id}"}, ensure_ascii=False)
+            return json.dumps({"success": True, "message": f"Job removed: {job_id}"}, ensure_ascii=False)
         elif action == "clear":
             count = len(cron.jobs)
             cron.jobs = []
             cron._save()
-            return json.dumps({"success": True, "message": f"Tum cronlar ({count} adet) silindi."}, ensure_ascii=False)
-        return json.dumps({"error": f"Bilinmeyen action: {action}"})
+            return json.dumps({"success": True, "message": f"All cron jobs ({count}) cleared."}, ensure_ascii=False)
+        return json.dumps({"error": f"Unknown action: {action}"})
     except (ImportError, AttributeError, OSError) as e:
         return json.dumps({"error": str(e)})

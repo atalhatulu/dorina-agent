@@ -36,6 +36,9 @@ PROVIDER_MAP = {
     "minimax": "minimax",
 }
 
+# ── Direct HTTP providers (bypass liteLLM) ──
+_DIRECT_PROVIDERS: set[str] = {"deepseek"}
+
 
 class ProviderRouter:
     """Routes to the active provider/model from config."""
@@ -56,6 +59,38 @@ class ProviderRouter:
             "model": model,
             "api_key": api_key,
         }
+
+    def get_transport_mode(self) -> dict:
+        """Return transport routing info for the current provider.
+
+        Returns:
+            Dict with:
+              - mode: "direct" | "litellm"
+              - provider: provider name
+              - model: full model string
+              - api_key: resolved API key or ""
+        """
+        provider = settings.model.provider
+        model = settings.model.default
+
+        if provider in _DIRECT_PROVIDERS:
+            return {
+                "mode": "direct",
+                "provider": provider,
+                "model": model,
+                "api_key": keys.get_key(provider) or os.environ.get(f"{provider.upper()}_API_KEY", ""),
+            }
+
+        return {
+            "mode": "litellm",
+            "provider": provider,
+            "model": model,
+            "api_key": keys.get_key(provider) or os.environ.get(f"{provider.upper()}_API_KEY", ""),
+        }
+
+    def is_direct_mode(self) -> bool:
+        """Check if current provider uses direct HTTP (bypass liteLLM)."""
+        return settings.model.provider in _DIRECT_PROVIDERS
 
     def get_model_string(self) -> str:
         """Return litellm-format model string (e.g. gemini/gemini-2.5-flash-lite)."""

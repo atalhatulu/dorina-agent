@@ -26,7 +26,7 @@ async def test_task_start_and_complete(manager):
     
     notifs = manager.pop_notifications()
     assert len(notifs) == 1
-    assert "tamamlandı" in notifs[0]
+    assert "completed" in notifs[0]
     assert "Success" in notifs[0]
 
 @pytest.mark.asyncio
@@ -46,7 +46,7 @@ async def test_task_failure(manager):
     
     notifs = manager.pop_notifications()
     assert len(notifs) == 1
-    assert "başarısız" in notifs[0]
+    assert "failed" in notifs[0]
 
 @pytest.mark.asyncio
 async def test_task_cancellation(manager):

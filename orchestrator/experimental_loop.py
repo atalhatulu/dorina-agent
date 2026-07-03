@@ -63,7 +63,7 @@ except ImportError:
 
 # ── Proaktif read_file cache ──────────────────────────────────────
 _FILE_CACHE: OrderedDict[str, str] = OrderedDict()
-_FILE_CACHE_MAX = 20
+_FILE_CACHE_MAX = 100
 
 def _cache_get(path: str) -> str | None:
     resolved = str(Path(path).resolve())
@@ -160,10 +160,13 @@ class AgentLoopV2:
         while self._loop_iterations < _MAX_LOOP_ITERATIONS:
             self._loop_iterations += 1
 
-            # Context compression (sadece %75 dolulukta)
+            # Context compression — Tier 1 (fast) by default, Tier 2 (LLM) for long convos
             if self.compressor.should_compress(self.context.get_messages()):
                 compressed = await self.compressor.compress(
-                    self.context.get_messages(), self._summarize
+                    self.context.get_messages(),
+                    llm_callback=self._summarize,
+                    force_tier2=False,
+                    turn_count=self.turn,
                 )
                 self.context.messages = compressed
 
@@ -176,11 +179,14 @@ class AgentLoopV2:
             # Status: token kullanimi
             self._update_status(response)
 
-            # Budget asimi → force compression + retry
+            # Budget asimi → force Tier 2 compression + retry
             if response.get("_budget_breached"):
                 _display.print_warning("Token budget asildi! Compression basliyor...")
                 compressed = await self.compressor.compress(
-                    self.context.get_messages(), self._summarize
+                    self.context.get_messages(),
+                    llm_callback=self._summarize,
+                    force_tier2=True,
+                    turn_count=self.turn,
                 )
                 self.context.messages = compressed
                 continue
@@ -227,7 +233,7 @@ class AgentLoopV2:
                     )
                     self.context.add_user_message(
                         "3 arac ust uste hata/empty dondurdu. "
-                        "Bildigin kadarıyla yanit ver, eksigini kullaniciya sor."
+                        "Answer based on what you know, ask the user for anything missing."
                     )
                     continue
 
@@ -531,8 +537,8 @@ class AgentLoopV2:
                 ad = w
                 break
 
-        selam_sozu = "Merhaba" if "merhaba" in text else "Selam"
-        yanit = f"{selam_sozu}{' ' + ad.title() if ad else ''}! Sana nasil yardimci olabilirim?"
+        selam_sozu = "Hi" if "hi" in text or "hey" in text else "Hello"
+        yanit = f"{selam_sozu}{' ' + ad.title() if ad else ''}! How can I help you?"
         self.context.add_assistant_message(yanit)
         return yanit
 

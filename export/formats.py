@@ -1,4 +1,4 @@
-"""Export — session'ları JSON, MD, HTML olarak dışa aktar."""
+"""Export — sessions to JSON, MD, HTML."""
 from __future__ import annotations
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ from datetime import datetime
 
 
 def export_json(messages: list[dict], path: str = "") -> str:
-    """Session'ı JSON olarak kaydet."""
+    """Save session as JSON."""
     path = path or f"export/session_{datetime.now():%Y%m%d_%H%M%S}.json"
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     data = []
@@ -25,7 +25,7 @@ def export_json(messages: list[dict], path: str = "") -> str:
 
 
 def export_markdown(messages: list[dict], path: str = "") -> str:
-    """Session'ı Markdown olarak kaydet."""
+    """Save session as Markdown."""
     path = path or f"export/session_{datetime.now():%Y%m%d_%H%M%S}.md"
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     lines = [f"# Session Export — {datetime.now():%d %B %Y}", "", "---", ""]
@@ -33,7 +33,7 @@ def export_markdown(messages: list[dict], path: str = "") -> str:
         role = m.get("role", "?")
         content = m.get("content", "")
         if role == "user":
-            lines.append(f"## 🧑 Kullanıcı\n\n{content}\n")
+            lines.append(f"## 🧑 User\n\n{content}\n")
         elif role == "assistant":
             lines.append(f"## 🤖 Dorina\n\n{content}\n")
         elif role == "tool":
@@ -43,10 +43,10 @@ def export_markdown(messages: list[dict], path: str = "") -> str:
 
 
 def export_html(messages: list[dict], path: str = "") -> str:
-    """Session'ı HTML olarak kaydet."""
+    """Save session as HTML."""
     path = path or f"export/session_{datetime.now():%Y%m%d_%H%M%S}.html"
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    html = ["<!DOCTYPE html><html lang='tr'><head><meta charset='utf-8'>",
+    html = ["<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>",
             "<title>Session Export</title>",
             "<style>body{background:#1a1815;color:#f0ead8;font-family:monospace;padding:2em}",
             ".user{color:#D4622A}.dorina{color:#6bb05d}.msg{margin:1em 0;padding:1em;border-left:3px solid #D4622A}</style></head><body>",

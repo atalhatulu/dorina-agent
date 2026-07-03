@@ -31,17 +31,17 @@ from tools.builtin.web_tools import (
 )
 
 
-# ─── TOOLSET YONETIMI ────────────────────────────────────
+# ─── TOOLSET MANAGEMENT ─────────────────────────────────
 
 @register_tool(
     name="tools_enable",
-    description="Yeni bir tool kategorisini aktiflestir. Kategoriler: file, web, terminal, delegation, system, mcp.",
+    description="Enable a tool category. Categories: file, web, terminal, delegation, system, mcp.",
     parameters={
         "type": "object",
         "properties": {
             "toolset": {
                 "type": "string",
-                "description": "Aktiflestirilecek kategori. En cok kullanilan: delegation, mcp, system",
+                "description": "Category to enable. Most common: delegation, mcp, system",
                 "enum": ["file", "web", "terminal", "delegation", "mcp", "system"],
             }
         },

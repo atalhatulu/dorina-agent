@@ -19,6 +19,8 @@ class TestModeManager:
         assert not modes.is_on("godmode")
 
     def test_set(self):
+        from core.constants import set_language
+        set_language("tr")
         modes.reset()
         r = modes.set("godmode", True)
         assert "Aktif" in r
@@ -74,6 +76,8 @@ class TestModeManager:
         assert "SPEED" in s
 
     def test_unknown_mod(self):
+        from core.constants import set_language
+        set_language("tr")
         r = modes.set("olmayan_mod", True)
         assert "Bilinmeyen" in r
         r = modes.toggle("olmayan_mod")

@@ -1,4 +1,4 @@
-"""Session yöneticisi testleri."""
+"""Session manager tests."""
 
 import pytest
 

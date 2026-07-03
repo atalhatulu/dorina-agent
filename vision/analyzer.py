@@ -1,4 +1,4 @@
-"""Görsel analiz — resim oku, OCR yap, yeniden boyutlandır, format değiştir, thumbnail oluştur."""
+"""Visual analysis — read images, perform OCR,, yeniden boyutlandır, format değiştir, thumbnail oluştur."""
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional

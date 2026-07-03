@@ -47,6 +47,7 @@ def register_commands() -> dict[str, CommandHandler]:
         cmd_tools, cmd_tasks, cmd_crons, cmd_verify, cmd_review, cmd_skills,
     )
     from commands.debug_commands import cmd_debug, cmd_trace
+    from commands.goal_commands import cmd_goals, cmd_goal
 
     return {
         "/exit": cmd_exit,
@@ -81,4 +82,6 @@ def register_commands() -> dict[str, CommandHandler]:
         "/clear": cmd_clear,
         "/debug": cmd_debug,
         "/trace": cmd_trace,
+        "/goal": cmd_goal,
+        "/goals": cmd_goals,
     }

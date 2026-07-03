@@ -1,4 +1,4 @@
-"""Çalışma belleği - anlık konuşma bağlamı."""
+"""Working memory — current conversation context."""
 
 from typing import Any, Optional
 
@@ -6,7 +6,7 @@ from memory.base import BaseMemory
 
 
 class WorkingMemory(BaseMemory):
-    """Anlık konuşma belleği. Kullanıcı mesajlarını ve yanıtları tutar."""
+    """Current conversation memory. Holds user messages and responses."""
 
     memory_type = "working"
 
@@ -15,22 +15,22 @@ class WorkingMemory(BaseMemory):
         self.messages: list[dict] = []
         super().__init__()
 
-    # ── BaseMemory uyumluluk methodlari ────────────────────────
+    # ── BaseMemory compatibility methods ────────────────────────
 
     def add(self, key: str, content: str, metadata: Optional[dict] = None) -> None:
-        """BaseMemory uyumlu: (role=key, content=content, metadata=tool_name)."""
+        """BaseMemory compatible: (role=key, content=content, metadata=tool_name)."""
         tool_name = (metadata or {}).get("tool_name") if metadata else None
         self._add_msg(role=key, content=content, tool_name=tool_name)
 
     def get(self, key: str) -> Any:
-        """Key ile eslesen son mesaji getir (role eslesmesi)."""
+        """Get the last message matching a role."""
         for msg in reversed(self.messages):
             if msg.get("role") == key:
                 return msg.get("content", "")
         return None
 
     def search(self, query: str, n_results: int = 5) -> list[dict]:
-        """Mesaj iceriginde metin ara."""
+        """Search message content for text."""
         results = []
         for msg in self.messages:
             content = msg.get("content", "")
@@ -41,7 +41,7 @@ class WorkingMemory(BaseMemory):
         return results
 
     def delete(self, key: str) -> bool:
-        """Role gore mesaj sil."""
+        """Delete messages by role."""
         before = len(self.messages)
         self.messages = [m for m in self.messages if m.get("role") != key]
         return len(self.messages) < before
@@ -52,10 +52,10 @@ class WorkingMemory(BaseMemory):
     def count(self) -> int:
         return len(self.messages)
 
-    # ── Orijinal WorkingMemory API ────────────────────────────
+    # ── Original WorkingMemory API ────────────────────────────
 
     def _add_msg(self, role: str, content: str, tool_name: Optional[str] = None):
-        """Orijinal add() mantigi."""
+        """Original add() logic."""
         entry = {"role": role, "content": content}
         if tool_name:
             entry["name"] = tool_name

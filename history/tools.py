@@ -1,4 +1,4 @@
-"""File History tool'lari: snapshot, restore, diff, history."""
+"""File History tools: snapshot, restore, diff, history."""
 from __future__ import annotations
 import json
 from tools.registry import register_tool
@@ -6,12 +6,12 @@ from tools.registry import register_tool
 
 @register_tool(
     name="history",
-    description="Dosya değişiklik geçmişini göster. Hangi dosyaların ne zaman değiştiğini listeler.",
+    description="Show file change history. Lists which files changed and when.",
     parameters={
         "type": "object",
         "properties": {
-            "file": {"type": "string", "description": "Belirli bir dosyanın geçmişi (opsiyonel)", "default": ""},
-            "limit": {"type": "integer", "description": "Kaç snapshot gösterilecek", "default": 10},
+            "file": {"type": "string", "description": "History for a specific file (optional)", "default": ""},
+            "limit": {"type": "integer", "description": "How many snapshots to show", "default": 10},
         },
     },
     toolset="history",
@@ -20,18 +20,18 @@ def history_tool(file: str = "", limit: int = 10) -> str:
     from history.file_history import file_history
     h = file_history.get_history(file, limit)
     if not h:
-        return json.dumps({"snapshots": [], "message": "Snapshot yok"})
+        return json.dumps({"snapshots": [], "message": "No snapshots"})
     return json.dumps({"snapshots": h, "stats": file_history.stats()}, ensure_ascii=False, indent=2)
 
 
 @register_tool(
     name="restore",
-    description="Dosyayı önceki bir snapshot'a geri sar. Varsayılan: son snapshot.",
+    description="Restore file to a previous snapshot. Default: latest snapshot.",
     parameters={
         "type": "object",
         "properties": {
-            "file": {"type": "string", "description": "Geri sarılacak dosya"},
-            "index": {"type": "integer", "description": "Snapshot index (-1=son, -2=ondan onceki)", "default": -1},
+            "file": {"type": "string", "description": "File to restore"},
+            "index": {"type": "integer", "description": "Snapshot index (-1=latest, -2=previous)", "default": -1},
         },
         "required": ["file"],
     },
@@ -42,16 +42,16 @@ def restore_tool(file: str, index: int = -1) -> str:
     result = file_history.restore(index, file)
     if result:
         return json.dumps({"restored": result, "snapshot_index": index})
-    return json.dumps({"error": "Snapshot bulunamadi"})
+    return json.dumps({"error": "Snapshot not found"})
 
 
 @register_tool(
     name="diff_history",
-    description="Mevcut dosya ile snapshot arasındaki farkı göster.",
+    description="Show diff between current file and a snapshot.",
     parameters={
         "type": "object",
         "properties": {
-            "file": {"type": "string", "description": "Dosya yolu"},
+            "file": {"type": "string", "description": "File path"},
             "index": {"type": "integer", "description": "Snapshot index", "default": -1},
         },
         "required": ["file"],
@@ -61,4 +61,4 @@ def restore_tool(file: str, index: int = -1) -> str:
 def diff_history_tool(file: str, index: int = -1) -> str:
     from history.file_history import file_history
     d = file_history.diff(file, index)
-    return d or "Fark yok"
+    return d or "No differences"

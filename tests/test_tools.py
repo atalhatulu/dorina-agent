@@ -1,4 +1,4 @@
-"""Tool modülü testleri."""
+"""Tool module tests."""
 
 import pytest
 import json

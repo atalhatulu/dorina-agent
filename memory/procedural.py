@@ -1,4 +1,4 @@
-"""Prosedürel bellek - skill'leri yükler ve çalıştırır."""
+"""Procedural memory — loads and runs skills."""
 
 import shutil
 from pathlib import Path
@@ -11,7 +11,7 @@ from memory.base import BaseMemory
 
 
 class ProceduralMemory(BaseMemory):
-    """Skill'leri (SKILL.md) yükler ve yönetir."""
+    """Loads and manages skills (SKILL.md)."""
 
     memory_type = "procedural"
 
@@ -24,7 +24,7 @@ class ProceduralMemory(BaseMemory):
         self.skills_dir.mkdir(parents=True, exist_ok=True)
 
     def list_skills(self) -> list[dict]:
-        """Tüm skill'leri listele."""
+        """List all skills."""
         skills = []
         for skill_dir in self.skills_dir.iterdir():
             if skill_dir.is_dir():
@@ -100,7 +100,7 @@ class ProceduralMemory(BaseMemory):
         return self.skills_dir / name
 
     def get_skill(self, name: str) -> Optional[dict]:
-        """Skill içeriğini getir."""
+        """Get skill content."""
         try:
             skill_path = self._sanitize_name(name)
         except ValueError:
@@ -128,7 +128,7 @@ class ProceduralMemory(BaseMemory):
         self.delete(name)
 
     def _read_skill_info(self, path: Path) -> dict:
-        """SKILL.md başlık bilgilerini oku."""
+        """Read SKILL.md header info."""
         content = path.read_text()
         info = {"name": path.parent.name, "description": "", "path": str(path)}
         
@@ -146,7 +146,7 @@ class ProceduralMemory(BaseMemory):
         return info
 
     def _read_skill_full(self, path: Path) -> dict:
-        """SKILL.md'nin tamamını oku."""
+        """Read full SKILL.md content."""
         info = self._read_skill_info(path)
         info["content"] = path.read_text()
         return info

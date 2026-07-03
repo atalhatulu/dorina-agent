@@ -1,6 +1,6 @@
-"""Token estimator — tiktoken (varsa) veya litellm.get_model_info() ile token sayısı.
+"""Token estimator — count tokens using tiktoken (if available) or litellm.get_model_info().
 
-Fallback: tiktoken yoksa eski karakter/4 yöntemi kullanılır.
+Fallback: if tiktoken is not available, use the char/4 estimation method.
 """
 from __future__ import annotations
 from typing import Optional

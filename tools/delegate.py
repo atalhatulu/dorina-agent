@@ -94,13 +94,20 @@ class SubAgent:
     # ── Main loop ────────────────────────────────────────────────
 
     async def _async_run(self) -> str:
-        # System prompt: minimal, NO soul injection
-        system = f"Görev: {self.goal}"
+        # System prompt: NO soul injection, but clear tool use instruction
+        _tool_names = ", ".join(sorted(
+            t.name for t in registry.list()
+            if t.toolset in (self.toolset_names or {"file", "web", "terminal"})
+        ))
+        system = f"Goal: {self.goal}"
         if self.context:
-            system += f"\n\nBağlam: {self.context}"
+            system += f"\n\nContext: {self.context}"
         system += (
-            "\n\nHedefe ulasmak icin tool'lari kullan. "
-            "Is bitince direkt cevap ver."
+            f"\n\nAvailable tools: {_tool_names}"
+            "\n\nCall these tools via function calling to achieve the goal. "
+            "Use function_call format, do not fake it with XML or plain text. "
+            "Do not answer without calling the tools. "
+            "When done, give a direct answer."
         )
 
         messages = [{"role": "system", "content": system}]
@@ -268,10 +275,10 @@ class SubAgent:
             # repair_message_sequence after each tool turn
             messages = repair_message_sequence(messages)
 
-        return "Maksimum tur sayısına ulaşıldı."
+        return "Maximum number of turns reached."
 
     async def wait_done(self):
-        """SubAgent'in tamamlanmasini bekle."""
+        """Wait for the SubAgent to complete."""
         await self._done.wait()
 
 

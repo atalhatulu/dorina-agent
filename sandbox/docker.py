@@ -1,4 +1,4 @@
-"""Güvenli kod çalıştırma — Docker container (subprocess-based).
+"""Secure code execution — Docker container (subprocess-based).
 
 Default sandbox backend. Uses the Docker CLI directly (no SDK dependency).
 """
@@ -25,7 +25,7 @@ class Sandbox(SandboxInterface):
         import shutil
         self.available = shutil.which("docker") is not None
         if not self.available:
-            log.warning("Docker bulunamadi — sandbox kullanilamaz")
+            log.warning("Docker not found — sandbox unavailable")
 
     def is_available(self) -> bool:
         return self.available
@@ -33,7 +33,7 @@ class Sandbox(SandboxInterface):
     def run_python(self, code: str, timeout: int = 30) -> str:
         """Run Python code in a sandboxed Docker container."""
         if not self.available:
-            return "Sandbox kullanilamiyor (Docker yok)."
+            return "Sandbox unavailable (Docker not found)."
 
         tag = uuid.uuid4().hex[:8]
         src = Path(tempfile.gettempdir()) / f"sandbox_{tag}.py"
@@ -55,24 +55,24 @@ class Sandbox(SandboxInterface):
 
             if result.returncode == 0:
                 output = result.stdout.strip()
-                return output or "Kod calisti (cikti yok)"
+                return output or "Code executed (no output)"
             else:
-                return f"Hata: {result.stderr.strip()[:300]}"
+                return f"Error: {result.stderr.strip()[:300]}"
 
         except subprocess.TimeoutExpired:
-            return f"Zaman asimi ({timeout}sn)"
+            return f"Timeout ({timeout}s)"
         except FileNotFoundError:
             self.available = False
-            return "Docker komutu bulunamadi"
+            return "Docker command not found"
         except OSError as e:
-            return f"Sandbox hatasi: {e}"
+            return f"Sandbox error: {e}"
         finally:
             src.unlink(missing_ok=True)
 
     def run_shell(self, command: str, timeout: int = 30) -> str:
         """Run a shell command in a sandboxed Alpine container."""
         if not self.available:
-            return "Sandbox kullanilamiyor (Docker yok)."
+            return "Sandbox unavailable (Docker not found)."
 
         try:
             result = subprocess.run(
@@ -89,16 +89,16 @@ class Sandbox(SandboxInterface):
             )
 
             if result.returncode == 0:
-                return result.stdout.strip()[:2000] or "Tamam"
-            return f"Hata: {result.stderr.strip()[:200]}"
+                return result.stdout.strip()[:2000] or "Done"
+            return f"Error: {result.stderr.strip()[:200]}"
 
         except subprocess.TimeoutExpired:
-            return f"Zaman asimi ({timeout}sn)"
+            return f"Timeout ({timeout}s)"
         except FileNotFoundError:
             self.available = False
-            return "Docker komutu bulunamadi"
+            return "Docker command not found"
         except OSError as e:
-            return f"Sandbox hatasi: {e}"
+            return f"Sandbox error: {e}"
 
 
 sandbox = Sandbox()

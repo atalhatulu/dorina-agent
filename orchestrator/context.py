@@ -1,11 +1,11 @@
-"""Bağlam yönetimi - mesaj geçmişi, token bütçesi."""
+"""Context management — message history, token budget."""
 
 from core.constants import MAX_WORKING_MESSAGES
 from core.tokenizer import count_tokens, count_messages_tokens
 
 
 class Context:
-    """Konuşma bağlamı. Mesajları tutar, token limitini yönetir."""
+    """Conversation context. Holds messages, manages token limits."""
 
     def __init__(self, model_name: str = ""):
         self.messages: list[dict] = []
@@ -13,18 +13,18 @@ class Context:
         self._model_name = model_name
 
     def add_user_message(self, content: str):
-        """Kullanıcı mesajı ekle."""
+        """Add a user message."""
         self.messages.append({"role": "user", "content": content})
         self._trim()
 
     def add_assistant_message(self, content: str):
-        """Asistan mesajı ekle."""
+        """Add an assistant message."""
         self.messages.append({"role": "assistant", "content": content})
         self._trim()
 
     def add_tool_result(self, tool_name: str, result: str, tool_call_id: str = ""):
-        """Tool sonucu ekle (tool_call_id ile). Provenans formatinda."""
-        # read_file sonuclari truncate edilmez — LLM dosyayi tam gormeli
+        """Add a tool result (with tool_call_id). Provenance format."""
+        # read_file results are not truncated — LLM should see the full file
         if tool_name == "read_file":
             content = f"[{tool_name}] → {result}"
         elif result.startswith("{"):
@@ -42,7 +42,7 @@ class Context:
         else:
             content = f"[{tool_name}] → {result}"
 
-        # Buyuk tool sonuclarini kisalt (token tasarrufu) — read_file haric
+        # Truncate large tool results (token saving) — read_file excluded
         _MAX_TOOL_RESULT = 1500
         if tool_name != "read_file" and len(content) > _MAX_TOOL_RESULT:
             preview = content[:1500]
@@ -59,14 +59,14 @@ class Context:
         self._trim()
 
     def get_messages(self) -> list[dict]:
-        """Tüm mesajları döndür."""
+        """Return all messages."""
         return self.messages
 
     def _trim(self):
-        """Max mesaj sayısını aşma. Tool result + tool_calls gruplarını atomik tut.
+        """Enforce max message count. Keep tool_result + tool_calls groups atomic.
 
-        Mesajları önce atomik gruplara ayır, ardından en eski grupları sil.
-        Bir atomik grup asla bölünmez — ya tamamı silinir ya da hiçbiri.
+        Split messages into atomic groups, then drop the oldest groups.
+        An atomic group is never split — either the whole group is removed or none of it.
         """
         if len(self.messages) <= MAX_WORKING_MESSAGES + 2:
             return
@@ -108,7 +108,7 @@ class Context:
         self.messages = keep
 
     def clear(self):
-        """Bağlamı temizle."""
+        """Clear the context."""
         self.messages.clear()
         self.estimated_tokens = 0
 
@@ -117,7 +117,7 @@ class Context:
         return len(self.messages)
 
     def estimate_tokens(self) -> int:
-        """Token sayısı: tiktoken (varsa) veya karakter/4 fallback."""
+        """Token count: tiktoken (if available) or char/4 fallback."""
         total = count_messages_tokens(self.messages, self._model_name)
         self.estimated_tokens = total
         return total

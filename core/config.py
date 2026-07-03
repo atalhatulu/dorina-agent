@@ -1,4 +1,4 @@
-"""Yapılandırma yönetimi - pydantic-settings ile."""
+"""Configuration management — powered by pydantic-settings."""
 
 from pathlib import Path
 from typing import Optional, List

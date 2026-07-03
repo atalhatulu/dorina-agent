@@ -1,22 +1,23 @@
-"""ModeManager — tum modlari tek merkezde yoneten singleton.
+"""ModeManager — single point of control for all modes.
 
-Modlar:
-- godmode: kisitlama yok, sudo parola otomatik
-- audit: denetim modu, sadece okuma tool'lari
-- temp: kayitsiz sohbet
-- speed: hizli mod, kisitli tool/turn
-- strict: yazma oncesi onay
-- silent: tool ciktilarini gosterme
+Modes:
+- godmode: no restrictions, sudo password auto-filled
+- audit: audit mode, read-only tools only
+- temp: off-the-record chat
+- speed: fast mode, limited tools/turn
+- strict: approval required before writes
+- silent: hide tool outputs
 """
 
 from __future__ import annotations
 import time
 from typing import Any
+from core.constants import get_language
 from core.event_bus import bus
 
 
 class ModeManager:
-    """Tek noktadan mod yonetimi. Singleton."""
+    """Centralized mode management. Singleton."""
 
     _instance: ModeManager | None = None
 
@@ -36,12 +37,12 @@ class ModeManager:
             "silent": {"active": False},
             "deep": {"active": False, "max_tools": 20, "max_turns": 100},
         }
-        self._profile = ""  # aktif kullanici profili
-        self._budget: int = 0  # token budget (0 = limitsiz)
+        self._profile = ""  # active user profile
+        self._budget: int = 0  # token budget (0 = unlimited)
         self._budget_used: int = 0
-        self._budget_warned: bool = False  # her budget periyodunda bir kere uyar
+        self._budget_warned: bool = False  # one warning per budget period
 
-    # ── Temel API ────────────────────────────────────────────
+    # ── Core API ─────────────────────────────────────────────
 
     @property
     def active(self) -> list[str]:
@@ -55,10 +56,11 @@ class ModeManager:
         return m is not None and m["active"]
 
     def set(self, name: str, active: bool, **kwargs) -> str:
-        """Mod ac/kapa. Event bus'a bildirim gonderir."""
+        """Activate/deactivate a mode. Publishes mode_change event."""
         m = self._modes.get(name)
         if m is None:
-            return f"Bilinmeyen mod: {name}"
+            _lang = get_language()
+            return f"{'Bilinmeyen mod' if _lang == 'tr' else 'Unknown mode'}: {name}"
 
         old = m["active"]
         m["active"] = active
@@ -67,18 +69,22 @@ class ModeManager:
         if active and name == "godmode":
             m["started_at"] = time.time()
 
-        # Event yayinla
+        # Publish event
         bus.publish("mode_change", mod=name, old=old, new=active)
-        return f"{'Aktif' if active else 'Pasif'}: {name}"
+        _lang = get_language()
+        _active_str = "Aktif" if _lang == "tr" else "Active"
+        _passive_str = "Pasif" if _lang == "tr" else "Inactive"
+        return f"{_active_str if active else _passive_str}: {name}"
 
     def toggle(self, name: str) -> str:
         m = self._modes.get(name)
         if m is None:
-            return f"Bilinmeyen mod: {name}"
+            _lang = get_language()
+            return f"{'Bilinmeyen mod' if _lang == 'tr' else 'Unknown mode'}: {name}"
         return self.set(name, not m["active"])
 
     def reset(self):
-        """Tum modlari kapat, temiz baslangic."""
+        """Reset all modes to inactive, clean start."""
         for name, m in self._modes.items():
             m["active"] = False
             if name == "godmode":
@@ -116,7 +122,7 @@ class ModeManager:
         self._budget_warned = False
 
     def budget_hit(self, tokens: int) -> bool:
-        """Token harcadiktan sonra budget asildi mi? Her budget periyodunda bir kere True doner."""
+        """Check if budget was exceeded after spending tokens. Returns True once per budget period."""
         if self._budget <= 0:
             return False
         self._budget_used += tokens
@@ -132,7 +138,7 @@ class ModeManager:
     @property
     def budget_remaining(self) -> int:
         if self._budget <= 0:
-            return -1  # limitsiz
+            return -1  # unlimited
         return max(0, self._budget - self._budget_used)
 
     # ── Profile ──────────────────────────────────────────────

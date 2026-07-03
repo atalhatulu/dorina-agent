@@ -36,9 +36,9 @@ async def main():
     import argparse
 
     parser = argparse.ArgumentParser(description=f"{NAME} v{VERSION}")
-    parser.add_argument("-q", "--query", help="Tek sorgu modu")
-    parser.add_argument("--new", action="store_true", help="Yeni oturum")
-    parser.add_argument("--version", action="store_true", help="Versiyon")
+    parser.add_argument("-q", "--query", help="Single query mode")
+    parser.add_argument("--new", action="store_true", help="New session")
+    parser.add_argument("--version", action="store_true", help="Show version")
     args = parser.parse_args()
 
     if args.version:

@@ -1,4 +1,4 @@
-"""Baslangic banner'i — fastfetch tarzi, #D4622A tema."""
+"""Startup banner — fastfetch style, #D4622A theme."""
 import os
 import platform
 import subprocess as _sp_run
@@ -7,14 +7,14 @@ from rich.console import Console
 from rich.text import Text
 
 from core.config import settings
-from core.constants import VERSION
+from core.constants import VERSION, t
 
-# ── Renk paleti ─────────────
-DIM   = "#8A8478"   # sicak gri
-HI    = "#F0EAD8"   # sicak beyaz
-GREEN = "#6BB05D"   # sicak yesil
-AMBER = "#D4A03A"   # altin
-TEAL  = "#5BA0A0"   # sicak teal
+# ── Color palette ─────────────
+DIM   = "#8A8478"   # warm gray
+HI    = "#F0EAD8"   # warm white
+GREEN = "#6BB05D"   # warm green
+AMBER = "#D4A03A"   # gold
+TEAL  = "#5BA0A0"   # warm teal
 
 console = Console()
 
@@ -30,11 +30,11 @@ def get_ascii_lines(v1, v2, v3):
 
 
 def _kv(key: str, val: str, key_w: int = 10, v2: str = "#E08F5A") -> Text:
-    t = Text()
-    t.append(f"{key:<{key_w}}", style=f"bold {v2}")
-    t.append(" ", style="")
-    t.append_text(Text.from_markup(val))
-    return t
+    t_obj = Text()
+    t_obj.append(f"{key:<{key_w}}", style=f"bold {v2}")
+    t_obj.append(" ", style="")
+    t_obj.append_text(Text.from_markup(val))
+    return t_obj
 
 
 def _dim(s: str) -> str:
@@ -69,7 +69,7 @@ def _build_info_lines(
     header.append("studio", style=f"bold {v2}")
     lines.append(header)
 
-    sep = Text("\u2500" * 36, style=DIM)
+    sep = Text("─" * 36, style=DIM)
     lines.append(sep)
 
     provider, _, model_name = model_info.partition("/")
@@ -83,7 +83,7 @@ def _build_info_lines(
             keys_str += _dim(" +" + str(len(api_keys) - 3))
         lines.append(_kv("api keys", keys_str, v2=v2))
     else:
-        lines.append(_kv("api keys", _color("yok", coral), v2=v2))
+        lines.append(_kv("api keys", _color(t("provider_key_missing"), coral), v2=v2))
     lines.append(Text(""))
 
     lines.append(_kv("state", _color("IDLE", GREEN) + " " + _dim("· 9-state machine"), v2=v2))
@@ -111,14 +111,14 @@ def print_startup_banner(
     skills: list[tuple[str, str]] = None,
     api_keys: list[str] = None,
 ):
-    """Ekrani temizle ve gradient ASCII + infos bas."""
+    """Clear screen and print gradient ASCII + info."""
     _sp_run.run("clear" if os.name == "posix" else "cls", shell=True)
 
     if tools_available is None: tools_available = []
     if tools_all is None: tools_all = []
     if skills is None: skills = []
     if api_keys is None: api_keys = []
-    
+
     godmode = getattr(settings.model, "godmode", False)
     ACCENT = "#ff3333" if godmode else "#D4622A"
     V1 = ACCENT
@@ -160,5 +160,5 @@ def print_startup_banner(
     footer.append(f"v{VERSION}", style=DIM)
     console.print(footer)
     console.print()
-    console.print(f"  [{HI}]Hos geldin![/{HI}] [{DIM}]Ne yapalim?[/{DIM}]")
+    console.print(f"  [{HI}]Welcome![/{HI}] [{DIM}]What shall we do?[/{DIM}]")
     console.print()

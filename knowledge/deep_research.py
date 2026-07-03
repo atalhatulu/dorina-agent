@@ -83,7 +83,7 @@ class DeepResearcher:
         log.info(t("info_searching", query=question))
 
         # ── Step 1: Query Analysis ──────────────────────────────
-        log.info("[Research] Step 1: Sorgu analizi yapılıyor...")
+        log.info("[Research] Step 1: Analyzing query...")
         analysis = await self._call_llm(QUERY_ANALYSIS_PROMPT.format(question=question))
         parsed = self._parse_json(analysis) or {}
         sub_questions = parsed.get("sub_questions", [question])
@@ -92,7 +92,7 @@ class DeepResearcher:
         log.info(f"[Research] {len(sub_questions)} alt-sorgu, {len(search_queries)} arama sorgusu")
 
         # ── Step 2: Parallel Search Pipeline ────────────────────
-        log.info("[Research] Step 2: Paralel arama yapılıyor...")
+        log.info("[Research] Step 2: Running parallel searches...")
 
         # Batch 1: Search with generated queries
         batch_results = await self._parallel_search(search_queries, max_results=4)
@@ -114,7 +114,7 @@ class DeepResearcher:
         log.info(f"[Research] {len(self.findings)} bulgu toplandı")
 
         # ── Step 3: Cross Reference ─────────────────────────────
-        log.info("[Research] Step 3: Çapraz referans yapılıyor...")
+        log.info("[Research] Step 3: Cross-referencing...")
         findings_text = self._format_findings(self.findings)
         cross_ref_text = await self._call_llm(
             CROSS_REFERENCE_PROMPT.format(question=question, findings=findings_text)
@@ -125,7 +125,7 @@ class DeepResearcher:
                  f"Boşluk: {len(cross_ref.get('gaps', []))}")
 
         # ── Step 4: Synthesis ───────────────────────────────────
-        log.info("[Research] Step 4: Sentez yapılıyor...")
+        log.info("[Research] Step 4: Synthesizing results...")
         synthesis = await self._call_llm(
             SYNTHESIS_PROMPT.format(
                 question=question,
@@ -147,7 +147,7 @@ class DeepResearcher:
             if confidence >= 0.8 or not gaps or self.iteration >= self.max_iterations:
                 break
 
-            log.info(f"[Research] Iterasyon {self.iteration}: {len(gaps)} boşluk dolduruluyor...")
+            log.info(f"[Research] Iterasyon {self.iteration}: {len(gaps)} filling gaps...")
             gap_queries = gaps[:3]
             gap_results = await self._parallel_search(gap_queries, max_results=3)
             self.findings.extend(gap_results)
@@ -170,7 +170,7 @@ class DeepResearcher:
             )
 
         # ── Step 6: Final Report ───────────────────────────────
-        log.info("[Research] Step 5: Nihai rapor oluşturuluyor...")
+        log.info("[Research] Step 5: Generating final report...")
         final = await self._call_llm(
             FINAL_REPORT_PROMPT.format(question=question, synthesis=synthesis)
         )

@@ -12,6 +12,7 @@ from core.constants import (
     CACHE_STRATEGY,
 )
 from core.tokenizer import count_tokens, count_messages_tokens
+from providers.router import router as provider_router
 
 
 class ReasoningEngine:
@@ -32,7 +33,7 @@ class ReasoningEngine:
         return settings.model.provider
 
     def get_model_string(self) -> str:
-        """litellm formatında model string'i döndür (örn: gemini/gemini-2.5-flash)."""
+        """Return model string in litellm format (e.g. gemini/gemini-2.5-flash)."""
         from core.model_utils import build_model_string
         return build_model_string(self.provider, self.model)
 
@@ -86,7 +87,7 @@ class ReasoningEngine:
                 litellm.global_disable_no_log_param = True
                 ReasoningEngine._shared_llm = litellm
             except ImportError:
-                log.error("litellm yüklenemedi! pip install litellm")
+                log.error("litellm could not be loaded! pip install litellm")
                 raise
         return ReasoningEngine._shared_llm
 
@@ -130,8 +131,8 @@ class ReasoningEngine:
         tools: Optional[list[dict]] = None,
         stream_callback: Optional[callable] = None,
     ) -> dict:
-        """LLM'e sor, yanıt al. (async) + prompt caching + opsiyonel streaming."""
-        llm = self._get_llm()
+        """Send to LLM, get response. (async) + prompt caching + optional streaming."""
+        llm = None  # lazy: only initialized when liteLLM path is needed
 
         full_messages = [{"role": "system", "content": system_prompt}]
         full_messages.extend(messages)
@@ -145,7 +146,7 @@ class ReasoningEngine:
             "model": model_name,
             "messages": full_messages,
             "api_key": api_key,
-            "max_tokens": settings.model.max_tokens, # Config'den alınır
+            "max_tokens": settings.model.max_tokens,  # Read from config
         }
 
         # Safety Settings for Gemini (if provider is google/gemini)
@@ -157,8 +158,8 @@ class ReasoningEngine:
                 {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
                 {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
             ]
-            # Litellm'de max_tokens ayrı parametre olarak verilir, generationConfig yerine
-            params["max_tokens"] = 65535 # Gemini'ye özel yüksek token limiti
+            # litellm passes max_tokens as a separate param, not in generationConfig
+            params["max_tokens"] = 65535  # Gemini-specific high token limit
 
         cache_params = self._get_cache_params(system_prompt)
         if cache_params:
@@ -172,12 +173,40 @@ class ReasoningEngine:
         try:
             log.debug(f"LLM call: model={model_name}, provider={self.provider}")
 
+            # ── Direct mode bypass (liteLLM free, ~500ms–2s faster) ──
+            if provider_router.is_direct_mode():
+                from providers.direct_deepseek import chat as _direct_chat
+                result = await _direct_chat(
+                    model=model_name,
+                    messages=full_messages,
+                    tools=tools,
+                    max_tokens=params.get("max_tokens", 8192),
+                    stream=bool(stream_callback),
+                    api_key=api_key,
+                    stream_callback=stream_callback,
+                )
+                # Token budget check (same as _parse_response)
+                from core.mode_manager import modes
+                _usage = result.get("usage", {})
+                _total = _usage.get("prompt_tokens", 0) + _usage.get("completion_tokens", 0)
+                if _total > 0 and modes.budget_hit(_total):
+                    from ui.display import print_warning
+                    print_warning(f"Token budget exceeded! ({modes.budget_used}/{modes.budget})")
+                    result["_budget_breached"] = True
+                return result
+
+            # ── LiteLLM path (only initialized when needed) ──
+            if llm is None:
+                llm = self._get_llm()
+
             if stream_callback:
                 return await self._think_stream(llm, params, stream_callback)
 
             response = await llm.acompletion(**params)
             return self._parse_response(response)
         except Exception as e:
+            if llm is None:
+                llm = self._get_llm()  # liteLLM needed for fallback
             return await self._handle_llm_error(e, llm, params, model_name, full_messages, stream_callback)
 
     async def _handle_llm_error(
@@ -188,27 +217,27 @@ class ReasoningEngine:
         from core.error_classifier import classify_api_error, FailoverReason
         classified = classify_api_error(e, provider=self.provider, model=model_name)
 
-        # ── TOOL_FORMAT_ERROR: mesaj sırasını onar ve yeniden dene (fallback tüketme) ──
+        # ── TOOL_FORMAT_ERROR: repair message order and retry (don't consume fallback) ──
         if classified.reason == FailoverReason.TOOL_FORMAT_ERROR:
-            log.warning("Tool format hatası — mesaj sırası onarılıp yeniden deneniyor...")
+            log.warning("Tool format error — repairing message order and retrying...")
             try:
-                # messages'i onar: repair_message_sequence ile role sırasını düzelt
+                # Repair messages: fix role order with repair_message_sequence
                 from orchestrator.repair import repair_message_sequence
                 msgs = params.get("messages", [])
                 repaired = repair_message_sequence(msgs)
                 repaired_count = len(repaired) - len(msgs) if len(repaired) > len(msgs) else 0
 
-                # Orphaned tool_calls temizle: son assistant(tool_calls) mesajını kontrol et
+                # Clean orphaned tool_calls: check the latest assistant(tool_calls) message
                 cleaned = []
                 for m in repaired:
                     if m.get("role") == "assistant" and m.get("tool_calls"):
-                        # Sadece karşılığı olan tool_calls'leri tut
+                        # Keep only tool_calls that have corresponding tool messages
                         valid_ids = set()
                         for tc in m.get("tool_calls", []):
                             tcid = tc.get("id", "") or tc.get("tool_call_id", "")
                             if tcid:
                                 valid_ids.add(tcid)
-                        # Şu mesajdan sonraki tool mesajlarına bak
+                        # Look at tool messages that come after this assistant message
                         _future_tool_ids = {
                             mm.get("tool_call_id", "") for mm in repaired
                             if mm.get("role") == "tool"
@@ -218,13 +247,13 @@ class ReasoningEngine:
                             if (tc.get("id", "") or tc.get("tool_call_id", "")) in _future_tool_ids
                         ]
                         if not valid_tcs:
-                            # Hiçbir tool_call karşılığı yok — assistant content varsa düz content'e çevir
+                            # No tool_call response found — convert to plain content if exists
                             if m.get("content"):
                                 cleaned.append({"role": "assistant", "content": m["content"]})
-                            # Yoksa atla
+                            # Otherwise skip it
                             continue
                         elif len(valid_tcs) < len(m.get("tool_calls", [])):
-                            # Bazıları orphan — sadece geçerli olanları tut
+                            # Some are orphaned — keep only the valid ones
                             m["tool_calls"] = valid_tcs
                             cleaned.append(m)
                         else:
@@ -233,19 +262,19 @@ class ReasoningEngine:
                         cleaned.append(m)
 
                 params["messages"] = cleaned
-                log.info(f"Tool format hatası: mesaj sırası onarıldı (repaired={repaired_count} orphaned={len(repaired)-len(cleaned)})")
+                log.info(f"Tool format error: message order repaired (repaired={repaired_count} orphaned={len(repaired)-len(cleaned)})")
 
-                # Küçük bir cooldown (1sn) — ard arda spawn'ı önle
+                # Small cooldown (1s) — prevent rapid re-spawn
                 await asyncio.sleep(1)
 
-                # Yeniden dene — aynı model, aynı parametreler (onarılmış messages ile)
+                # Retry — same model, same params (with repaired messages)
                 if stream_callback:
                     return await self._think_stream(llm, params, stream_callback)
                 resp = await llm.acompletion(**params)
                 return self._parse_response(resp)
             except (KeyError, json.JSONDecodeError, ImportError, OSError) as _repair_e:
-                log.error(f"Tool format onarimi da basarisiz: {_repair_e}")
-                # Onarım da başarısız → normal hata akışına düş
+                log.error(f"Tool format repair also failed: {_repair_e}")
+                # Repair also failed → fall through to normal error flow
                 e = _repair_e
 
         if classified.reason in [FailoverReason.RATE_LIMIT, FailoverReason.OVERLOADED,
@@ -259,9 +288,9 @@ class ReasoningEngine:
             fallback_chain = self._get_fallback_chain(exclude_provider=self.provider, exclude_model=model_name)
 
             for attempt, (fb_provider, fb_model_name) in enumerate(fallback_chain, 1):
-                retry_wait = 5 * attempt  # 5sn, 10sn, 15sn...
+                retry_wait = 5 * attempt  # 5s, 10s, 15s...
                 log.warning(f"Fallback {attempt}: {model_name} → {fb_model_name} ({fb_provider})")
-                _display.print_info(f"Model {model_name} hata verdi. {retry_wait}s sonra {fb_model_name} deneniyor... ☕")
+                _display.print_info(f"Model {model_name} returned an error. Trying {fb_model_name} in {retry_wait}s... ☕")
                 await asyncio.sleep(retry_wait)
 
                 # Build new params for this model/provider
@@ -284,14 +313,14 @@ class ReasoningEngine:
                     fb_params["max_tokens"] = settings.model.max_tokens
 
                 try:
-                    log.info(f"Deniyorum: {fb_model_name}")
+                    log.info(f"Trying: {fb_model_name}")
                     if stream_callback:
                         return await self._think_stream(llm, fb_params, stream_callback)
                     resp = await llm.acompletion(**fb_params)
                     return self._parse_response(resp)
                 except Exception as fb_e:
-                    log.error(f"Fallback basarisiz ({fb_model_name}): {fb_e}")
-                    e = fb_e  # son hatayı tut
+                    log.error(f"Fallback failed ({fb_model_name}): {fb_e}")
+                    e = fb_e  # keep the last error
 
         # All fallbacks exhausted — clean user message and raise
         log.error(f"LLM ERROR [{classified.reason}]: {type(e).__name__}: {str(e)[:200]}")
@@ -370,18 +399,18 @@ class ReasoningEngine:
                 tool_call_deltas[i] for i in sorted(tool_call_deltas.keys())
             ]
 
-        # ── Token budget kontrolü (stream) ──
+        # ── Token budget check (stream) ──
         from core.mode_manager import modes
         _est_total = _est_in + _est_out
         if _est_total > 0 and modes.budget_hit(_est_total):
             from ui.display import print_warning
-            print_warning(f"Token budget asildi! ({modes.budget_used}/{modes.budget})")
+            print_warning(f"Token budget exceeded! ({modes.budget_used}/{modes.budget})")
             result["_budget_breached"] = True
 
         return result
 
     def _parse_response(self, response) -> dict:
-        """LLM yanıtını parse et + token budget kontrolü."""
+        """Parse LLM response + token budget check."""
         if not response.choices:
             log.warning(f"LLM response has no choices for model {response.model}")
             return {"content": "", "tool_calls": [], "finish_reason": "no_choices", "usage": {"prompt_tokens": 0, "completion_tokens": 0}, "cost": 0}
@@ -415,11 +444,11 @@ class ReasoningEngine:
                 for tc in choice.message.tool_calls
             ]
 
-        # ── Token budget kontrolü ──
+        # ── Token budget check ──
         from core.mode_manager import modes
         if total_tokens > 0 and modes.budget_hit(total_tokens):
             from ui.display import print_warning
-            print_warning(f"Token budget asildi! ({modes.budget_used}/{modes.budget})")
+            print_warning(f"Token budget exceeded! ({modes.budget_used}/{modes.budget})")
             result["_budget_breached"] = True
 
         return result

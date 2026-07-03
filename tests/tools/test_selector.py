@@ -68,6 +68,6 @@ class TestToolsetManager:
         """toolset_summary should return formatted string."""
         from tools.toolset import toolset_summary
         summary = toolset_summary()
-        assert "KULLANILABILIR" in summary
+        assert "AVAILABLE" in summary or "KULLANILABILIR" in summary
         assert "FILE" in summary
         assert "tools_enable" in summary

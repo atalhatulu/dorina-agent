@@ -1,7 +1,7 @@
-"""Graphify tools — knowledge graph sorgulama.
+"""Graphify tools — knowledge graph querying.
 
-graphify-out/graph.json dosyasindan okur. Build pipeline'i ayri bir script'tir,
-tool olarak agent'a acik degildir. Sadece sorgulama tool'lari burada.
+Reads from graphify-out/graph.json. The build pipeline is a separate script,
+not exposed as a tool to the agent. Only query tools are here.
 """
 from __future__ import annotations
 import json
@@ -13,7 +13,7 @@ GRAPH_PATH = Path("graphify-out/graph.json")
 
 
 def _load_graph():
-    """graph.json'u yukle, yoksa graceful fail."""
+    """Load graph.json, gracefully fail if not found."""
     if not GRAPH_PATH.exists():
         return None
     try:
@@ -25,17 +25,17 @@ def _load_graph():
 
 
 def _graph_required():
-    """Graph kontrolu — her tool'un basinda cagrilir."""
+    """Check graph — called at the start of every tool."""
     if not GRAPH_PATH.exists():
-        return "Graph henuz olusturulmamis. Terminal'de `graphify .` calistir."
+        return "Graph not built yet. Run `graphify .` in terminal."
     G = _load_graph()
     if G is None:
-        return "Graph dosyasi bozuk. Terminal'de `graphify .` ile yeniden olustur."
+        return "Graph file is corrupted. Rebuild with `graphify .` in terminal."
     return G
 
 
 def _find_node_by_label(G, term: str):
-    """Label'de en iyi eslesen node'u bul."""
+    """Find the node with the best matching label."""
     t = term.lower()
     scored = sorted(
         [(sum(1 for w in t.split() if w in G.nodes[n].get("label", "").lower()), n)
@@ -46,7 +46,7 @@ def _find_node_by_label(G, term: str):
 
 
 def _set_graph_flag():
-    """graphify_query basarili oldu — executor'a bildir, batch_python bloklansin."""
+    """graphify_query succeeded — notify executor, block batch_python."""
     try:
         from tools.executor import executor
         executor._graph_data_available = True
@@ -57,12 +57,12 @@ def _set_graph_flag():
 @register_tool(
     name="graphify",
     description=(
-        "Knowledge graph sorgulama araci. 4 ayri modda calisir:\n"
-        "- query: TEK TIKLA tum baglantilari ogren. Ornek: 'event bus kim tarafindan kullaniliyor?' veya 'ToolRegistry nedir?'\n"
-        "- path: Iki konsept arasindaki en kisa baglanti zincirini bulur. Ornek: 'main.py' ile 'Logger'\n"
-        "- nodes: Projedeki en kritik modulleri, en cok baglantili node'lari listeler.\n"
-        "- stats: Graph'in genel istatistiklerini getirir.\n"
-        "read_file, search_files, grep, batch_python ile ugrasma — graph'ta zaten butun import/call/reference iliskileri var."
+        "Knowledge graph query tool. 4 modes:\n"
+        "- query: Learn all connections with ONE CLICK. Example: 'who uses the event bus?' or 'What is ToolRegistry?'\n"
+        "- path: Find shortest connection chain between two concepts. Example: 'main.py' to 'Logger'\n"
+        "- nodes: List most critical modules, the most connected nodes in the project.\n"
+        "- stats: Get overall graph statistics.\n"
+        "Don't bother with read_file, search_files, grep, batch_python — the graph already has all import/call/reference relationships."
     ),
     parameters={
         "type": "object",
@@ -70,37 +70,37 @@ def _set_graph_flag():
             "action": {
                 "type": "string",
                 "enum": ["query", "path", "nodes", "stats"],
-                "description": "Hangi islem: query=sorgu, path=yol bul, nodes=en kritik nodlar, stats=istatistikler",
+                "description": "Action: query=search, path=find path, nodes=most critical nodes, stats=statistics",
             },
             "question": {
                 "type": "string",
-                "description": "(query) Dogal dil sorusu veya konsept adi. Ornek: 'event bus kim tarafindan kullaniliyor' veya 'ToolRegistry'",
+                "description": "(query) Natural language question or concept name. Example: 'who uses the event bus' or 'ToolRegistry'",
             },
             "source": {
                 "type": "string",
-                "description": "(path) Baslangic konsepti. Ornek: 'Config', 'main.py'",
+                "description": "(path) Starting concept. Example: 'Config', 'main.py'",
             },
             "target": {
                 "type": "string",
-                "description": "(path) Hedef konsept. Ornek: 'Database', 'Logger'",
+                "description": "(path) Target concept. Example: 'Database', 'Logger'",
             },
             "limit": {
                 "type": "integer",
                 "default": 10,
-                "description": "(nodes) Kac node gosterilsin (max 30)",
+                "description": "(nodes) How many nodes to show (max 30)",
             },
             "mode": {
                 "type": "string",
                 "enum": ["bfs", "dfs"],
                 "default": "bfs",
-                "description": "(query) bfs=genis cevre, dfs=derin zincir",
+                "description": "(query) bfs=wide coverage, dfs=deep chain",
             },
             "depth": {
                 "type": "integer",
                 "default": 3,
                 "minimum": 1,
                 "maximum": 6,
-                "description": "(query) Kac adim oteye git (1-6)",
+                "description": "(query) How many steps to traverse (1-6)",
             },
         },
         "required": ["action"],
@@ -118,18 +118,18 @@ def graphify_tool(action: str, question: str = "", source: str = "", target: str
 
         if not question or not question.strip():
             return json.dumps({
-                "error": "Ne ogrenmek istiyorsun? Ornek sorular:",
+                "error": "What do you want to learn? Example questions:",
                 "examples": [
-                    "'event bus ile hangi moduller baglantili'",
-                    "'ToolRegistry nedir'",
-                    "'main.py ile Logger arasindaki yol'",
+                    "'which modules connect to the event bus'",
+                    "'what is ToolRegistry'",
+                    "'path between main.py and Logger'",
                 ],
             })
 
-        # Graphify basarili oldu — executor'a bildir, batch_python bloklansin
+        # Graphify success — notify executor, block batch_python
         _set_graph_flag()
 
-        # Kisa sorgu (1-3 kelime) → tek node detayi goster (explain mode)
+        # Short query (1-3 words) → single node detail (explain mode)
         words = question.strip().split()
         if len(words) <= 4:
             nid = _find_node_by_label(G, question)
@@ -155,10 +155,10 @@ def graphify_tool(action: str, question: str = "", source: str = "", target: str
                     "connection_count": len(connections),
                 }, ensure_ascii=False)
 
-        # Uzun sorgu → BFS/DFS traversal
+        # Long query → BFS/DFS traversal
         terms = [t.lower() for t in words if len(t) > 3]
 
-        # En iyi eslesen node'lari bul
+        # Find best-matching nodes
         scored = []
         for nid, ndata in G.nodes(data=True):
             label = ndata.get("label", "").lower()
@@ -169,7 +169,7 @@ def graphify_tool(action: str, question: str = "", source: str = "", target: str
         start_nodes = [nid for _, nid in scored[:5]]
 
         if not start_nodes:
-            return json.dumps({"error": f"'{question}' ile eslesen node bulunamadi.", "nodes": [], "edges": []})
+            return json.dumps({"error": f"No nodes match '{question}'.", "nodes": [], "edges": []})
 
         subgraph_nodes = set()
         subgraph_edges = []
@@ -247,15 +247,15 @@ def graphify_tool(action: str, question: str = "", source: str = "", target: str
         tgt = _find_node_by_label(G, target)
 
         if not src:
-            return json.dumps({"error": f"'{source}' bulunamadi."})
+            return json.dumps({"error": f"'{source}' not found."})
         if not tgt:
-            return json.dumps({"error": f"'{target}' bulunamadi."})
+            return json.dumps({"error": f"'{target}' not found."})
 
         import networkx as nx
         try:
             path = nx.shortest_path(G, src, tgt)
         except nx.NetworkXNoPath:
-            return json.dumps({"error": f"'{source}' ile '{target}' arasinda yol bulunamadi."})
+            return json.dumps({"error": f"No path between '{source}' and '{target}'."})
 
         steps = []
         for i, nid in enumerate(path):
@@ -335,7 +335,7 @@ def graphify_tool(action: str, question: str = "", source: str = "", target: str
             "file_type_breakdown": type_counts,
         }, ensure_ascii=False)
 
-    return json.dumps({"error": f"Bilinmeyen action: '{action}'. Su degerlerden biri: query, path, nodes, stats"})
+    return json.dumps({"error": f"Unknown action: '{action}'. Must be one of: query, path, nodes, stats"})
 
 
 # ── Backward-compatible aliases ─────────────────

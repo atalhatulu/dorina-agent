@@ -1,4 +1,4 @@
-"""Güvenlik - tehlikeli komut kontrolü, risk skoru, Docker sandbox."""
+"""Security — dangerous command detection, risk scoring, Docker sandbox."""
 
 import asyncio
 import re
@@ -28,7 +28,7 @@ BLOCKED_PATHS = [
 
 
 def is_destructive(command: str) -> bool:
-    """Komut tehlikeli mi? Regex + AST-level kontrol."""
+    """Is the command destructive? Regex + AST-level check."""
     cmd_lower = command.lower().strip()
 
     # Direct pattern check
@@ -45,7 +45,7 @@ def is_destructive(command: str) -> bool:
 
 
 def is_blocked_path(path: str) -> bool:
-    """Path engellenmiş mi?"""
+    """Is the path blocked?"""
     p = Path(path).resolve()
     for blocked in BLOCKED_PATHS:
         if str(p).startswith(blocked):
@@ -54,42 +54,42 @@ def is_blocked_path(path: str) -> bool:
 
 
 def safe_resolve(path: str, allowed_prefixes: list[str] | None = None) -> Path:
-    """Yolu normalize et ve path traversal saldirisina karsi dogrula.
+    """Normalise path and verify against path traversal attacks.
 
     Returns:
-        Resolve edilmis Path objesi.
+        Resolved Path object.
 
     Raises:
-        ValueError: Path traversal tespit edilirse (cikis noktasi izin verilen
-                    dizinlerin disindaysa veya BLOCKED_PATHS icindeyse).
+        ValueError: If path traversal is detected (outside allowed
+                    directories or inside BLOCKED_PATHS).
     """
     p = Path(path).expanduser()
     if not p.is_absolute():
         p = Path.cwd() / p
     resolved = p.resolve()
 
-    # BLOCKED_PATHS kontrolu
+    # Check BLOCKED_PATHS
     for blocked in BLOCKED_PATHS:
         if str(resolved).startswith(blocked):
             raise ValueError(
-                f"Path traversal engellendi: '{path}' -> '{resolved}' "
-                f"(bloklanmis dizin: {blocked})"
+                f"Path traversal blocked: '{path}' -> '{resolved}' "
+                f"(blocked path: {blocked})"
             )
 
-    # Izin verilen prefix kontrolu
+    # Check allowed prefixes
     if allowed_prefixes:
         allowed = [Path(a).resolve() for a in allowed_prefixes]
         if not any(str(resolved).startswith(str(a)) for a in allowed):
             raise ValueError(
-                f"Path traversal engellendi: '{path}' -> '{resolved}' "
-                f"(izin verilen dizinlerin disinda)"
+                f"Path traversal blocked: '{path}' -> '{resolved}' "
+                f"(outside allowed directories)"
             )
 
     return resolved
 
 
 async def docker_available() -> bool:
-    """Docker çalışıyor mu?"""
+    """Is Docker running?"""
     try:
         result = await asyncio.to_thread(
             subprocess.run,
@@ -102,7 +102,7 @@ async def docker_available() -> bool:
 
 
 async def sandbox_terminal(command: str, timeout: int = 60) -> str:
-    """Komutu Docker sandbox içinde çalıştır. İzole, güvenli."""
+    """Run a command inside a Docker sandbox. Isolated, secure."""
     import json
     try:
         result = await asyncio.to_thread(
@@ -121,13 +121,13 @@ async def sandbox_terminal(command: str, timeout: int = 60) -> str:
     except subprocess.TimeoutExpired:
         return json.dumps({"error": f"Sandbox timeout ({timeout}s)"})
     except FileNotFoundError:
-        return json.dumps({"error": "Docker bulunamadı. Sandbox kullanılamıyor."})
+        return json.dumps({"error": "Docker not found. Sandbox unavailable."})
     except (OSError, subprocess.CalledProcessError, ValueError) as e:
         return json.dumps({"error": f"Sandbox error: {e}"})
 
 
 def redact_secrets(text: str) -> str:
-    """Metindeki API key benzeri kalıpları maskele."""
+    """Mask API key-like patterns in text."""
     patterns = [
         (r'sk-or-v1-[a-zA-Z0-9]{10,}', 'sk-or-v1-****'),
         (r'sk-[a-zA-Z0-9]{20,}', 'sk-****'),

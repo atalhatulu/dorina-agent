@@ -1,4 +1,4 @@
-"""Skills yöneticisi - öğrenme, kaydetme, kullanma, session-start bootstrap."""
+"""Skills manager — learn, save, use, session-start bootstrap."""
 
 from __future__ import annotations
 from pathlib import Path
@@ -12,7 +12,7 @@ from core.constants import DORINA_HOME, DEFAULT_DATA_DIR, SKILL_TRIGGER_KEYWORDS
 
 
 class SkillManager:
-    """Skill'leri yönet: algıla, kaydet, çağır, session-start bootstrap."""
+    """Manage skills: detect, save, call, session-start bootstrap."""
 
     STATUS_FILE = DEFAULT_DATA_DIR / "skills_status.json"
 
@@ -20,7 +20,7 @@ class SkillManager:
         self.procedural = ProceduralMemory()
         self.usage_data: dict = {}
         self._load_usage()
-        # skills/learned/ dizinine yazma desteği
+        # Support writing to skills/learned/ directory
         self.learned_dir = DORINA_HOME / "skills" / "learned"
         self.learned_dir.mkdir(parents=True, exist_ok=True)
 
@@ -35,12 +35,12 @@ class SkillManager:
         self.STATUS_FILE.write_text(json.dumps(self.usage_data, indent=2))
 
     def detect_skill_opportunity(self, user_message: str, assistant_message: str, tools_used: list[str]) -> bool:
-        """Bu konuşmadan skill çıkarılabilir mi?"""
+        """Can a skill be extracted from this conversation?"""
         # If multi-step operation exists
         if len(tools_used) >= 3:
             return True
 
-        # Tekrarlanabilir desen varsa
+        # If repeatable pattern detected
         patterns = [
             "kur", "kurulum", "setup", "install",
             "test et", "dene", "dene ve",
@@ -51,7 +51,7 @@ class SkillManager:
         return any(p in msg_lower for p in patterns)
 
     def create_skill(self, name: str, description: str, steps: list[str], pitfalls: list[str] | None = None):
-        """Skill oluştur ve kaydet (ProceduralMemory'e)."""
+        """Create and save a skill (to ProceduralMemory)."""
         content = f"""---
 name: {name}
 description: "{description}"
@@ -75,11 +75,11 @@ created_at: {datetime.now(timezone.utc).isoformat()}
             "use_count": 0,
         }
         self._save_usage()
-        log.info(f"Skill oluşturuldu: {name}")
+        log.info(f"Skill created: {name}")
         return content
 
     def create_learned_skill(self, name: str, description: str, content: str):
-        """Skill oluştur ve skills/learned/ dizinine kaydet (self-evolution için)."""
+        """Create a skill and save to skills/learned/ directory (for self-evolution)."""
         skill_file = self.learned_dir / f"{name}.md"
         skill_file.write_text(content)
         self.usage_data[name] = {
@@ -87,11 +87,11 @@ created_at: {datetime.now(timezone.utc).isoformat()}
             "use_count": 0,
         }
         self._save_usage()
-        log.info(f"Learned skill kaydedildi: {name} -> {skill_file}")
+        log.info(f"Learned skill saved: {name} -> {skill_file}")
         return str(skill_file)
 
     def use_skill(self, name: str) -> Optional[dict]:
-        """Skill'i kullan (içeriğini getir)."""
+        """Use a skill (get its content)."""
         skill = self.procedural.get_skill(name)
         if skill:
             self.usage_data.setdefault(name, {"use_count": 0, "created": ""})
@@ -101,7 +101,7 @@ created_at: {datetime.now(timezone.utc).isoformat()}
         return skill
 
     def list_skills(self) -> list[dict]:
-        """Tüm skill'leri listele (kullanım istatistikleriyle)."""
+        """List all skills (with usage statistics)."""
         skills = self.procedural.list_skills()
         for s in skills:
             stats = self.usage_data.get(s["name"], {})
@@ -117,20 +117,20 @@ created_at: {datetime.now(timezone.utc).isoformat()}
     # ── P0-05: Session-Start Skill Bootstrap ──────────────────────
 
     def get_applicable_skills(self, session_context: dict | str) -> list[dict]:
-        """Session context'e göre uygun skill'leri bul.
+        """Find skills matching the session context.
 
-        Session context bir kullanıcı mesajı (str) veya dict olabilir.
-        Keyword eşleşmesi ile ilgili skill kategorilerini tespit eder
-        ve procedural memory'de kayıtlı skill'leri döndürür.
+        Session context can be a user message (str) or dict.
+        Uses keyword matching to detect relevant skill categories
+        and returns skills registered in procedural memory.
 
         Returns:
             List of skill dicts: [{"name": "...", "content": "...", "trigger": "..."}, ...]
         """
-        # Session context'ten metin çıkar
+        # Extract text from session context
         if isinstance(session_context, str):
             text = session_context.lower()
         elif isinstance(session_context, dict):
-            # Dict'ten user message veya content alanını dene
+            # Try user_message or content field from dict
             text = session_context.get("user_message", "") or session_context.get("content", "")
             if isinstance(text, str):
                 text = text.lower()
@@ -142,11 +142,11 @@ created_at: {datetime.now(timezone.utc).isoformat()}
         if not text:
             return []
 
-        # Hangi kategorilerin eşleştiğini bul
+        # Find which categories match
         matched_categories = set()
         word_set = set(text.split())
         for category, keywords in SKILL_TRIGGER_KEYWORDS.items():
-            # Hem kelime bazlı hem de substring match
+            # Both word-level and substring matching
             keyword_matches = sum(1 for kw in keywords if kw in word_set or kw in text)
             if keyword_matches >= SKILL_AUTO_LOAD_THRESHOLD:
                 matched_categories.add(category)
@@ -154,13 +154,13 @@ created_at: {datetime.now(timezone.utc).isoformat()}
         if not matched_categories:
             return []
 
-        # Kayıtlı skill'lerden eşleşenleri bul
+        # Find matching skills from registered ones
         all_skills = self.procedural.list_skills()
         applicable = []
         for skill in all_skills:
             skill_name = skill.get("name", "").lower()
             skill_desc = skill.get("description", "").lower()
-            # Skill adı veya description kategoriyle eşleşiyor mu?
+            # Does skill name or description match the category?
             for category in matched_categories:
                 if category in skill_name or category in skill_desc:
                     content = self.procedural.get_skill(skill["name"])
@@ -172,20 +172,20 @@ created_at: {datetime.now(timezone.utc).isoformat()}
                         })
                     break
 
-        log.info(f"Session-start: {len(applicable)} skill bulundu (categories={matched_categories})")
+        log.info(f"Session-start: {len(applicable)} skills found (categories={matched_categories})")
         return applicable
 
     def inject_skills_to_prompt(self, session_context: dict | str, system_prompt: str) -> str:
-        """Session context'e göre skill'leri system prompt'a enjekte et.
+        """Inject skills into system prompt based on session context.
 
         Returns:
-            Güncellenmiş system_prompt (skill içerikleri eklenmiş)
+            Updated system_prompt (with skill contents appended)
         """
         applicable = self.get_applicable_skills(session_context)
         if not applicable:
             return system_prompt
 
-        # Skill içeriklerini system_prompt'a ekle
+        # Append skill contents to system prompt
         skill_sections = []
         for skill in applicable:
             skill_sections.append(

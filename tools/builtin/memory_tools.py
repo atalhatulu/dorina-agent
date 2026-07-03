@@ -1,4 +1,4 @@
-"""Memory tool — kullanici ve agent notlarini kalici olarak kaydet."""
+"""Memory tool — permanently save user preferences and agent notes."""
 from __future__ import annotations
 import json
 from pathlib import Path
@@ -27,19 +27,19 @@ def _write(target: str, content: str):
 
 @register_tool(
     name="save_memory",
-    description="Kullanici tercihini veya ogrendigin bir bilgiyi kalici olarak kaydet. Bir daha asla unutma. target='skill' icin name parametresi zorunludur (orn: 'html-website').",
+    description="Save user preferences or learned info permanently. Never forget again. target='skill' requires the name parameter (e.g. 'html-website').",
     parameters={
         "type": "object",
         "properties": {
             "target": {
                 "type": "string",
                 "enum": ["user", "memory", "skill"],
-                "description": "'user' = KULLANICI PROFILI (yas, isim, dil, renk, kisisel tercihler). 'memory' = KENDIN ICIN NOTLAR (tool davranisi, ortam, proje yapisi). 'skill' = TEKNIK KALIPLAR (websitesi sablonu, komut dizisi, cozum yontemi).",
+                "description": "'user' = USER PROFILE (age, name, language, colors, personal preferences). 'memory' = NOTES FOR YOURSELF (tool behavior, environment, project structure). 'skill' = TECHNICAL PATTERNS (website template, command sequence, solution method).",
             },
-            "content": {"type": "string", "description": "Kaydedilecek bilgi. Kisa ve net ol."},
+            "content": {"type": "string", "description": "The information to save. Keep it short and clear."},
             "name": {
                 "type": "string",
-                "description": "Sadece target='skill' icin: skill adi (orn: 'html-website', 'python-test', 'flask-api'). Kisa ve aciklayici olsun.",
+                "description": "Only for target='skill': skill name (e.g. 'html-website', 'python-test', 'flask-api'). Keep it short and descriptive.",
             },
         },
         "required": ["target", "content"],
@@ -54,7 +54,7 @@ def save_memory_tool(target: str, content: str, name: str | None = None) -> str:
         _safe_name = _skill_name.replace(" ", "-").lower()[:40]
         _skill_dir = MEMORY_DIR.parent / "skills" / _safe_name
         
-        # Mevcut skill'leri tara, benzer ad varsa onu guncelle
+        # Scan existing skills, update if similar name exists
         _skills_root = MEMORY_DIR.parent / "skills"
         if not _skill_dir.exists() and _skills_root.exists():
             _existing_skills = [d for d in _skills_root.iterdir() if d.is_dir()]
@@ -75,7 +75,7 @@ def save_memory_tool(target: str, content: str, name: str | None = None) -> str:
         _path.write_text("\n".join(_existing) + "\n", encoding="utf-8")
         
         _preview = content.strip()[:60]
-        return json.dumps({"success": True, "message": f"Skill kaydedildi: {_safe_name}", "path": str(_path), "total": len(_existing)})
+        return json.dumps({"success": True, "message": f"Skill saved: {_safe_name}", "path": str(_path), "total": len(_existing)})
     
     path = MEMORY_DIR / f"{target.upper()}.md"
     
@@ -86,19 +86,19 @@ def save_memory_tool(target: str, content: str, name: str | None = None) -> str:
     existing.append(f"- {content.strip()}")
     path.write_text("\n".join(existing) + "\n", encoding="utf-8")
     _preview = content.strip()[:60]
-    return json.dumps({"success": True, "message": f"Kaydedildi: {target} — {_preview}", "total": len(existing)})
+    return json.dumps({"success": True, "message": f"Saved: {target} — {_preview}", "total": len(existing)})
 
 
 @register_tool(
     name="read_memory",
-    description="Kayitli kullanici tercihlerini veya agent notlarini oku.",
+    description="Read saved user preferences or agent notes.",
     parameters={
         "type": "object",
         "properties": {
             "target": {
                 "type": "string",
                 "enum": ["user", "memory", "skill"],
-                "description": "'user', 'memory' veya 'skill'",
+                "description": "'user', 'memory' or 'skill'",
             },
         },
         "required": ["target"],

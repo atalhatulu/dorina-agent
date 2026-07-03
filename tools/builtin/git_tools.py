@@ -10,11 +10,11 @@ from tools.registry import register_tool
 
 @register_tool(
     name="git_add",
-    description="Git add — dosyalari stage ekle. Tek dosya veya tumu icin '.' kullan.",
+    description="Git add — stage files. Use '.' for all.",
     parameters={
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Eklenecek dosya yolu veya '.' (tumu)", "default": "."},
+            "path": {"type": "string", "description": "File path to add, or '.' (all)", "default": "."},
         },
         "required": [],
     },
@@ -24,7 +24,7 @@ async def git_add_tool(path: str = ".") -> str:
     try:
         r = await asyncio.to_thread(subprocess.run, ["git", "add", path], capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
-            return json.dumps({"success": True, "message": f"Stage eklendi: {path}"})
+            return json.dumps({"success": True, "message": f"Staged: {path}"})
         return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
@@ -32,11 +32,11 @@ async def git_add_tool(path: str = ".") -> str:
 
 @register_tool(
     name="git_commit",
-    description="Git commit — staged degisiklikleri mesajla kaydet.",
+    description="Git commit — save staged changes with a message.",
     parameters={
         "type": "object",
         "properties": {
-            "message": {"type": "string", "description": "Commit mesaji"},
+            "message": {"type": "string", "description": "Commit message"},
         },
         "required": ["message"],
     },
@@ -54,12 +54,12 @@ async def git_commit_tool(message: str) -> str:
 
 @register_tool(
     name="git_diff",
-    description="Git diff — staged veya unstaged farklari goster.",
+    description="Git diff — show staged or unstaged changes.",
     parameters={
         "type": "object",
         "properties": {
-            "staged": {"type": "boolean", "description": "Sadece staged dosyalari goster", "default": False},
-            "path": {"type": "string", "description": "Belirli bir dosya (opsiyonel)", "default": ""},
+            "staged": {"type": "boolean", "description": "Show only staged files", "default": False},
+            "path": {"type": "string", "description": "Specific file (optional)", "default": ""},
         },
         "required": [],
     },
@@ -74,19 +74,19 @@ async def git_diff_tool(staged: bool = False, path: str = "") -> str:
             cmd.extend(["--", path])
         r = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
         output = r.stdout.strip() or r.stderr.strip()
-        return output[:5000] if output else "Degisiklik yok."
+        return output[:5000] if output else "No changes."
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
 @register_tool(
     name="git_branch",
-    description="Git branch — dal listele, olustur veya sil.",
+    description="Git branch — list, create, or delete branches.",
     parameters={
         "type": "object",
         "properties": {
-            "action": {"type": "string", "description": "Islem: list, create, delete", "default": "list"},
-            "name": {"type": "string", "description": "Dal adi (create/delete icin gerekli)", "default": ""},
+            "action": {"type": "string", "description": "Action: list, create, delete", "default": "list"},
+            "name": {"type": "string", "description": "Branch name (required for create/delete)", "default": ""},
         },
         "required": [],
     },
@@ -99,31 +99,31 @@ async def git_branch_tool(action: str = "list", name: str = "") -> str:
             return r.stdout.strip() or r.stderr.strip()
         elif action == "create":
             if not name:
-                return json.dumps({"error": "Dal adi gerekli"})
+                return json.dumps({"error": "Branch name required"})
             r = await asyncio.to_thread(subprocess.run, ["git", "branch", name], capture_output=True, text=True, timeout=30)
             if r.returncode == 0:
-                return json.dumps({"success": True, "message": f"Dal olusturuldu: {name}"})
+                return json.dumps({"success": True, "message": f"Branch created: {name}"})
             return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
         elif action == "delete":
             if not name:
-                return json.dumps({"error": "Dal adi gerekli"})
+                return json.dumps({"error": "Branch name required"})
             r = await asyncio.to_thread(subprocess.run, ["git", "branch", "-D", name], capture_output=True, text=True, timeout=30)
             if r.returncode == 0:
-                return json.dumps({"success": True, "message": f"Dal silindi: {name}"})
+                return json.dumps({"success": True, "message": f"Branch deleted: {name}"})
             return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
-        return json.dumps({"error": f"Gecersiz islem: {action}"})
+        return json.dumps({"error": f"Invalid action: {action}"})
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
 @register_tool(
     name="git_push",
-    description="Git push — commit'leri remote'a gonder.",
+    description="Git push — send commits to remote.",
     parameters={
         "type": "object",
         "properties": {
-            "remote": {"type": "string", "description": "Remote adi", "default": "origin"},
-            "branch": {"type": "string", "description": "Dal adi", "default": "main"},
+            "remote": {"type": "string", "description": "Remote name", "default": "origin"},
+            "branch": {"type": "string", "description": "Branch name", "default": "main"},
         },
         "required": [],
     },
@@ -133,7 +133,7 @@ async def git_push_tool(remote: str = "origin", branch: str = "main") -> str:
     try:
         r = await asyncio.to_thread(subprocess.run, ["git", "push", remote, branch], capture_output=True, text=True, timeout=60)
         if r.returncode == 0:
-            return json.dumps({"success": True, "message": f"Push basarili: {remote}/{branch}"})
+            return json.dumps({"success": True, "message": f"Push successful: {remote}/{branch}"})
         return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
@@ -141,11 +141,11 @@ async def git_push_tool(remote: str = "origin", branch: str = "main") -> str:
 
 @register_tool(
     name="git_status",
-    description="Git status — calisma dizini durumunu goster (degisen, eklenen, silinen dosyalar).",
+    description="Git status — show working tree status (changed, added, deleted files).",
     parameters={
         "type": "object",
         "properties": {
-            "short": {"type": "boolean", "description": "Kisa format (--short)", "default": True},
+            "short": {"type": "boolean", "description": "Short format (--short)", "default": True},
         },
         "required": [],
     },
@@ -158,19 +158,19 @@ async def git_status_tool(short: bool = True) -> str:
             cmd.append("--short")
         r = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
         output = r.stdout.strip() or r.stderr.strip()
-        return output[:5000] if output else "Temiz calisma dizini (degisiklik yok)."
+        return output[:5000] if output else "Clean working tree (no changes)."
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
 @register_tool(
     name="git_log",
-    description="Git log — commit gecmisini goster. --oneline formati ile.",
+    description="Git log — show commit history. Uses --oneline format.",
     parameters={
         "type": "object",
         "properties": {
-            "max_count": {"type": "integer", "description": "Gosterilecek commit sayisi", "default": 10},
-            "branch": {"type": "string", "description": "Dal adi (opsiyonel)", "default": ""},
+            "max_count": {"type": "integer", "description": "Number of commits to show", "default": 10},
+            "branch": {"type": "string", "description": "Branch name (optional)", "default": ""},
         },
         "required": [],
     },
@@ -183,19 +183,19 @@ async def git_log_tool(max_count: int = 10, branch: str = "") -> str:
             cmd.append(branch)
         r = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
         output = r.stdout.strip() or r.stderr.strip()
-        return output[:5000] if output else "Commit gecmisi bulunamadi."
+        return output[:5000] if output else "No commit history found."
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
 
 
 @register_tool(
     name="git_reset",
-    description="Git reset — staged degisiklikleri kaldir veya commit'i geri al. --soft ve --hard destegi.",
+    description="Git reset — unstage changes or revert commits. Supports --soft and --hard.",
     parameters={
         "type": "object",
         "properties": {
-            "mode": {"type": "string", "description": "Sifirlama modu: soft (sadece HEAD), mixed (unstaged), hard (tamamen sil)", "default": "mixed"},
-            "target": {"type": "string", "description": "Hedef (commit hash veya HEAD~N). Bos birakilirsa HEAD'e resetler.", "default": ""},
+            "mode": {"type": "string", "description": "Reset mode: soft (HEAD only), mixed (unstaged), hard (discard all)", "default": "mixed"},
+            "target": {"type": "string", "description": "Target (commit hash or HEAD~N). If empty, resets to HEAD.", "default": ""},
         },
         "required": [],
     },
@@ -205,13 +205,13 @@ async def git_reset_tool(mode: str = "mixed", target: str = "") -> str:
     try:
         valid_modes = {"soft", "mixed", "hard"}
         if mode not in valid_modes:
-            return json.dumps({"error": f"Gecersiz mod: {mode}. Secenekler: soft, mixed, hard"})
+            return json.dumps({"error": f"Invalid mode: {mode}. Options: soft, mixed, hard"})
         cmd = ["git", "reset", f"--{mode}"]
         if target:
             cmd.append(target)
         r = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
-            return json.dumps({"success": True, "message": f"Reset ({mode}) basarili" + (f" -> {target}" if target else "")})
+            return json.dumps({"success": True, "message": f"Reset ({mode}) successful" + (f" -> {target}" if target else "")})
         return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})
@@ -219,12 +219,12 @@ async def git_reset_tool(mode: str = "mixed", target: str = "") -> str:
 
 @register_tool(
     name="git_stash",
-    description="Git stash — degisiklikleri gecici olarak kaydet/geri al. Islemler: push, pop, list, drop.",
+    description="Git stash — temporarily save/revert changes. Actions: push, pop, list, drop.",
     parameters={
         "type": "object",
         "properties": {
-            "action": {"type": "string", "description": "Islem: list (listele), push (kaydet), pop (geri al), drop (sil)", "default": "list"},
-            "message": {"type": "string", "description": "Push islemi icin mesaj (opsiyonel)", "default": ""},
+            "action": {"type": "string", "description": "Action: list (show), push (save), pop (restore), drop (delete)", "default": "list"},
+            "message": {"type": "string", "description": "Message for push action (optional)", "default": ""},
         },
         "required": [],
     },
@@ -235,25 +235,25 @@ async def git_stash_tool(action: str = "list", message: str = "") -> str:
         if action == "list":
             r = await asyncio.to_thread(subprocess.run, ["git", "stash", "list"], capture_output=True, text=True, timeout=30)
             output = r.stdout.strip() or r.stderr.strip()
-            return output[:5000] if output else "Stash kaydi yok."
+            return output[:5000] if output else "No stash entries."
         elif action == "push":
             cmd = ["git", "stash", "push"]
             if message:
                 cmd.extend(["-m", message])
             r = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
             if r.returncode == 0:
-                return json.dumps({"success": True, "message": "Degisiklikler stash'e kaydedildi"})
+                return json.dumps({"success": True, "message": "Changes saved to stash"})
             return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
         elif action == "pop":
             r = await asyncio.to_thread(subprocess.run, ["git", "stash", "pop"], capture_output=True, text=True, timeout=30)
             if r.returncode == 0:
-                return json.dumps({"success": True, "message": "En son stash geri alindi"})
+                return json.dumps({"success": True, "message": "Latest stash restored"})
             return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
         elif action == "drop":
             r = await asyncio.to_thread(subprocess.run, ["git", "stash", "drop"], capture_output=True, text=True, timeout=30)
             if r.returncode == 0:
-                return json.dumps({"success": True, "message": "En son stash silindi"})
+                return json.dumps({"success": True, "message": "Latest stash deleted"})
             return json.dumps({"error": r.stderr.strip() or r.stdout.strip()})
-        return json.dumps({"error": f"Gecersiz islem: {action}. Secenekler: list, push, pop, drop"})
+        return json.dumps({"error": f"Invalid action: {action}. Options: list, push, pop, drop"})
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return json.dumps({"error": str(e)})

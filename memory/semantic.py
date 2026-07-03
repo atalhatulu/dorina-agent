@@ -169,7 +169,7 @@ class SemanticMemory(BaseMemory):
     # ── RAG/knowledge extensions ─────────────────────────────────
 
     def add_file(self, filepath: str):
-        """Dosya oku ve vektör deposuna ekle (PDF, TXT, MD)."""
+        """Read file and add to vector store (PDF, TXT, MD)."""
         from pathlib import Path as _P
         path = _P(filepath)
         if not path.exists():
@@ -181,7 +181,7 @@ class SemanticMemory(BaseMemory):
         )
 
     def add_research_finding(self, query: str, finding_text: str, metadata: dict | None = None):
-        """Araştırma bulgusunu vektör deposuna ekle."""
+        """Add research finding to vector store."""
         meta = {
             "source": "deep_research",
             "query": query,
@@ -192,7 +192,7 @@ class SemanticMemory(BaseMemory):
         self.add(text=finding_text, metadata=meta)
 
     def add_research_report(self, question: str, report: str, stats: dict | None = None):
-        """Tam araştırma raporunu chunk'lara bölerek ekle."""
+        """Split full research report into chunks and add to store."""
         meta = {
             "source": "deep_research",
             "query": question,
@@ -208,7 +208,7 @@ class SemanticMemory(BaseMemory):
             self.add(text=chunk, metadata=chunk_meta)
 
     def query(self, question: str, n_results: int = 3, filter_source: str | None = None) -> list[dict]:
-        """Soru sor, ilgili belgeleri bul (alias for search with optional source filter)."""
+        """Ask a question, find relevant documents (alias for search with optional source filter)."""
         if filter_source:
             # Post-filter by source metadata
             results = self.search(question, n_results=n_results * 3)
@@ -216,22 +216,22 @@ class SemanticMemory(BaseMemory):
         return self.search(question, n_results=n_results)
 
     def query_research(self, question: str, n_results: int = 3) -> list[dict]:
-        """Sadece deep_research kaynaklı sonuçlardan sorgula."""
+        """Query only deep_research-sourced results."""
         return self.query(question, n_results=n_results, filter_source="deep_research")
 
     def context_for_query(self, question: str, max_chars: int = 2000) -> str:
-        """Soru için biçimlendirilmiş bağlam metni oluştur (LLM'e eklemek için)."""
+        """Create formatted context text for a query (to add to LLM context)."""
         docs = self.search(question)
         if not docs:
             return ""
 
-        context = "İlgili bilgiler:\n\n"
+        context = "Relevant information:\n\n"
         total = 0
         for doc in docs:
             snippet = doc["content"][:500]
             if total + len(snippet) > max_chars:
                 break
-            source_label = doc.get("metadata", {}).get("source", "bilinmeyen")
+            source_label = doc.get("metadata", {}).get("source", "unknown")
             context += f"[{source_label}] {snippet}\n\n"
             total += len(snippet)
 

@@ -1,7 +1,7 @@
-"""Event-driven haberleşme sistemi.
+"""Event-driven communication system.
 
-Modüller birbirini doğrudan çağırmaz, event fırlatır.
-Örn: tool çağrılınca → "tool:called" event'i → log, memory, istatistik dinler.
+Modules don't call each other directly — they fire events.
+E.g., when a tool is called → "tool:called" event → log, memory, stats listen.
 """
 
 from typing import Callable, Any
@@ -17,27 +17,27 @@ class EventBus:
         self._subscribers: dict[str, list[tuple[str, Callable]]] = defaultdict(list)
 
     def subscribe(self, event: str, callback: Callable, subscriber_id: str | None = None) -> str:
-        """Event'e abone ol. Dönen ID ile aboneliği kaldırabilirsin."""
+        """Subscribe to an event. Returns an ID to unsubscribe with."""
         sid = subscriber_id or str(uuid.uuid4())[:8]
         self._subscribers[event].append((sid, callback))
         return sid
 
     def unsubscribe(self, event: str, subscriber_id: str):
-        """Aboneliği kaldır."""
+        """Unsubscribe from an event."""
         self._subscribers[event] = [
             (sid, cb) for sid, cb in self._subscribers[event] if sid != subscriber_id
         ]
 
     def publish(self, event: str, **data: Any):
-        """Event fırlat. Tüm abonelere haber ver."""
+        """Fire an event. Notify all subscribers."""
         for sid, callback in self._subscribers.get(event, []):
             try:
                 callback(event=event, **data)
             except Exception as e:
-                log.error(f"Event handler hatası [{sid}]: {e}")
+                log.error(f"Event handler error [{sid}]: {e}")
 
     def clear(self):
-        """Tüm abonelikleri temizle."""
+        """Clear all subscriptions."""
         self._subscribers.clear()
 
 

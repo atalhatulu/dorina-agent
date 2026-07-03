@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from core.constants import t
 
 if TYPE_CHECKING:
     from app import DorinaApp
@@ -24,7 +25,7 @@ async def cmd_new(app: "DorinaApp", cmd: str) -> None:
         app.godmode = False
     loop.reset()
     loop._temp_mode = False
-    set_style("")  # normal style'a don
+    set_style("")  # return to normal style
     title = ""
     if len(cmd) > 5:
         title = cmd[5:].strip().strip("\"'")
@@ -32,7 +33,7 @@ async def cmd_new(app: "DorinaApp", cmd: str) -> None:
         title=title,
         model=f"{settings.model.provider}/{settings.model.default.split('/')[-1]}",
     )
-    print_success(f"Yeni oturum: {title or session_id}")
+    print_success(t("session_new_created", title=title or session_id))
 
 
 async def cmd_temp(app: "DorinaApp", cmd: str) -> None:
@@ -46,7 +47,7 @@ async def cmd_temp(app: "DorinaApp", cmd: str) -> None:
 
     loop._temp_mode = True
     set_style("temp")
-    print_info("Geçici sohbet modu — kayıt alınmaz, sohbet hafızada tutulur.")
+    print_info(t("session_temp_active"))
 
 
 async def cmd_save(app: "DorinaApp", cmd: str) -> None:
@@ -62,7 +63,7 @@ async def cmd_save(app: "DorinaApp", cmd: str) -> None:
     manager.save(loop.context.get_messages(), summary=title, title=title)
     if manager.current_id:
         manager.rename(manager.current_id, title)
-    print_success(f"Kaydedildi: {title}")
+    print_success(t("session_saved", title=title))
 
 
 async def cmd_load(app: "DorinaApp", cmd: str) -> None:
@@ -102,8 +103,8 @@ async def cmd_load(app: "DorinaApp", cmd: str) -> None:
         loop.context.messages = msgs
         title = session.get("title", sid)
         # Display entire conversation history
-        console.print(f"\n[#D4622A]# Session: {title}[/#D4622A]")
-        console.print(f"  [dim]ID: {sid} · {len(msgs)} message(s)[/dim]\n")
+        console.print(f"\n[#D4622A]{t('session_loaded', title=title)}[/#D4622A]")
+        console.print(f"  [dim]{t('session_loaded_details', sid=sid, count=len(msgs))}[/dim]\n")
         for m in msgs:
             role = m.get("role", "")
             content = m.get("content", "") or ""
@@ -126,9 +127,9 @@ async def cmd_load(app: "DorinaApp", cmd: str) -> None:
                 name = m.get("name", "?")
                 summary_content = content.strip()[:80].replace("\n", " ")
                 console.print(f"    [dim]🔧 [{name}] {summary_content}[/dim]")
-        console.print(f"\n  [#6bb05d]✓[/#6bb05d] Session loaded. Agent ready — type your message to continue.")
+        console.print(f"\n  [#6bb05d]✓[/#6bb05d] {t('session_loaded_ready')}")
     else:
-        print_error(f"Session not found: {sid}")
+        print_error(t("session_not_found", sid=sid))
 
 
 async def cmd_sessions(app: "DorinaApp", cmd: str) -> None:
@@ -140,8 +141,8 @@ async def cmd_sessions(app: "DorinaApp", cmd: str) -> None:
     from ui.display import console
 
     sessions = manager.list_sessions()
-    console.print("\n[bold #D4622A]# Session List[/bold #D4622A]")
-    console.print(f"  [dim]{'#':<4} {'Title':<28} {'Preview':<33} {'Tur':<5} {'Last Active':<12} ID[/dim]")
+    console.print(f"\n[bold #D4622A]{t('session_list_title')}[/bold #D4622A]")
+    console.print(f"  [dim]{'#':<4} {'Title':<28} {'Preview':<33} {'Turn':<5} {'Last Active':<12} ID[/dim]")
     console.print(f"  [dim]{'─'*4:<4} {'─'*28:<28} {'─'*33:<33} {'─'*5:<5} {'─'*12:<12} ────────────[/dim]")
     for i, s in enumerate(sessions, 1):
         title = s["title"][:26] + ".." if len(s["title"]) > 26 else s["title"]
@@ -173,7 +174,7 @@ async def cmd_remove(app: "DorinaApp", cmd: str) -> None:
 
     sid = cmd[8:].strip()
     if not sid:
-        print_error("Kullanım: /remove <sıra_no|session_id>")
+        print_error(t("session_usage"))
         return
 
     session = manager.load(sid)
@@ -195,9 +196,9 @@ async def cmd_remove(app: "DorinaApp", cmd: str) -> None:
                         break
     if session:
         manager.delete(sid)
-        print_success(f"Silindi: {sid}")
+        print_success(t("session_removed", sid=sid))
     else:
-        print_error(f"Session bulunamadı: {sid}")
+        print_error(t("session_not_found", sid=sid))
 
 
 async def cmd_clean(app: "DorinaApp", cmd: str) -> None:
@@ -214,21 +215,21 @@ async def cmd_clean(app: "DorinaApp", cmd: str) -> None:
     if len(args) > 1:
         if args[1].lower() == "all":
             count = manager.cleanup_old(keep_last=0)
-            print_success(f"Tum sessionlar temizlendi ({count} adet)")
+            print_success(t("session_cleaned_all", count=count))
         elif args[1].lower().startswith("keep="):
             try:
                 keep = int(args[1].split("=")[1])
                 count = manager.cleanup_old(keep_last=keep)
-                print_success(f"{count} eski session temizlendi. Son {keep} session kaldı.")
+                print_success(t("session_cleaned_keep", count=count, keep=keep))
             except (ValueError, IndexError):
                 count = manager.cleanup_old(keep_last=5)
-                print_success(f"{count} eski session temizlendi. Son 5 session kaldı.")
+                print_success(t("session_cleaned_keep", count=count, keep=5))
         else:
             count = manager.cleanup_old(keep_last=5)
-            print_success(f"{count} eski session temizlendi. Son 5 session kaldı.")
+            print_success(t("session_cleaned_keep", count=count, keep=5))
     else:
         count = manager.cleanup_old(keep_last=5)
-        print_success(f"{count} eski session temizlendi. Son 5 session kaldı.")
+        print_success(t("session_cleaned_keep", count=count, keep=5))
 
 
 async def cmd_ara(app: "DorinaApp", cmd: str) -> None:
@@ -242,7 +243,7 @@ async def cmd_ara(app: "DorinaApp", cmd: str) -> None:
     query = cmd[5:]
     results = manager.search(query)
     rows = [[r["id"][:20], r["title"], r.get("summary", "")[:50]] for r in results]
-    _pt_search("Arama Sonuçları", ["ID", "Başlık", "Özet"], rows)
+    _pt_search(t("session_search_title"), ["ID", "Title", "Summary"], rows)
 
 
 async def cmd_export(app: "DorinaApp", cmd: str) -> None:
@@ -265,9 +266,9 @@ async def cmd_export(app: "DorinaApp", cmd: str) -> None:
     elif fmt == "html":
         path = export_html(msgs)
     else:
-        print_error(f"Bilinmeyen format: {fmt} (json/md/html)")
+        print_error(t("unknown_format", fmt=fmt))
         return
-    print_success(f"Dışa aktarıldı: {path}")
+    print_success(t("session_exported", path=path))
 
 
 async def cmd_session(app: "DorinaApp", cmd: str) -> None:
@@ -282,7 +283,7 @@ async def cmd_session(app: "DorinaApp", cmd: str) -> None:
 
     args = cmd.split()[1:]  # skip /session
     if not args:
-        print_info("Kullanım: /session prune|archive|size")
+        print_info(t("session_sub_usage"))
         return
 
     sub = args[0].lower()
@@ -319,11 +320,11 @@ async def cmd_session(app: "DorinaApp", cmd: str) -> None:
                         break
         removed = manager.prune_session(sid, keep_last=keep)
         if removed == -1:
-            print_error(f"Session not found: {sid}")
+            print_error(t("session_not_found", sid=sid))
         elif removed == 0:
-            print_info(f"Session {sid[:16]} — only {keep} messages, nothing to prune.")
+            print_info(t("session_prune_none", sid=sid, keep=keep))
         else:
-            print_success(f"Pruned {removed} message(s) from {sid[:16]}, keeping last {keep}.")
+            print_success(t("session_prune_done", removed=removed, sid=sid, keep=keep))
 
     elif sub == "archive":
         # /session archive [days=7]
@@ -336,9 +337,9 @@ async def cmd_session(app: "DorinaApp", cmd: str) -> None:
                     pass
         count = manager.archive_old_sessions(days=days)
         if count:
-            print_success(f"Archived {count} session(s) older than {days} day(s).")
+            print_success(t("session_archive_done", count=count, days=days))
         else:
-            print_info(f"No sessions older than {days} day(s) to archive.")
+            print_info(t("session_archive_none", days=days))
 
     elif sub == "size":
         # /session size [session_id]
@@ -361,11 +362,10 @@ async def cmd_session(app: "DorinaApp", cmd: str) -> None:
                         break
         info = manager.get_session_size(sid)
         if not info["exists"]:
-            print_error(f"Session not found: {sid}")
+            print_error(t("session_not_found", sid=sid))
             return
-        print_info(f"Session {sid[:16]}: {info['message_count']} messages, "
-                   f"{info['bytes_raw']:,} bytes raw, "
-                   f"{info['bytes_encrypted']:,} bytes encrypted")
+        print_info(t("session_size_info", sid=sid, count=info['message_count'],
+                     raw=info['bytes_raw'], enc=info['bytes_encrypted']))
 
     else:
         print_error(f"Unknown session subcommand: {sub}")

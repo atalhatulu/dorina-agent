@@ -5,7 +5,7 @@ bottom_toolbar, which is rendered inline with the prompt, not as a
 separate overlay. This means the status bar is always at the bottom,
 never overwrites user input, and is managed by prompt_toolkit itself.
 
-Format: ⟳ {durum}  │  in: 12,450  out: 3,210  │  03:42  │  tur: 7
+Format: ⟳ {status}  │  in: 12,450  out: 3,210  │  03:42  │  turn: 7
 """
 
 import time
@@ -112,7 +112,7 @@ class StatusBar:
                 ("class:godmode_dim", f"{self.model or 'deepseek'}"),
                 ("class:godmode_dim", "  │  "),
                 ("class:godmode_dim", f"in: {self.tokens_in:,}  out: {self.tokens_out:,}"),
-                ("class:godmode_dim", "  │  tur: "),
+                ("class:godmode_dim", "  │  turn: "),
                 ("class:godmode_dim", str(self.turn)),
             ])
         elif modes.is_on('audit'):
@@ -123,9 +123,9 @@ class StatusBar:
                 ("class:dim", "  │  "),
                 ("class:green", f"in: {self.tokens_in:,}"),
                 ("class:dim", f"  out: {self.tokens_out:,}"),
-                ("class:dim", "  │  tur: "),
+                ("class:dim", "  │  turn: "),
                 ("class:dim", str(self.turn)),
-                ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
+                ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  goal: {self._get_sub_count()}"),
             ])
         elif modes.is_on('temp'):
             tokens.append(("class:temp", " 💭 TEMP "))
@@ -134,7 +134,7 @@ class StatusBar:
                 ("class:temp_dim", f" {self.model or 'deepseek'}"),
                 ("class:temp_dim", "  │  "),
                 ("class:temp_dim", f"in: {self.tokens_in:,}  out: {self.tokens_out:,}"),
-                ("class:temp_dim", "  │  tur: "),
+                ("class:temp_dim", "  │  turn: "),
                 ("class:temp_dim", str(self.turn)),
             ])
         else:
@@ -143,13 +143,13 @@ class StatusBar:
                 ("class:dim", "  │  "),
                 ("class:green", f"in: {self.tokens_in:,}"),
                 ("class:dim", f"  out: {self.tokens_out:,}"),
-                ("class:dim", "  │  tur: "),
+                ("class:dim", "  │  turn: "),
                 ("class:dim", str(self.turn)),
-                ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  sub: {self._get_sub_count()}"),
+                ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  goal: {self._get_sub_count()}"),
             ])
         return tokens
     def _get_task_count(self) -> int:
-        """Arka planda calisan gorev sayisi (sadece running)."""
+        """Number of background tasks currently running."""
         try:
             from bg_tools.task_manager import task_manager
             return len([t for t in task_manager.list_tasks() if t.status == "running"])
@@ -163,23 +163,24 @@ class StatusBar:
         from rich import box
         console = Console()
         tbl = Table(border_style="#D4622A", box=box.ROUNDED)
-        tbl.add_column("Alan", style="bold #D4622A")
-        tbl.add_column("Değer", style="white")
+        tbl.add_column("Field", style="bold #D4622A")
+        tbl.add_column("Value", style="white")
         elapsed = self.elapsed()
-        tbl.add_row("Model", f"{self.provider}/{self.model}" if self.model else "ayarlanmamış")
-        tbl.add_row("Durum", self._status_text)
-        tbl.add_row("Süre", elapsed)
-        tbl.add_row("Tur", str(self.turn))
+        tbl.add_row("Model", f"{self.provider}/{self.model}" if self.model else "unset")
+        tbl.add_row("Status", self._status_text)
+        tbl.add_row("Duration", elapsed)
+        tbl.add_row("Turn", str(self.turn))
         tbl.add_row("Tool Calls", str(self.tool_calls))
         tbl.add_row("Token (in/out)", f"{self.tokens_in:,} / {self.tokens_out:,}")
-        tbl.add_row("Maliyet", f"${self.cost:.6f}")
+        tbl.add_row("Cost", f"${self.cost:.6f}")
         if modes.is_on('godmode'):
-            tbl.add_row("Godmode", "⚡ AKTİF", style="bold red")
+            tbl.add_row("Godmode", "⚡ ACTIVE", style="bold red")
         if modes.is_on('audit'):
-            tbl.add_row("Audit", "🔍 ACIK", style="bold #E06C75")
+            tbl.add_row("Audit", "🔍 ON", style="bold #E06C75")
         console.print(tbl)
 
     def _get_cron_count(self) -> int:
+        """Number of cron jobs registered in the scheduler."""
         try:
             from cron.scheduler import cron
             return len(cron.jobs)
@@ -187,24 +188,25 @@ class StatusBar:
             return 0
             
     def _get_sub_count(self) -> int:
+        """Number of active sub-goals being tracked by the goal manager."""
         try:
-            from agents.crew import crew
-            return len([f for f in crew.list_forks() if f.get("status") == "running"])
+            from orchestrator.goal_manager import goal_manager
+            return goal_manager.running_count()
         except (ImportError, AttributeError):
             return 0
 
     def show_waiting(self):
-        """AI calisirken gosterilecek bekleme mesaji."""
+        """Spinner message shown while the AI is processing."""
         mdl = self.model or "?"
         if modes.is_on('godmode'):
-            print(f"\r\x1b[38;5;208m⟳ {self._status_text} {mdl}\x1b[0m  │  tur: {self.turn}  ", end="", flush=True)
+            print(f"\r\x1b[38;5;208m⟳ {self._status_text} {mdl}\x1b[0m  │  turn: {self.turn}  ", end="", flush=True)
         else:
-            print(f"\r⟳ {self._status_text} {mdl}  │  tur: {self.turn}  ", end="", flush=True)
-        print(f"\r\033[2K⟳ {self._status_text} {mdl}  │  tur: {self.turn}  ", end="", flush=True)
+            print(f"\r⟳ {self._status_text} {mdl}  │  turn: {self.turn}  ", end="", flush=True)
+        print(f"\r\033[2K⟳ {self._status_text} {mdl}  │  turn: {self.turn}  ", end="", flush=True)
 
     def hide_waiting(self):
-        """Bekleme mesajini temizle."""
-        # Clear line completely
+        """Clear the waiting spinner message."""
+        # Clear the line completely
         print("\r\033[2K", end="", flush=True)
 
     # No-op methods for backwards compatibility with existing callers

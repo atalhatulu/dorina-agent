@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
+from core.constants import t
 
 if TYPE_CHECKING:
     from app import DorinaApp
@@ -14,23 +15,23 @@ async def cmd_tools(app: "DorinaApp", cmd: str) -> None:
     from tools.registry import registry
     from ui.display import console, print_info
 
-    print_info(f"Kayıtlı tool: {registry.count()}")
+    print_info(t("tools_registered", count=registry.count()))
     for t in registry.list():
         console.print(f"  [cyan]{t.name}[/cyan] [{t.toolset}] — {t.description}")
 
 
 async def cmd_tasks(app: "DorinaApp", cmd: str) -> None:
-    """List background tasks (failed olanlari otomatik temizler)."""
+    """List background tasks (auto-clears failed ones)."""
     from bg_tools.task_manager import task_manager
     from ui.display import print_table as _pt_tasks, print_info
 
-    task_manager.clear_failed()  # failed task'leri otomatik sil
+    task_manager.clear_failed()  # auto-clear failed tasks
     tasks = task_manager.list_tasks()
     if tasks:
         rows = [[t.id, t.name, t.status, t.elapsed] for t in tasks]
-        _pt_tasks("Arka Plan Görevleri", ["ID", "Görev", "Durum", "Süre"], rows)
+        _pt_tasks(t("tasks_title"), ["ID", "Task", "Status", "Duration"], rows)
     else:
-        print_info("Arka planda çalışan görev yok.")
+        print_info(t("tasks_none"))
 
 
 async def cmd_crons(app: "DorinaApp", cmd: str) -> None:
@@ -43,16 +44,16 @@ async def cmd_crons(app: "DorinaApp", cmd: str) -> None:
     jobs = cron.list_jobs()
 
     if not jobs:
-        console.print("  [dim]Aktif cron görevi bulunmuyor.[/dim]")
+        console.print(f"  [dim]{t('crons_none')}[/dim]")
     else:
-        tbl = Table(title="Zamanlanmış Görevler (Crons)", border_style="#D4622A", box=box.ROUNDED)
+        tbl = Table(title=t("crons_title"), border_style="#D4622A", box=box.ROUNDED)
         tbl.add_column("ID", style="cyan")
-        tbl.add_column("Görev Adı", style="bold white")
-        tbl.add_column("Zamanlama", style="magenta")
-        tbl.add_column("Sıradaki Çalışma", style="green")
+        tbl.add_column("Task Name", style="bold white")
+        tbl.add_column("Schedule", style="magenta")
+        tbl.add_column("Next Run", style="green")
 
         for j in jobs:
-            tbl.add_row(j.id[:8], j.name, j.schedule, str(j.next_run or "Bilinmiyor"))
+            tbl.add_row(j.id[:8], j.name, j.schedule, str(j.next_run or t("crons_next_unknown")))
 
         console.print(tbl)
 
@@ -72,13 +73,13 @@ async def cmd_verify(app: "DorinaApp", cmd: str) -> None:
 
     if _raw == "--list":
         result = tool_verify_tool(tool_name="--list")
-        console.print(f"\n[bold #D4622A]# Verify Durumu[/bold #D4622A]")
+        console.print(f"\n[bold #D4622A]# {t('verify_title')}[/bold #D4622A]")
         console.print(result)
 
     elif _raw == "--reset":
         result = tool_verify_tool(tool_name="--reset")
         data = json.loads(result) if isinstance(result, str) and result.startswith("{") else result
-        print_success(data.get("message", "Cache temizlendi"))
+        print_success(data.get("message", t("verify_cache_cleared")))
 
     elif _raw:
         # Single tool verify
@@ -88,16 +89,16 @@ async def cmd_verify(app: "DorinaApp", cmd: str) -> None:
         if isinstance(data, dict):
             s = data.get("status", "?")
             msg = data.get("message", "")
-            console.print(f"  Status: {s}")
-            console.print(f"  Mesaj:  {msg}")
+            console.print(f"  {t('verify_status')} {s}")
+            console.print(f"  {t('verify_message')} {msg}")
             if data.get("result_preview"):
-                console.print(f"  Çıktı:  {data['result_preview'][:200]}")
+                console.print(f"  {t('verify_output')} {data['result_preview'][:200]}")
         else:
             console.print(result)
 
     else:
         # Verify all
-        console.print(f"\n[bold #D4622A]# Verifying all tools...[/bold #D4622A]")
+        console.print(f"\n[bold #D4622A]# {t('verify_verifying_all')}[/bold #D4622A]")
         result = tool_verify_tool()
         data = json.loads(result) if isinstance(result, str) else result
         if isinstance(data, dict):
@@ -118,7 +119,7 @@ async def cmd_review(app: "DorinaApp", cmd: str) -> None:
     from orchestrator.experimental_loop import loop_v2 as loop
     from ui.display import print_info, print_assistant
 
-    print_info("Review baslatiliyor...")
+    print_info(t("review_starting"))
     tool_outputs = []
     for m in loop.context.get_messages()[-20:]:
         if m.get("role") == "tool":
@@ -126,7 +127,7 @@ async def cmd_review(app: "DorinaApp", cmd: str) -> None:
             name = m.get("name", "")
             if len(content) > 50:
                 tool_outputs.append(f"=== Tool: {name} ===\n{content[:1000]}")
-    print_assistant("**Review:** Self-review kaldirildi, sadece test sonuclarina guven.")
+    print_assistant(t("review_note"))
 
 
 async def cmd_skills(app: "DorinaApp", cmd: str) -> None:
@@ -140,6 +141,6 @@ async def cmd_skills(app: "DorinaApp", cmd: str) -> None:
             [s["name"], s.get("description", ""), str(s.get("use_count", 0))]
             for s in skill_list
         ]
-        print_table("Skill'ler", ["İsim", "Açıklama", "Kullanım"], rows)
+        print_table(t("skills_title"), ["Name", "Description", "Uses"], rows)
     else:
-        print_info("Hiç skill yok")
+        print_info(t("skills_none"))
