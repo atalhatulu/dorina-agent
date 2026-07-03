@@ -10,9 +10,9 @@ class WebSearch:
     """Web search engine. DuckDuckGo with multi-engine support.
 
     Integration points:
-      - deep_research.py: Parallel search için kullanır
-      - rag_engine.py: Research sonuçlarını eklemek için kullanır
-      - tools/builtin/modules.py: web_search tool'u bu sınıfı kullanır
+      - deep_research.py: Used for parallel search
+      - rag_engine.py: Used to append research results
+      - tools/builtin/modules.py: web_search tool uses this class
     """
 
     def __init__(self):
@@ -25,7 +25,7 @@ class WebSearch:
                 from ddgs import DDGS
                 self._search = DDGS()
             except ImportError:
-                log.debug("ddgs (duckduckgo_search) yuklenemedi, web_fetch fallback kullanilacak")
+                log.debug("ddgs (duckduckgo_search) not loaded, using web_fetch fallback")
                 self._search = False
 
     def search_web(
@@ -36,17 +36,17 @@ class WebSearch:
         region: str = "wt-wt",
         use_cache: bool = True,
     ) -> list[dict]:
-        """Search the web, sonuçları döndür.
+        """Search the web, return results.
 
         Args:
-            query: Arama sorgusu
+            query: Search query
             max_results: Maximum result count
             safesearch: Safe search ("on", "off", "moderate")
-            region: Bölge kodu ("wt-wt", "tr-tr", "en-us", etc.)
-            use_cache: Use cache (varsa)
+            region: Region code ("wt-wt", "tr-tr", "en-us", etc.)
+            use_cache: Use cache if available
 
         Returns:
-            Her biri {"title", "url", "snippet", "source"} olan sözlük listesi
+            List of dicts, each with {"title", "url", "snippet", "source"}
         """
         cache_key = f"{query}:{max_results}:{region}"
         if use_cache and cache_key in self.cache:
@@ -81,7 +81,7 @@ class WebSearch:
             return []
 
     def search_news(self, query: str, max_results: int = 5) -> list[dict]:
-        """Haber ara."""
+        """Search news."""
         self._init()
         if not self._search:
             return []
@@ -119,7 +119,7 @@ class WebSearch:
         return unique[:max_results]
 
     def clear_cache(self):
-        """Arama önbelleğini temizle."""
+        """Clear search cache."""
         self.cache.clear()
 
 

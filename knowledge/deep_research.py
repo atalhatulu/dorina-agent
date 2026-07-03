@@ -43,21 +43,21 @@ from knowledge.research_prompts import (
 
 
 class DeepResearcher:
-    """Multi-step derin araştırma motoru.
+    """Multi-step deep research engine.
 
     Pipeline:
-      1. Query Analysis — sorguyu analiz et, alt-sorgulara böl
-      2. Parallel Search — her alt-sorgu için paralel arama yap
-      3. Cross Reference — bulguları çapraz referansla
-      4. Synthesis — sentezle
-      5. Final Report — nihai raporu oluştur
+      1. Query Analysis — analyze query, break into sub-queries
+      2. Parallel Search — parallel search for each sub-query
+      3. Cross Reference — cross-reference findings
+      4. Synthesis — synthesize results
+      5. Final Report — generate the final report
     """
 
     def __init__(self, llm_callback=None):
         self.llm = llm_callback
         self.findings: list[dict] = []
         self.start_time = 0.0
-        self.max_time = 300  # 5 dk max
+        self.max_time = 300  # 5 min max
         self.max_iterations = 5
         self.iteration = 0
         self.cancelled = False
@@ -73,7 +73,7 @@ class DeepResearcher:
         self.cancelled = True
 
     async def research(self, question: str) -> str:
-        """Ana araştırma pipeline'ı."""
+        """Main research pipeline."""
         self.start_time = time.time()
         self.iteration = 0
         self.findings = []
@@ -120,9 +120,9 @@ class DeepResearcher:
             CROSS_REFERENCE_PROMPT.format(question=question, findings=findings_text)
         )
         cross_ref = self._parse_json(cross_ref_text) or {"common_themes": [], "contradictions": [], "gaps": []}
-        log.info(f"[Research] Ortak tema: {len(cross_ref.get('common_themes', []))}, "
-                 f"Çelişki: {len(cross_ref.get('contradictions', []))}, "
-                 f"Boşluk: {len(cross_ref.get('gaps', []))}")
+        log.info(f"[Research] Common themes: {len(cross_ref.get('common_themes', []))}, "
+                 f"Contradictions: {len(cross_ref.get('contradictions', []))}, "
+                 f"Gaps: {len(cross_ref.get('gaps', []))}")
 
         # ── Step 4: Synthesis ───────────────────────────────────
         log.info("[Research] Step 4: Synthesizing results...")
@@ -282,7 +282,7 @@ class DeepResearcher:
         for l in text.split("\n"):
             line = l.strip()
             if line and not line.startswith(("#", "//")):
-                # Eğer markdown listesi ise başındaki '- ' veya '* ' işaretini temizle
+                # Strip leading '- ' or '* ' markdown list markers
                 import re as _re
                 line = _re.sub(r'^[-*]\s+', '', line).strip('"\'')
                 if line:

@@ -19,38 +19,38 @@ class VisionAnalyzer:
 
     # ── Analyze ─────────────────────────────────────────────────
     def analyze(self, image_path: str) -> str:
-        """Resim dosyasını analiz et: format, boyut, mod, dosya bilgisi."""
+        """Analyze an image file: format, size, mode, file info."""
         if not self.available:
-            return "Vision kullanilamiyor (Pillow kurulu degil)"
+            return "Vision unavailable (Pillow not installed)"
         try:
             from PIL import Image
             p = Path(image_path)
             if not p.exists():
-                return f"Dosya bulunamadi: {image_path}"
+                return f"File not found: {image_path}"
             with Image.open(p) as img:
                 info = {
-                    "format": img.format or "bilinmiyor",
+                    "format": img.format or "unknown",
                 "size": f"{img.size[0]}x{img.size[1]}",
                 "mode": img.mode,
                 "file": str(p),
                 "file_size": f"{p.stat().st_size} bytes",
             }
             return (
-                f"Resim: {info['size']} {info['format']} {info['mode']} "
+                f"Image: {info['size']} {info['format']} {info['mode']} "
                 f"({info['file_size']})"
             )
         except Exception as e:
-            return f"Resim analiz edilemedi: {e}"
+            return f"Image analysis failed: {e}"
 
     def analyze_detailed(self, image_path: str) -> dict:
-        """Detaylı analiz sonucu sözlük olarak döndür."""
+        """Return detailed analysis result as a dictionary."""
         if not self.available:
-            return {"error": "Vision kullanilamiyor", "available": False}
+            return {"error": "Vision unavailable", "available": False}
         try:
             from PIL import Image
             p = Path(image_path)
             if not p.exists():
-                return {"error": f"Dosya bulunamadi: {image_path}"}
+                return {"error": f"File not found: {image_path}"}
             with Image.open(p) as img:
                 return {
                     "format": img.format or "unknown",
@@ -66,36 +66,36 @@ class VisionAnalyzer:
 
     # ── OCR ─────────────────────────────────────────────────────
     def ocr(self, image_path: str) -> str:
-        """Optik Karakter Tanıma (easyocr gerekli).
-        easyocr yoksa yerine PIL+debug mesajı döndürür.
+        """Optical Character Recognition (requires easyocr).
+        Falls back to PIL + debug message if easyocr is not installed.
         """
         if not self.available:
-            return "Vision kullanilamiyor"
+            return "Vision unavailable"
         try:
             import easyocr
             reader = easyocr.Reader(["en", "tr"], gpu=False)
             result = reader.readtext(image_path, detail=0)
-            text = "\n".join(result) if result else "Metin bulunamadi"
-            return f"[OCR] {len(result)} parca:\n{text}"
+            text = "\n".join(result) if result else "No text found"
+            return f"[OCR] {len(result)} segments:\n{text}"
         except ImportError:
-            return f"[OCR: {image_path} - easyocr gerekli]"
+            return f"[OCR: {image_path} - easyocr required]"
         except Exception as e:
-            return f"[OCR] Hata: {e}"
+            return f"[OCR] Error: {e}"
 
     # ── Resize ──────────────────────────────────────────────────
     def resize(self, image_path: str, width: int = 800, height: int = 0, keep_aspect: bool = True) -> str:
-        """Resmi yeniden boyutlandır.
-        - width: hedef genişlik (piksel)
-        - height: 0 ise en-boy oranı korunarak hesaplanır
-        - keep_aspect: True ise oran korunur, False ise tam width×height
+        """Resize the image.
+        - width: target width (pixels)
+        - height: 0 means auto-calculated maintaining aspect ratio
+        - keep_aspect: True preserves aspect ratio, False forces exact width x height
         """
         if not self.available:
-            return "Vision kullanilamiyor"
+            return "Vision unavailable"
         try:
             from PIL import Image
             p = Path(image_path)
             if not p.exists():
-                return f"Dosya bulunamadi: {image_path}"
+                return f"File not found: {image_path}"
 
             with Image.open(p) as img:
                 orig_w, orig_h = img.size
@@ -116,37 +116,37 @@ class VisionAnalyzer:
                 out_path = p.parent / f"{stem}_{new_size[0]}x{new_size[1]}{suffix}"
                 img.save(out_path)
             return (
-                f"Yeniden boyutlandirildi: {out_path.name} "
+                f"Resized: {out_path.name} "
                 f"({orig_w}x{orig_h} -> {new_size[0]}x{new_size[1]})"
             )
         except Exception as e:
-            return f"Yeniden boyutlandirilamadi: {e}"
+            return f"Resize failed: {e}"
 
     # ── Format Conversion ──────────────────────────────────────
     def convert_format(self, image_path: str, target_format: str = "png", output_path: Optional[str] = None) -> str:
-        """Resim formatını dönüştür.
-        Desteklenen formatlar: PNG, JPEG, BMP, GIF, WEBP, TIFF.
+        """Convert image format.
+        Supported formats: PNG, JPEG, BMP, GIF, WEBP, TIFF.
         """
         if not self.available:
-            return "Vision kullanilamiyor"
+            return "Vision unavailable"
         valid_formats = {"png", "jpeg", "jpg", "bmp", "gif", "webp", "tiff", "tif"}
         target = target_format.lower()
         if target == "jpg":
             target = "jpeg"
         if target not in valid_formats:
             return (
-                f"Gecersiz format: {target_format}. "
-                f"Secenekler: {', '.join(sorted(valid_formats))}"
+                f"Invalid format: {target_format}. "
+                f"Options: {', '.join(sorted(valid_formats))}"
             )
 
         try:
             from PIL import Image
             p = Path(image_path)
             if not p.exists():
-                return f"Dosya bulunamadi: {image_path}"
+                return f"File not found: {image_path}"
 
             with Image.open(p) as img:
-                # RGBA -> RGB (JPEG desteklemez)
+                # RGBA -> RGB (JPEG does not support alpha)
                 if target in ("jpeg", "jpg") and img.mode == "RGBA":
                     img = img.convert("RGB")
 
@@ -163,20 +163,20 @@ class VisionAnalyzer:
                     save_kwargs["optimize"] = True
 
                 img.save(str(out), format=target.upper(), **save_kwargs)
-            return f"Format degistirildi: {p.name} -> {out.name} ({target.upper()})"
+            return f"Format converted: {p.name} -> {out.name} ({target.upper()})"
         except Exception as e:
-            return f"Format degistirilemedi: {e}"
+            return f"Format conversion failed: {e}"
 
     # ── Thumbnail ──────────────────────────────────────────────
     def thumbnail(self, image_path: str, size: tuple[int, int] = (200, 200), output_path: Optional[str] = None) -> str:
-        """Küçük resim (thumbnail) oluştur. En-boy oranını korur, boyutları aşmaz."""
+        """Create a thumbnail. Preserves aspect ratio without exceeding dimensions."""
         if not self.available:
-            return "Vision kullanilamiyor"
+            return "Vision unavailable"
         try:
             from PIL import Image
             p = Path(image_path)
             if not p.exists():
-                return f"Dosya bulunamadi: {image_path}"
+                return f"File not found: {image_path}"
 
             with Image.open(p) as img:
                 img.thumbnail(size, Image.LANCZOS)
@@ -189,17 +189,15 @@ class VisionAnalyzer:
                 out.parent.mkdir(parents=True, exist_ok=True)
                 img.save(out)
                 return (
-                    f"Thumbnail olusturuldu: {out.name} "
-                    f"({size[0]}x{size[1]} - gercek: {img.size[0]}x{img.size[1]})"
+                    f"Thumbnail created: {out.name} "
+                    f"({size[0]}x{size[1]} - actual: {img.size[0]}x{img.size[1]})"
                 )
         except Exception as e:
-            return f"Thumbnail olusturulamadi: {e}"
+            return f"Thumbnail creation failed: {e}"
 
     # ── Utility ─────────────────────────────────────────────────
     def get_image_info(self, image_path: str) -> Optional[dict]:
-        """Resim hakkında temel bilgileri sözlük olarak döndür.
-        Hata durumunda None döndürür.
-        """
+        """Return basic image info as a dictionary. Returns None on error."""
         if not self.available:
             return None
         try:

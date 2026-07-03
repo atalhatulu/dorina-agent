@@ -186,7 +186,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                 import os as _os
                 import shlex as _shlex
             except ImportError:
-                return json.dumps({"error": "PTY mode Windows'ta desteklenmez. PTY'siz calistirin."})
+                return json.dumps({"error": "PTY mode is not supported on Windows. Run without PTY."})
             master_fd, slave_fd = _pty.openpty()
             proc = subprocess.Popen(
                 command,

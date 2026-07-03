@@ -8,7 +8,7 @@ class WebScraper:
     """Fetch content from URL."""
 
     def fetch_sync(self, url: str, timeout: int = 15) -> str | None:
-        """URLden içerik çek (sync)."""
+        """Fetch content from URL (sync)."""
         import httpx
         try:
             resp = httpx.get(url, timeout=timeout, follow_redirects=True,
@@ -52,7 +52,7 @@ class WebScraper:
 
                     text = soup.get_text(separator="\n", strip=True)
                     lines = [line.strip() for line in text.split("\n") if line.strip()]
-                    return "\n".join(lines[:200])  # İlk 200 satır
+                    return "\n".join(lines[:200])  # First 200 lines
 
                 elif "application/json" in content_type:
                     return resp.text[:5000]

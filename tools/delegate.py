@@ -1,9 +1,9 @@
 """
-delegate_task / delegate_batch — SubAgent delegasyon sistemi.
+delegate_task / delegate_batch — SubAgent delegation system.
 
-Async-native SubAgent'lar. Her sub-agent kendi mini-loop'unu calistirir,
-V2 pattern'lerini (error classification, context compression, repair,
-self-reflection) kullanir. Thread yok, polling yok.
+Async-native SubAgents. Each sub-agent runs its own mini-loop,
+using V2 patterns (error classification, context compression, repair,
+self-reflection). No threads, no polling.
 """
 
 from __future__ import annotations
@@ -25,14 +25,14 @@ from orchestrator.repair import repair_message_sequence
 from core.error_classifier import classify_api_error
 from core.error_db import log_error_pattern
 
-# Sub-agent kendi alt-agent uretemez — recursive delegation engeli
+# Sub-agents cannot spawn their own sub-agents — recursive delegation blocker
 BLOCKED_TOOLS = frozenset({"delegate_task", "delegate_batch", "mcp_call_tool"})
 
 
 class SubAgent:
-    """Alt-agent: izole baglamda calisan mini bir Dorina.
+    """Sub-agent: a mini Dorina running in an isolated context.
 
-    V2 pattern'lerini kullanir: error classification, context compression,
+    Uses V2 patterns: error classification, context compression,
     repair_message_sequence, self-reflection, read_file cache.
     """
 
@@ -52,9 +52,9 @@ class SubAgent:
         self._done = asyncio.Event()
 
     async def run(self) -> str:
-        """Alt-agent'i calistir. Sonucu JSON string dondurur."""
+        """Run the sub-agent. Returns result as JSON string."""
         self.status = "running"
-        log.info("SubAgent [%s] basladi: %s", self.id, self.goal[:60])
+        log.info("SubAgent [%s] started: %s", self.id, self.goal[:60])
         try:
             result = await self._async_run()
             self.status = "completed"
@@ -64,7 +64,7 @@ class SubAgent:
         except Exception as e:
             self.error = str(e)
             self.status = "error"
-            log.error("SubAgent [%s] hatasi: %s", self.id, e)
+            log.error("SubAgent [%s] error: %s", self.id, e)
             self._done.set()
             return json.dumps({"error": str(e)})
 
@@ -112,7 +112,7 @@ class SubAgent:
 
         messages = [{"role": "system", "content": system}]
 
-        # Tool secimi — subagent'in kendi toolset'lerinden
+        # Tool selection — from the sub-agent's own toolset
         tool_schemas = []
         for t in registry.list():
             if t.toolset in (self.toolset_names or {"file", "web", "terminal"}):
@@ -133,7 +133,7 @@ class SubAgent:
 
             # Cancellation check
             if self.status == "cancelled":
-                return json.dumps({"error": "subagent iptal edildi"})
+                return json.dumps({"error": "subagent cancelled"})
 
             # Context compression (aggressive threshold)
             if self.compressor.should_compress(messages):
@@ -154,14 +154,14 @@ class SubAgent:
                 json.JSONDecodeError,
             ) as e:
                 log.error("SubAgent LLM error [%s]: %s", self.id, e)
-                return json.dumps({"error": f"LLM hatasi: {e}"})
+                return json.dumps({"error": f"LLM error: {e}"})
             except Exception as e:
                 log.error(
                     "SubAgent unexpected LLM error [%s]: %s",
                     self.id, e,
                 )
                 return json.dumps(
-                    {"error": f"Beklenmeyen LLM hatasi: {e}"}
+                    {"error": f"Unexpected LLM error: {e}"}
                 )
 
             content = response.get("content", "")
@@ -190,7 +190,7 @@ class SubAgent:
                     messages.append({
                         "role": "tool",
                         "content": json.dumps({
-                            "error": "engellendi",
+                            "error": "blocked",
                             "reason": "recursive delegation blocked",
                         }),
                         "name": name,
@@ -247,8 +247,8 @@ class SubAgent:
                         )
                         return json.dumps({
                             "error": (
-                                f"'{name}' ardarda 3 kez hata verdi, "
-                                "sub-agent durduruldu"
+                                f"'{name}' failed 3 times consecutively, "
+                                "sub-agent stopped"
                             ),
                         })
                     continue
@@ -283,7 +283,7 @@ class SubAgent:
 
 
 class DelegateManager:
-    """Alt-agent'lari yonetir. Pure async — thread yok, polling yok."""
+    """Manages sub-agents. Pure async — no threads, no polling."""
 
     def __init__(self):
         self.active: dict[str, SubAgent] = {}
@@ -291,7 +291,7 @@ class DelegateManager:
     async def submit_batch_and_wait(
         self, tasks: list[dict], timeout: int = 120
     ) -> list[dict]:
-        """Birden cok alt-agent'i paralel calistir ve bekle."""
+        """Run multiple sub-agents in parallel and wait."""
         agents: list[SubAgent] = []
         for task in tasks:
             agent = SubAgent(
@@ -357,9 +357,9 @@ delegate = DelegateManager()
 @register_tool(
     name="delegate_task",
     description=(
-        "Bir alt-gorevi (sub-task) ayri bir mini-agent'a devret. "
-        "Karmasik, uzun surecek islemler icin. Alt-agent kendi "
-        "tool'larini kullanir, sonucu ozet olarak dondurur."
+        "Delegate a sub-task to a separate mini-agent. "
+        "For complex, long-running operations. The sub-agent uses its own "
+        "tools and returns a summary of the result."
     ),
     parameters={
         "type": "object",
@@ -367,14 +367,14 @@ delegate = DelegateManager()
             "goal": {
                 "type": "string",
                 "description": (
-                    "Alt-gorevin hedefi (net ve spesifik olmali)"
+                    "Goal for the sub-task (must be clear and specific)"
                 ),
             },
             "context": {
                 "type": "string",
                 "description": (
-                    "Alt-goreve verilecek baglam "
-                    "(dosya yollari, onceki sonuclar)"
+                    "Context to pass to the sub-agent "
+                    "(file paths, previous results)"
                 ),
                 "default": "",
             },
@@ -388,7 +388,7 @@ delegate = DelegateManager()
                     ],
                 },
                 "description": (
-                    "Alt-agentin kullanabilecegi tool kategorileri"
+                    "Tool categories the sub-agent can use"
                 ),
                 "default": ["file", "web", "terminal"],
             },
@@ -402,7 +402,7 @@ async def delegate_task_tool(
     context: str = "",
     toolsets: list[str] = None,
 ) -> str:
-    """Bir alt-agent olustur, calistir, sonucu dondur."""
+    """Create a sub-agent, run it, and return the result."""
     if toolsets is None:
         toolsets = ["file", "web", "terminal"]
     agent = SubAgent(goal=goal, context=context, toolsets=toolsets)
@@ -412,8 +412,8 @@ async def delegate_task_tool(
 @register_tool(
     name="delegate_batch",
     description=(
-        "Birden fazla alt-gorevi paralel calistir. Her alt-gorev "
-        "ayri bir mini-agent. Sonuclari toplu dondurur."
+        "Run multiple sub-tasks in parallel. Each sub-task "
+        "gets its own mini-agent. Returns results as a batch."
     ),
     parameters={
         "type": "object",
@@ -438,11 +438,11 @@ async def delegate_task_tool(
                     },
                     "required": ["goal"],
                 },
-                "description": "Paralel calistirilacak gorevler",
+                "description": "Tasks to run in parallel",
             },
             "timeout": {
                 "type": "integer",
-                "description": "Toplam zaman asimi (saniye)",
+                "description": "Total timeout in seconds",
                 "default": 120,
             },
         },
@@ -454,6 +454,6 @@ async def delegate_batch_tool(
     tasks: list[dict],
     timeout: int = 120,
 ) -> str:
-    """Birden cok alt-agent'i paralel calistir."""
+    """Run multiple sub-agents in parallel."""
     results = await delegate.submit_batch_and_wait(tasks, timeout)
     return json.dumps(results, ensure_ascii=False)
