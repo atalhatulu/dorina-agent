@@ -183,7 +183,7 @@ class TestVisionAnalyzer:
     def test_convert_format_invalid(self, test_image):
         from vision.analyzer import vision
         result = vision.convert_format(test_image, target_format="invalid")
-        assert "Gecersiz" in result
+        assert "Invalid" in result or "Gecersiz" in result
 
     def test_get_image_info(self, test_image):
         from vision.analyzer import vision

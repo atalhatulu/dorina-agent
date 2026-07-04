@@ -262,7 +262,7 @@ class MCPClient:
             pass
 
     async def _notify(self, method: str, params: dict | None = None):
-        )"""Send a JSON-RPC notification (no response expected)."""
+        """Send a JSON-RPC notification (no response expected)."""
         notification = {
             "jsonrpc": "2.0",
             "method": method,
@@ -275,7 +275,7 @@ class MCPClient:
         await self.writer.drain()
 
     async def _read_loop(self):
-        )"""Read JSON-RPC responses line by line (readline-based)."""
+        """Read JSON-RPC responses line by line (readline-based)."""
         try:
             while self._connected and self.reader:
                 line = await asyncio.wait_for(self.reader.readline(), timeout=120)
@@ -297,7 +297,7 @@ class MCPClient:
             log.debug(f"MCP read loop ended: {e}")
 
     def _handle_message(self, message: dict):
-        )"""Handle an incoming JSON-RPC message."""
+        """Handle an incoming JSON-RPC message."""
         # Response?
         if "id" in message:
             req_id = str(message["id"])
@@ -316,8 +316,8 @@ class MCPClient:
 
 class MCPManager:
     """
-    )"""Manages multiple MCP servers.
-    Aggregates tools from all servers into a single pool."""
+    Manages multiple MCP servers.
+    Aggregates tools from all servers into a single pool.
     """
 
     def __init__(self):
@@ -359,7 +359,7 @@ class MCPManager:
         return all_tools
 
     async def call_tool(self, tool_name: str, arguments: dict) -> str:
-        )"""Find and call the tool on the correct server."""
+        """Find and call the tool on the correct server."""
         for client in self.servers.values():
             if not client._connected:
                 continue
@@ -369,7 +369,7 @@ class MCPManager:
         return json.dumps({"error": f"Tool not found (MCP): {tool_name}"})
 
     async def ping_all(self) -> dict[str, bool]:
-        )"""Ping all servers (only connected ones)."""
+        """Ping all servers (only connected ones)."""
         results = {}
         for name, client in self.servers.items():
             if client._connected:
