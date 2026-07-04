@@ -1,31 +1,70 @@
-"""Status bar — prompt_toolkit toolbar state manager.
+"""Status bar — toolbars for both prompt_toolkit (input phase) and Rich Live (AI phase).
 
-No Rich Live dependency. Provides toolbar tokens for prompt_toolkit's
-bottom_toolbar, which is rendered inline with the prompt, not as a
-separate overlay. This means the status bar is always at the bottom,
-never overwrites user input, and is managed by prompt_toolkit itself.
-
-Format: ⟳ {status}  │  in: 12,450  out: 3,210  │  03:42  │  turn: 7
+prompt_toolkit bottom_toolbar renders during user input.
+Rich Live display renders a persistent bottom bar during AI processing.
+Both show the same information in the same format.
 """
 
 import time
 import asyncio
+import shutil
+import subprocess
 
-from core.constants import NAME, VERSION
 from core.mode_manager import modes
 from core.event_bus import bus
+from rich.text import Text
 
-DORINA_ORANGE = "#E06C75"
-TEXT_MAIN = "#ABB2BF"
-DIM_GRAY = "#5C6370"
-SUCCESS_GREEN = "#98C379"
+# Color Palette (By Mode) - as per plan
+COLOR_PALETTE = {
+    "normal": {
+        "primary": "#D4622A",  # orange
+        "secondary": "#E08F5A",
+        "dim": "#5C6370",
+        "accent": "#98C379",  # green
+    },
+    "godmode": {
+        "primary": "#ff3333",  # red
+        "secondary": "#cc2222",
+        "dim": "#662222",
+        "accent": "#ff6666",
+    },
+    "audit": {
+        "primary": "#E06C75",  # warm red
+        "secondary": "#D4622A",
+        "dim": "#5C6370",
+        "accent": "#98C379",
+    },
+    "temp": {
+        "primary": "#6C7086",  # gray
+        "secondary": "#585B70",
+        "dim": "#3b3b3b",
+        "accent": "#6C7086",
+    },
+}
+
+# --- Style mappings (for prompt_toolkit) ---
+# These will need to be defined in ui/repl.py (or a central style definition)
+# For now, we'll use placeholder strings and assume they are defined elsewhere.
+# "class:godmode" -> "fg: #ff3333 bold"
+# "class:godmode_dim" -> "fg: #662222"
+# "class:normal_primary" -> "fg: #D4622A bold"
+# "class:normal_dim" -> "fg: #5C6370"
+# "class:audit_primary" -> "fg: #E06C75 bold"
+# "class:audit_dim" -> "fg: #5C6370"
+# "class:temp_primary" -> "fg: #6C7086 bold"
+# "class:temp_dim" -> "fg: #3b3b3b"
+# "class:accent" -> "fg: #98C379"
+
+
 
 
 class StatusBar:
-    """State manager for prompt_toolkit bottom toolbar.
-    
-    Does NOT own any Live instance. Just tracks state and renders
-    toolbar tokens on demand.
+    """Two-phase status bar: prompt_toolkit bottom_toolbar + Rich Live.
+
+    - During user input: prompt_toolkit renders bottom_toolbar tokens.
+    - During AI processing: Rich Live display renders a persistent
+      bottom bar (toolbar would disappear since prompt_toolkit is idle).
+    - Both show the same information in the same visual format.
     """
 
     def __init__(self):
@@ -44,10 +83,58 @@ class StatusBar:
         self.turn_tokens_out = 0
         self._status_text = "idle"
         self._last_update = time.time()
+        self.git_branch = self._get_git_branch()
+        self.mode_color = COLOR_PALETTE["normal"]
 
     def _ensure_lock(self):
         if self._lock is None:
             self._lock = asyncio.Lock()
+
+    @staticmethod
+    def _active_mode() -> str:
+        """Return current mode string."""
+        if modes.is_on('godmode'):
+            return "godmode"
+        elif modes.is_on('audit'):
+            return "audit"
+        elif modes.is_on('temp'):
+            return "temp"
+        return "normal"
+
+    def _get_git_branch(self) -> str:
+        """Read current git branch."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True, check=False
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
+        return "main"
+
+    def _context_bar(self, pct: float, width: int = 20) -> str:
+        """Render context usage bar: ████████░░░░"""
+        filled = int(pct * width)
+        empty = width - filled
+        bar = "█" * filled + "░" * empty
+        pct_str = f"{int(pct * 100)}%"
+        return f"{bar} {pct_str}"
+
+    @property
+    def tokens_pretty(self) -> str:
+        """Formatted token counts (1.2K, 3.4M)."""
+        if self.tokens_in + self.tokens_out < 1000:
+            return f"in: {self.tokens_in:,} out: {self.tokens_out:,}"
+        if self.tokens_in + self.tokens_out < 1_000_000:
+            return f"in: {self.tokens_in/1000:.1f}K out: {self.tokens_out/1000:.1f}K"
+        return f"in: {self.tokens_in/1_000_000:.1f}M out: {self.tokens_out/1_000_000:.1f}M"
+
+    @property
+    def cost_pretty(self) -> str:
+        """Formatted cost string ($0.0042)."""
+        return f"${self.cost:.4f}"
 
     def start_turn(self):
         self.turn += 1
@@ -103,51 +190,82 @@ class StatusBar:
         return f"{e // 3600:.0f}h {(e % 3600) // 60:.0f}m"
 
     def get_toolbar_tokens(self) -> list[tuple[str, str]]:
-        tokens = []
-        
-        if modes.is_on('godmode'):
-            tokens.append(("class:godmode", " ⚡ GOD MODE "))
-            tokens.append(("class:godmode_dim", "  │  "))
-            tokens.extend([
-                ("class:godmode_dim", f"{self.model or 'deepseek'}"),
-                ("class:godmode_dim", "  │  "),
-                ("class:godmode_dim", f"in: {self.tokens_in:,}  out: {self.tokens_out:,}"),
-                ("class:godmode_dim", "  │  turn: "),
-                ("class:godmode_dim", str(self.turn)),
-            ])
-        elif modes.is_on('audit'):
-            tokens.append(("class:audit", " 🔍 AUDIT "))
-            tokens.append(("class:dim", "  │  "))
-            tokens.extend([
-                ("class:dim", f" {self.model or 'deepseek'}"),
-                ("class:dim", "  │  "),
-                ("class:green", f"in: {self.tokens_in:,}"),
-                ("class:dim", f"  out: {self.tokens_out:,}"),
-                ("class:dim", "  │  turn: "),
-                ("class:dim", str(self.turn)),
-                ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  goal: {self._get_sub_count()}"),
-            ])
-        elif modes.is_on('temp'):
-            tokens.append(("class:temp", " 💭 TEMP "))
-            tokens.append(("class:temp_dim", "  │  "))
-            tokens.extend([
-                ("class:temp_dim", f" {self.model or 'deepseek'}"),
-                ("class:temp_dim", "  │  "),
-                ("class:temp_dim", f"in: {self.tokens_in:,}  out: {self.tokens_out:,}"),
-                ("class:temp_dim", "  │  turn: "),
-                ("class:temp_dim", str(self.turn)),
-            ])
+        """Single-line toolbar styled as a full-width divider with embedded status.
+
+        Renders as: ───────────────── ⚕ model │ 128K │ █░ 13% │ 27m ────────────────
+        """
+        width = shutil.get_terminal_size().columns
+        mode = self._active_mode()
+        self.mode_color = COLOR_PALETTE[mode]
+
+        # Mode icon
+        if mode == "godmode":
+            mode_tag = "⚡"
+        elif mode == "audit":
+            mode_tag = "🔍"
+        elif mode == "temp":
+            mode_tag = "💭"
         else:
-            tokens.extend([
-                ("class:dim", f" {self.model or 'deepseek'}"),
-                ("class:dim", "  │  "),
-                ("class:green", f"in: {self.tokens_in:,}"),
-                ("class:dim", f"  out: {self.tokens_out:,}"),
-                ("class:dim", "  │  turn: "),
-                ("class:dim", str(self.turn)),
-                ("class:dim", f"  │  task: {self._get_task_count()}  cron: {self._get_cron_count()}  goal: {self._get_sub_count()}"),
-            ])
+            mode_tag = ""
+
+        # Model (short name)
+        model_short = self.model or 'deepseek-chat'
+        if '/' in model_short:
+            model_short = model_short.split('/')[-1]
+        if len(model_short) > 18:
+            model_short = model_short[:16] + ".."
+
+        # Build content string
+        content_parts = []
+        if mode_tag:
+            content_parts.append(f" {mode_tag}")
+        content_parts.append(f" {model_short}")
+
+        suffix = ""
+        if self.context_pct > 0:
+            ctx = self._context_bar(self.context_pct, width=min(12, max(4, width // 16)))
+            suffix += f"  {ctx}"
+
+        suffix += f"  {self.elapsed}"
+
+        if self.tokens_in + self.tokens_out > 0:
+            suffix += f"  {self.tokens_pretty}"
+
+        if self.cost > 0.001:
+            suffix += f"  {self.cost_pretty}"
+
+        suffix += f"  turn {self.turn}"
+
+        if self.git_branch:
+            suffix += f"  {self.git_branch}"
+
+        content = "".join(content_parts) + suffix
+        content_stripped = content.strip()
+
+        # If content is empty, just draw a plain divider
+        if not content_stripped:
+            n = max(0, width - 2)
+            return [(f"class:{mode}_dim", f"{'─' * n}")]
+
+        # If terminal is too narrow, show content without fillers
+        if width < 20 or len(content_stripped) > width - 4:
+            return [(f"class:{mode}_dim", content_stripped[:width])]
+
+        # Pad with ─ to fill full width
+        filler = "─"
+        total_fill = max(0, width - len(content_stripped) - 4)
+        left_fill = total_fill // 2
+        right_fill = total_fill - left_fill
+
+        left_str = f" {filler * left_fill} " if left_fill > 0 else "  "
+        right_str = f" {filler * right_fill} " if right_fill > 0 else "  "
+
+        tokens = []
+        tokens.append((f"class:{mode}_dim", left_str))
+        tokens.append((f"class:{mode}_primary", content_stripped))
+        tokens.append((f"class:{mode}_dim", right_str))
         return tokens
+
     def _get_task_count(self) -> int:
         """Number of background tasks currently running."""
         try:
@@ -165,10 +283,9 @@ class StatusBar:
         tbl = Table(border_style="#D4622A", box=box.ROUNDED)
         tbl.add_column("Field", style="bold #D4622A")
         tbl.add_column("Value", style="white")
-        elapsed = self.elapsed()
         tbl.add_row("Model", f"{self.provider}/{self.model}" if self.model else "unset")
         tbl.add_row("Status", self._status_text)
-        tbl.add_row("Duration", elapsed)
+        tbl.add_row("Duration", str(self.elapsed))
         tbl.add_row("Turn", str(self.turn))
         tbl.add_row("Tool Calls", str(self.tool_calls))
         tbl.add_row("Token (in/out)", f"{self.tokens_in:,} / {self.tokens_out:,}")
@@ -179,51 +296,6 @@ class StatusBar:
             tbl.add_row("Audit", "🔍 ON", style="bold #E06C75")
         console.print(tbl)
 
-    def _get_cron_count(self) -> int:
-        """Number of cron jobs registered in the scheduler."""
-        try:
-            from cron.scheduler import cron
-            return len(cron.jobs)
-        except (ImportError, AttributeError):
-            return 0
-            
-    def _get_sub_count(self) -> int:
-        """Number of active sub-goals being tracked by the goal manager."""
-        try:
-            from orchestrator.goal_manager import goal_manager
-            return goal_manager.running_count()
-        except (ImportError, AttributeError):
-            return 0
-
-    def show_waiting(self):
-        """Spinner message shown while the AI is processing."""
-        mdl = self.model or "?"
-        if modes.is_on('godmode'):
-            print(f"\r\x1b[38;5;208m⟳ {self._status_text} {mdl}\x1b[0m  │  turn: {self.turn}  ", end="", flush=True)
-        else:
-            print(f"\r⟳ {self._status_text} {mdl}  │  turn: {self.turn}  ", end="", flush=True)
-        print(f"\r\033[2K⟳ {self._status_text} {mdl}  │  turn: {self.turn}  ", end="", flush=True)
-
-    def hide_waiting(self):
-        """Clear the waiting spinner message."""
-        # Clear the line completely
-        print("\r\033[2K", end="", flush=True)
-
-    # No-op methods for backwards compatibility with existing callers
-    def start_live(self):
-        pass
-
-    def stop_live(self):
-        pass
-
-    def pause(self):
-        pass
-
-    def resume(self):
-        pass
-
-    def _refresh(self):
-        pass
 
     def update(self):
         """Force refresh — marks toolbar for re-render on next prompt_toolkit cycle."""
@@ -242,6 +314,7 @@ class StatusBar:
         self.context_pct = 0
         self.start_time = time.time()
         self._status_text = "idle"
+        self.git_branch = self._get_git_branch() # Reset git branch as well
 
 
 status = StatusBar()

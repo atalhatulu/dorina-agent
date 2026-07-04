@@ -1,4 +1,5 @@
 """Terminal UI - #D4622A orange theme, safe with Text.append."""
+from __future__ import annotations
 from core.constants import t
 from rich.console import Console
 from rich.markdown import Markdown
@@ -10,6 +11,7 @@ import re as _re
 import json as _json
 import threading as _threading
 import time as _time
+import io as _io
 
 _RE_FILE_LINE = _re.compile(r'File "([^"]+)", line (\d+)')
 _RE_FILE_LINE2 = _re.compile(r'[-\s]+File "([^"]+)", line (\d+)')
@@ -19,9 +21,69 @@ from prompt_toolkit.patch_stdout import patch_stdout as _pt_patch
 
 from core.mode_manager import modes
 from core.tokenizer import count_tokens
-console = Console(
-    highlight=False,
-)
+
+# ── Full-screen routing ───────────────────────────────────────────────
+_fullscreen_app = None  # Set by FullScreenREPL at start, cleared on exit
+
+
+class _AppAwareConsole:
+    """Rich Console that routes output through FullScreenREPL when active.
+
+    In normal (non-fullscreen) mode, delegates to the real Rich Console.
+    In fullscreen mode, captures Rich output as ANSI text and sends it
+    to the FullScreenREPL instance, which renders it in the output area
+    above the fixed bottom zone.
+    """
+
+    def __init__(self, real_console: Console):
+        self._real = real_console
+
+    def print(self, *args, **kwargs):
+        app = _fullscreen_app
+        if app is None:
+            self._real.print(*args, **kwargs)
+            return
+
+        end = kwargs.pop("end", "\n")
+        # Capture Rich output to ANSI (no trailing newline)
+        buf = _io.StringIO()
+        cap = Console(
+            file=buf, force_terminal=True, color_system="truecolor",
+            width=self._real.width, highlight=False,
+        )
+        cap.print(*args, **kwargs, end="")
+        ansi = buf.getvalue()
+
+        if not ansi and end == "\n":
+            # Blank line
+            app.print_output("\n")
+            return
+
+        if end == "\n":
+            app.print_output(ansi + "\n")
+        else:
+            app.print_output(ansi)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+# Initial console (will be wrapped by _AppAwareConsole below)
+console = Console(highlight=False)
+
+
+# ── Full-screen helpers ───────────────────────────────────────────────
+
+def _print_raw_ansi(ansi: str):
+    """Print pre-rendered ANSI text, routing via fullscreen app if active."""
+    if _fullscreen_app:
+        _fullscreen_app.print_output(ansi + "\n")
+    else:
+        console._real.print(ansi, markup=False)
+
+
+# Wrap console with app-aware version (must be after all class defs above)
+console = _AppAwareConsole(console)
 
 _tool_outputs: list[dict] = []
 
@@ -60,6 +122,31 @@ USER   = "#E08F5A"
 DIM    = "#8A8478"
 GREEN  = "#6BB05D"
 
+# Mode-aware color overrides
+_MODE_ACCENT = {
+    "normal": "#D4622A",
+    "godmode": "#ff3333",
+    "audit": "#E06C75",
+    "temp": "#6C7086",
+}
+_MODE_GREEN = {
+    "normal": "#6BB05D",
+    "godmode": "#ff6666",
+    "audit": "#98C379",
+    "temp": "#6C7086",
+}
+
+
+def _active_mode() -> str:
+    """Return current mode string."""
+    if modes.is_on('godmode'):
+        return "godmode"
+    elif modes.is_on('audit'):
+        return "audit"
+    elif modes.is_on('temp'):
+        return "temp"
+    return "normal"
+
 _stream_started = False
 
 def _safe_str(s: str, max_len: int = 120) -> str:
@@ -80,10 +167,23 @@ def print_assistant(message: str):
         return
     console.print()
     width = console.width - 4
-    md_console = Console(width=width, highlight=False, soft_wrap=False)
+
+    # Render Markdown → ANSI via a capture Console, then route through
+    # the app-aware console so fullscreen mode displays it correctly.
+    buf = _io.StringIO()
+    md_console = Console(
+        file=buf, width=width, highlight=False, soft_wrap=False,
+        force_terminal=True, color_system="truecolor",
+    )
     from rich.padding import Padding
-    padded_md = Padding(Markdown(message), (0, 0, 0, 2)) # Top, Right, Bottom, Left
+    # Prepend "Dorina : " label before the markdown content
+    label = Text("Dorina : ", style=f"bold {ORANGE}")
+    md_console.print(label, end="", justify="left")
+    padded_md = Padding(Markdown(message), (0, 0, 0, 2))
     md_console.print(padded_md, justify="left")
+    rendered = buf.getvalue()
+    if rendered:
+        _print_raw_ansi(rendered)
     console.print()
 
 
@@ -114,6 +214,9 @@ def flush_stream():
             console.print(_stream_buffer, end="", highlight=False, markup=False)
             _stream_buffer = ""
         _stream_started = False  # reset for next response
+    # Also flush the fullscreen app's stream carry
+    if _fullscreen_app:
+        _fullscreen_app.flush_stream()
 
 
 _current_tool_text = None
@@ -121,6 +224,10 @@ _current_tool_text = None
 def print_tool_start(name: str, args: dict | None = None):
     global _tool_start_time, _current_tool_text
     _tool_start_time = _time.time()
+
+    mode = _active_mode()
+    accent = _MODE_ACCENT[mode]
+    arg_color = _MODE_GREEN[mode]
 
     pascal_name = "".join(word.capitalize() for word in name.split("_"))
     arg_str = ""
@@ -143,7 +250,7 @@ def print_tool_start(name: str, args: dict | None = None):
     txt.append(INDENT)
     txt.append("● ", style=DIM)
     txt.append(f"{pascal_name}", style="bold")
-    txt.append(f"({arg_str})", style="#66BB6A")  # parameters - green
+    txt.append(f"({arg_str})", style=arg_color)  # parameters - mode-aware
     # Parameter token estimation
     global _in_tokens
     _in_tokens = 0
@@ -157,6 +264,8 @@ def print_tool_start(name: str, args: dict | None = None):
 def print_tool_done(name: str, result: str):
     store_tool_output(name, result)
     global _tool_start_time, _current_tool_text, _in_tokens
+    mode = _active_mode()
+    accent = _MODE_ACCENT[mode]
     _duration = f" \n~{max(0.0, _time.time() - _tool_start_time):.1f}s" if _tool_start_time else ""
     _tool_start_time = 0
     # Input/output token estimation
@@ -207,7 +316,7 @@ def print_tool_done(name: str, result: str):
 
     if _current_tool_text:
         line = Text()
-        line.append(" →", style="bold #D4622A")
+        line.append(" →", style=f"bold {accent}")
         line.append(f" {_safe_str(summary, 120)}")
         console.print(line)
         if _duration or _io:
@@ -215,7 +324,7 @@ def print_tool_done(name: str, result: str):
         _current_tool_text = None
     else:
         line = Text()
-        line.append(f"{INDENT}→", style="bold #D4622A")
+        line.append(f"{INDENT}→", style=f"bold {accent}")
         line.append(f" {_safe_str(summary, 120)}")
         console.print(line)
         if _duration or _io:
@@ -223,6 +332,8 @@ def print_tool_done(name: str, result: str):
 
 
 def print_tool_error(name: str, error: str):
+    mode = _active_mode()
+    accent = _MODE_ACCENT[mode]
     raw = str(error or "")
     msg = raw[:120]
     if raw.strip().startswith("{"):
@@ -236,7 +347,7 @@ def print_tool_error(name: str, error: str):
     _logging.getLogger("dorina").debug(f"Tool error [{name}]: {raw[:300]}")
     location = _find_error_location(raw)
     txt = Text()
-    txt.append(INDENT + "✗ ", style=ORANGE)
+    txt.append(INDENT + "✗ ", style=accent)
     txt.append(user_msg or msg)
     if location:
         txt.append(" ", style="")

@@ -49,6 +49,37 @@ def _color(s: str, c: str) -> str:
     return f"[{c}]{s}[/{c}]"
 
 
+def _last_session_info() -> str | None:
+    """Read last session duration and token count from session store."""
+    try:
+        from session.manager import manager as _sm
+        sessions = _sm.list() if hasattr(_sm, 'list') else []
+        if sessions and len(sessions) > 1:
+            prev = sessions[-2]
+            dur = prev.get("duration", 0) or 0
+            if dur < 60:
+                dur_str = f"{dur:.0f}s"
+            elif dur < 3600:
+                dur_str = f"{dur // 60:.0f}m {dur % 60:.0f}s"
+            else:
+                dur_str = f"{dur // 3600:.0f}h {(dur % 3600) // 60:.0f}m"
+            tokens = prev.get("tokens_total", 0)
+            if tokens:
+                return f"{dur_str} · {tokens:,} tok"
+            return dur_str
+    except (ImportError, AttributeError, IndexError, KeyError):
+        pass
+    return None
+
+
+def _context_bar(pct: float, width: int = 12) -> str:
+    """Render context usage bar for banner."""
+    filled = int(pct * width)
+    empty = width - filled
+    bar = "█" * filled + "░" * empty
+    return f"{bar} {int(pct * 100)}%"
+
+
 def _build_info_lines(
     model_info: str,
     session_id: str,
@@ -60,6 +91,7 @@ def _build_info_lines(
     v2: str,
     v3: str,
     coral: str,
+    startup_duration: float = 0.0,
 ) -> list[Text]:
     lines: list[Text] = []
 
@@ -89,7 +121,23 @@ def _build_info_lines(
     lines.append(_kv("state", _color("IDLE", GREEN) + " " + _dim("· 9-state machine"), v2=v2))
     lines.append(_kv("memory", _hi("semantic") + " " + _dim("+ episodic + procedural"), v2=v2))
     lines.append(_kv("rag", _color("chromadb", GREEN) + " " + _dim("· initialized"), v2=v2))
+
+    # Startup duration line
+    if startup_duration > 0:
+        if startup_duration < 1.0:
+            dur_str = f"{startup_duration*1000:.0f}ms"
+        elif startup_duration < 60:
+            dur_str = f"{startup_duration:.1f}s"
+        else:
+            dur_str = f"{startup_duration // 60:.0f}m {startup_duration % 60:.0f}s"
+        lines.append(_kv("startup", _color(dur_str, AMBER) + " " + _dim("· ready"), v2=v2))
+
     lines.append(_kv("version", _color("v" + VERSION, v3) + " " + _dim("· python " + sys.version.split()[0]), v2=v2))
+
+    # Last session info
+    last_session = _last_session_info()
+    if last_session:
+        lines.append(_kv("previous", _dim(last_session), v2=v2))
 
     uname = platform.uname()
     lines.append(_kv("platform", _dim(f"{uname.system} {uname.machine}")))
@@ -110,6 +158,7 @@ def print_startup_banner(
     tools_all: list[tuple[str, str]] = None,
     skills: list[tuple[str, str]] = None,
     api_keys: list[str] = None,
+    startup_duration: float = 0.0,
 ):
     """Clear screen and print gradient ASCII + info."""
     _sp_run.run("clear" if os.name == "posix" else "cls", shell=True)
@@ -130,7 +179,7 @@ def print_startup_banner(
 
     info_lines = _build_info_lines(
         model_info, session_id, tools_available, tools_all, skills, api_keys,
-        V1, V2, V3, CORAL
+        V1, V2, V3, CORAL, startup_duration
     )
 
     total = max(len(ascii_lines), len(info_lines))

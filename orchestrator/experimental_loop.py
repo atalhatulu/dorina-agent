@@ -174,7 +174,11 @@ class AgentLoopV2:
             self._trim_old_read_file_results()
 
             # Think: LLM cagrisi
-            response = await self._think(tool_schemas)
+            _status.set_status("Thinking")
+            try:
+                response = await self._think(tool_schemas)
+            finally:
+                _status.set_status("idle")
 
             # Status: token kullanimi
             self._update_status(response)
@@ -569,11 +573,18 @@ class AgentLoopV2:
     def _update_status(response: dict):
         """Token kullanimini status bar'a ekle."""
         usage = response.get("usage", {})
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
         _status.add_tokens(
-            prompt_tokens=usage.get("prompt_tokens", 0),
-            completion_tokens=usage.get("completion_tokens", 0),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             cost=response.get("cost", 0),
         )
+        # Calculate context usage percentage
+        total = prompt_tokens + completion_tokens
+        if total > 0:
+            max_ctx = 128000  # DeepSeek default context window
+            _status.context_pct = min(total / max_ctx, 1.0)
 
     def _schedule_save(self, summary: str = "", quick: bool = False):
         """Session save'i background task olarak baslat."""
