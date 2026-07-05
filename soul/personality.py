@@ -161,6 +161,7 @@ class Soul:
         lines.append("- System limits you to ~3 tool calls/turn. Pick the most critical 1-3 per turn.")
         lines.append("- Instead of re-reading files, use info from previous reads.")
         lines.append("- Use patch tool to edit — read first, then patch.")
+        lines.append("- BASIC MATH (addition, subtraction, percentage, ratio, comparison): don't call a tool. Answer directly.")
         lines.append("")
         # Persistent memory (WORKING: ~/.dorina/memory/working_memory.json)
         _mem_path = DORINA_HOME / "memory" / "working_memory.json"
@@ -238,6 +239,7 @@ class Soul:
         lines.append("- After write_file, don't repeat the content. Summarize read_file output.")
         lines.append("- read_file can't read directories — use search_files(target='files').")
         lines.append("- Sending large content in tool arguments blows the token budget.")
+        lines.append("- Each tool call costs ~3-4K tokens. 5 simple questions with tools = 20K wasted. Skip tools for things you know directly.")
         lines.append("")
         _godmode_status = "ACTIVE" if modes.is_on('godmode') else "INACTIVE"
         lines.append(f"## GODMODE {_godmode_status}")
