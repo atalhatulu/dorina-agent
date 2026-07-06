@@ -112,7 +112,7 @@ class StatusBar:
                 return result.stdout.strip()
         except (FileNotFoundError, subprocess.CalledProcessError):
             pass
-        return "main"
+        return ""
 
     def _context_bar(self, pct: float, width: int = 20) -> str:
         """Render context usage bar: ████████░░░░"""
@@ -236,8 +236,7 @@ class StatusBar:
 
         suffix += f"  turn {self.turn}"
 
-        if self.git_branch:
-            suffix += f"  {self.git_branch}"
+        # git branch removed — not shown in status bar
 
         content = "".join(content_parts) + suffix
         content_stripped = content.strip()
