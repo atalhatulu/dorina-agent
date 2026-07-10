@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import asyncio
+import httpx
 import json
 
 from tools.registry import register_tool
@@ -28,6 +29,9 @@ from core.logger import log
 )
 async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = True, language: str = "") -> str:
     """Search the web using DuckDuckGo. Falls back to alternative method on error."""
+    # Validate query early — empty queries go straight to fallback
+    if not query or not query.strip():
+        return json.dumps({"error": "Search query is empty."})
     from knowledge.web_search import web_search
 
     extra_kwargs = {"max_results": max_results}
@@ -56,7 +60,7 @@ async def web_search_tool(query: str, max_results: int = 5, safe_search: bool = 
 
         return json.dumps(results[:max_results], ensure_ascii=False)
 
-    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ImportError) as e:
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ImportError, Exception) as e:
         _err_msg = str(e)
         _error_info = " (possibly blocked by Google/DDG)"
 
