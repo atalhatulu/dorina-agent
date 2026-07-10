@@ -103,5 +103,56 @@ async def cmd_goals(app: "DorinaApp", cmd: str) -> None:
 
 # Alias for /goals (without subcommand)
 async def cmd_goal(app: "DorinaApp", cmd: str) -> None:
-    """Handle /goal (single goal)."""
+    """Handle /goal (single goal).
+
+    Usage:
+        /goal <id>          — show goal detail
+        /goal cancel <id>   — cancel a goal
+        /goal <desc>        — create and start a new goal
+    """
+    from orchestrator.goal_manager import goal_manager
+    from ui.display import console, print_info, print_error
+
+    args = cmd.split(maxsplit=2)
+    sub = args[1].strip() if len(args) > 1 else ""
+    rest = args[2].strip() if len(args) > 2 else ""
+
+    # /goal cancel <id>
+    if sub == "cancel" and rest:
+        ok = goal_manager.cancel_goal(rest)
+        if ok:
+            print_info(t("goal_cancelled", id=rest))
+        else:
+            print_error(t("goal_not_found", id=rest))
+        return
+
+    # /goal <id> — detail view
+    if sub and len(sub) >= 8 and sub.isalnum():
+        goal = goal_manager.get_goal(sub)
+        if goal:
+            from rich.panel import Panel
+            status_icon = {
+                "running": "⟳", "completed": "✓",
+                "failed": "✗", "cancelled": "⊘", "pending": "·",
+            }.get(goal.status, "?")
+            detail = (
+                f"[bold]ID:[/bold] {goal.id}\n"
+                f"[bold]Name:[/bold] {goal.name}\n"
+                f"[bold]Status:[/bold] {status_icon} {goal.status}\n"
+                f"[bold]Duration:[/bold] {goal.elapsed}\n"
+                f"[bold]Turns:[/bold] {goal.turn_count}\n"
+            )
+            if goal.result:
+                # Truncate very long results
+                res = goal.result[:800]
+                if len(goal.result) > 800:
+                    res += "..."
+                detail += f"\n[bold]Result:[/bold]\n{res}"
+            if goal.error:
+                detail += f"\n[bold red]Error:[/bold red]\n{goal.error}"
+            console.print(Panel(detail, border_style="#D4622A",
+                                title=f"Goal: {goal.short_id}"))
+            return
+
+    # Fallback: list all goals
     await cmd_goals(app, cmd)

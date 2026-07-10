@@ -162,6 +162,7 @@ class FullScreenREPL:
             content=FormattedTextControl(self._get_conv_fragments),
             wrap_lines=True,
             style="",
+            allow_scroll_beyond_bottom=True,
         )
 
         layout = Layout(
@@ -186,7 +187,7 @@ class FullScreenREPL:
             key_bindings=kb,
             full_screen=True,
             style=get_app_style("normal"),
-            mouse_support=False,
+            mouse_support=True,
         )
 
     # ── Status bar fragments ──────────────────────────────────────────

@@ -26,6 +26,26 @@ async def cmd_new(app: "DorinaApp", cmd: str) -> None:
     loop.reset()
     loop._temp_mode = False
     set_style("")  # return to normal style
+
+    # Clear history file so up-arrow shows only this session's history
+    from core.constants import DEFAULT_DATA_DIR
+    hist_file = DEFAULT_DATA_DIR / "history.txt"
+    try:
+        if hist_file.exists():
+            hist_file.write_text("")
+    except (ImportError, OSError):
+        pass
+
+    # Clear in-memory history (buffer still has old entries loaded)
+    try:
+        if hasattr(app, "repl") and app.repl and hasattr(app.repl, "_input_buffer"):
+            buf = app.repl._input_buffer
+            if hasattr(buf, "history") and buf.history:
+                from prompt_toolkit.history import FileHistory
+                buf.history = FileHistory(str(hist_file))
+    except (ImportError, AttributeError):
+        pass
+
     title = ""
     if len(cmd) > 5:
         title = cmd[5:].strip().strip("\"'")

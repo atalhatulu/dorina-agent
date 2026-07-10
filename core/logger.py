@@ -133,17 +133,39 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     err_handler.setFormatter(RedactingFormatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
     root.addHandler(err_handler)
 
-    # ── Console handler (Rich) — standalone console ──
-    console_handler = RichHandler(
-        console=_log_console,
-        markup=False,
-        highlighter=NullHighlighter(),
-        keywords=[],
-        rich_tracebacks=True,
-        show_time=True,
-        show_path=True,
-    )
-    console_handler.setLevel(level)
+    # ── Console handler — lazy resolution: uses display.console if available,
+    #    otherwise falls back to stderr. After FullScreenREPL starts,
+    #    display.console routes through the fullscreen app automatically. ──
+
+    class _DeferredConsoleHandler(RichHandler):
+        """RichHandler that resolves the console lazily each emit.
+
+        At startup, stderr is used. After ui.display is imported and
+        FullScreenREPL sets _fullscreen_app, output auto-routes through
+        the app-aware console without corrupting the fullscreen layout.
+        """
+        def __init__(self):
+            super().__init__(
+                console=_log_console,  # temporary, overridden in emit
+                markup=False,
+                highlighter=NullHighlighter(),
+                keywords=[],
+                rich_tracebacks=True,
+                show_time=False,
+                show_path=False,
+                level=logging.WARNING,
+            )
+
+        def emit(self, record: logging.LogRecord):
+            try:
+                from ui.display import console as _c
+                self.console = _c
+            except ImportError:
+                self.console = _log_console
+            return super().emit(record)
+
+    console_handler = _DeferredConsoleHandler()
+    console_handler.setLevel(logging.WARNING)
     console_handler.setFormatter(SessionInjector("%(message)s", datefmt=_DATE_FORMAT))
     root.addHandler(console_handler)
 

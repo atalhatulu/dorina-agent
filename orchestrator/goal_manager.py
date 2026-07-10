@@ -97,7 +97,8 @@ class GoalManager:
                 goal.completed_at = time.time()
                 bus.publish("goal:completed", goal_id=goal_id, name=goal.name)
                 log.info("Goal tamamlandi: [%s] %s (%s)", goal.short_id, goal.name, goal.elapsed)
-                return f"[{goal.name}] tamamlandi ({goal.elapsed})"
+                preview = (goal.result[:100].replace("\n", " ") if goal.result else "")
+                return f"[{goal.name}] tamamlandi ({goal.elapsed})\n  {preview}"
             else:
                 goal.status = "failed"
                 goal.error = agent.error or "bilinmeyen hata"
