@@ -246,6 +246,18 @@ class AgentLoopV2:
             # Yanit — is bitti
             content = clean_content(content)
             self.context.add_assistant_message(content)
+
+            # Loop → Goal entegrasyonu: her tur sonunda tamamlanan goal'leri kontrol et
+            try:
+                from orchestrator.goal_manager import goal_manager
+                for g in goal_manager._goals.values():
+                    if g.status == "completed" and g.completed_at > 0:
+                        _display.print_info(
+                            f"✓ Goal tamamlandi: {g.name} ({g.elapsed})"
+                        )
+            except (ImportError, AttributeError):
+                pass
+
             self._schedule_save(content)
             self._consecutive_llm_errors = 0
             return content

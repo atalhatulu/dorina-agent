@@ -167,8 +167,28 @@ class SubAgent:
             content = response.get("content", "")
             tool_calls = response.get("tool_calls", [])
 
-            # Final answer — no tool calls
+            # DeepSeek fix: sometimes returns tool calls as text JSON instead of structured format
             if not tool_calls and content:
+                import re as _re
+                # Check if content looks like a tool call description
+                _trimmed = content.strip()
+                if _re.match(r'^\{.*"function".*"args".*\}', _trimmed, _re.DOTALL):
+                    # Looks like a tool call in text — re-prompt for actual function calling
+                    messages.append({
+                        "role": "assistant",
+                        "content": _trimmed,
+                    })
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You described the tool call in text. "
+                            "Use the actual function_call format with tool_calls array instead. "
+                            "Do NOT respond with JSON text — make a real function call."
+                        ),
+                    })
+                    continue
+
+                # Final answer — no tool calls, not a fake tool call either
                 return content
 
             # Append assistant message
