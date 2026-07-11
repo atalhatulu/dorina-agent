@@ -1,6 +1,7 @@
 """Git tools tests."""
 from __future__ import annotations
 import json
+from unittest.mock import patch, MagicMock
 import pytest
 
 
@@ -26,10 +27,12 @@ class TestGitTools:
         assert len(r) > 0
 
     @pytest.mark.asyncio
-    async def test_git_push_exists(self):
+    @patch("tools.builtin.git_tools.subprocess.run")
+    async def test_git_push_exists(self, mock_run):
         """git_push_tool fixlendi, artik calisiyor olmali."""
         from tools.builtin.git_tools import git_push_tool
         import json
+        mock_run.return_value = MagicMock(returncode=0, stdout='Push successful', stderr='')
         r = json.loads(await git_push_tool())
         assert "success" in r or "error" in r
 

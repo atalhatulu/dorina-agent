@@ -31,6 +31,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.formatted_text.base import to_formatted_text
+from prompt_toolkit.data_structures import Point
 
 from core.constants import DEFAULT_DATA_DIR, t
 from core.mode_manager import modes
@@ -58,6 +59,8 @@ class FullScreenREPL:
         self._processing = False
         self._input_buffer: Buffer | None = None
         self._stream_carry = ""  # leftover ANSI from streaming (no trailing newline)
+        self._cursor_line = 0   # cursor Y for FormattedTextControl — matched to scroll_target to prevent do_scroll from adjusting
+        self._scroll_target = 0  # vertical_scroll set via get_vertical_scroll callback (before do_scroll)
 
         # Conversation output — fragments for the scrollable window
         self._conv_fragments: list[tuple[str, str]] = []
@@ -98,9 +101,9 @@ class FullScreenREPL:
         """Append ANSI-escaped text to the conversation output window.
 
         Accepts a plain string (may contain ANSI escape sequences for colour).
-        When the text ends without a trailing newline it is carried over so
-        the next chunk continues on the same line (streaming support).
-        All lines are separated by ``("", "\\n")`` fragments.
+        Supports real-time streaming: even if the text doesn't end with a newline,
+        it is rendered immediately. The next chunk will replace the previous
+        incomplete line and continue streaming smoothly.
         """
         if not self.application or not self.application.is_running:
             return
@@ -108,47 +111,99 @@ class FullScreenREPL:
         if not ansi:
             return
 
-        # Prepend any carried-over content from the previous streaming chunk.
-        carry = self._stream_carry
+        # 1. Roll back the previous incomplete stream carry from the end of fragments
+        if self._stream_carry:
+            try:
+                carry_frags = list(to_formatted_text(ANSI(self._stream_carry)))
+                num_to_pop = len(carry_frags)
+                if num_to_pop > 0 and len(self._conv_fragments) >= num_to_pop:
+                    for _ in range(num_to_pop):
+                        self._conv_fragments.pop()
+            except Exception:
+                if self._conv_fragments:
+                    self._conv_fragments.pop()
+
+        # 2. Combine previous carry with new chunk
+        text = self._stream_carry + ansi
         self._stream_carry = ""
 
-        text = carry + ansi
-
-        # If the chunk itself does not end with a newline, hold it back
-        # until a newline arrives (or a flush).
+        # 3. If text doesn't end with a newline, store the last segment as the new carry
+        lines = text.split("\n")
         if not text.endswith("\n"):
-            self._stream_carry = text
-            self._invalidate_conv()
-            return
+            self._stream_carry = lines[-1]
 
-        lines = text.rstrip("\n").split("\n")
+        # 4. Append all segments to the conversation fragments list
         for i, line in enumerate(lines):
-            self._append_ansi(line)
-            # Always add a newline after each line in the chunk
-            # (the original text ended with \n, so we know a newline is wanted)
-            self._conv_fragments.append(("", "\n"))
-        self._invalidate_conv()
+            if i > 0:
+                self._conv_fragments.append(("", "\n"))
+            if line:
+                self._append_ansi(line)
+
+        self._invalidate_conv(force_scroll_bottom=True)
 
     def flush_stream(self):
         """Flush any pending streaming content."""
         if self._stream_carry:
             self._append_ansi(self._stream_carry)
             self._stream_carry = ""
-            self._invalidate_conv()
+            self._invalidate_conv(force_scroll_bottom=True)
 
     def clear_conversation(self):
-        """Clear all conversation output."""
+        """Clear all conversation output and reset scroll state."""
         self._conv_fragments.clear()
+        self._cursor_line = 0
+        self._scroll_target = 0
         self._invalidate_conv()
 
-    def _invalidate_conv(self):
-        """Force the conversation window to re-render and scroll to bottom."""
-        if self._conv_window is not None:
-            self._conv_window.vertical_scroll = 10**9  # scroll to bottom
+    def _invalidate_conv(self, force_scroll_bottom: bool = False):
+        """Force the conversation window to re-render.
+
+        When force_scroll_bottom is set, cursor and scroll are positioned so
+        that the last content line is at the bottom of the viewport.
+        _scroll_without_linewrapping's do_scroll then keeps both stable:
+        scroll and cursor are coordinated so neither check fires.
+
+        Layout height = terminal height - 3 (separator + status + input).
+        """
+        if force_scroll_bottom:
+            line_cnt = self._get_line_count()
+            self._cursor_line = max(0, line_cnt - 1)
+            # Estimate conversation window height
+            conv_height = max(1, shutil.get_terminal_size().lines - 3)
+            self._scroll_target = max(0, line_cnt - conv_height)
         if self.application:
             self.application.invalidate()
 
+    def _get_line_count(self) -> int:
+        """Count newline-separated lines in the conversation fragments.
+
+        Each ``\\n`` fragment starts a new line.  The count is the number of
+        newlines + 1 (there is always at least one line).
+        """
+        count = 1
+        for _, text in self._conv_fragments:
+            count += text.count("\n")
+        return count
+
+    def _get_cursor_point(self) -> Point:
+        """Return the cursor position for the FormattedTextControl.
+
+        Clamped to the last valid content line so that do_scroll in
+        _scroll_without_linewrapping can compute a proper scroll target.
+        """
+        max_line = max(0, self._get_line_count() - 1)
+        return Point(x=0, y=min(self._cursor_line, max_line))
+
     # ── Layout ────────────────────────────────────────────────────────
+
+    def _get_scroll(self, window: object) -> int:
+        """Callback for Window.get_vertical_scroll.
+
+        Returns the scroll_target so that _scroll_without_linewrapping starts
+        from our desired scroll position.  do_scroll runs afterward and will
+        NOT modify the value as long as cursor_line is coordinated.
+        """
+        return self._scroll_target
 
     def _get_conv_fragments(self) -> list[tuple[str, str]]:
         """Return the accumulated conversation fragments."""
@@ -159,8 +214,12 @@ class FullScreenREPL:
         kb = self._build_key_bindings()
 
         self._conv_window = Window(
-            content=FormattedTextControl(self._get_conv_fragments),
-            wrap_lines=True,
+            content=FormattedTextControl(
+                self._get_conv_fragments,
+                get_cursor_position=self._get_cursor_point,
+            ),
+            get_vertical_scroll=self._get_scroll,
+            wrap_lines=False,
             style="",
             allow_scroll_beyond_bottom=True,
         )
@@ -179,7 +238,8 @@ class FullScreenREPL:
                     height=1,
                     get_line_prefix=_line_prefix,
                 ),
-            ])
+            ]),
+            focused_element=self._conv_window,
         )
 
         return Application(
@@ -244,6 +304,50 @@ class FullScreenREPL:
             expand_last_tool()
             event.app.invalidate()
 
+        @kb.add("up")
+        def _scroll_up(event):
+            self._scroll_target = max(0, self._scroll_target - 1)
+            self._cursor_line = self._scroll_target
+            event.app.invalidate()
+
+        @kb.add("down")
+        def _scroll_down(event):
+            self._scroll_target += 1
+            self._cursor_line = self._scroll_target
+            event.app.invalidate()
+
+        @kb.add("pageup")
+        def _page_up(event):
+            step = 20
+            if self._conv_window is not None and self._conv_window.render_info is not None:
+                step = self._conv_window.render_info.window_height
+            self._scroll_target = max(0, self._scroll_target - step)
+            self._cursor_line = self._scroll_target
+            event.app.invalidate()
+
+        @kb.add("pagedown")
+        def _page_down(event):
+            step = 20
+            if self._conv_window is not None and self._conv_window.render_info is not None:
+                step = self._conv_window.render_info.window_height
+            self._scroll_target += step
+            self._cursor_line = self._scroll_target
+            event.app.invalidate()
+
+        @kb.add("c-home")
+        def _scroll_top(event):
+            self._scroll_target = 0
+            self._cursor_line = 0
+            event.app.invalidate()
+
+        @kb.add("c-end")
+        def _scroll_bottom(event):
+            line_cnt = self._get_line_count()
+            conv_height = max(1, shutil.get_terminal_size().lines - 3)
+            self._scroll_target = max(0, line_cnt - conv_height)
+            self._cursor_line = max(0, line_cnt - 1)
+            event.app.invalidate()
+
         return kb
 
     # ── Input processing ──────────────────────────────────────────────
@@ -268,14 +372,16 @@ class FullScreenREPL:
             display.print_user(text)
             status.set_status("Thinking")
 
-            # Disable local echo + canonical mode while AI processes
-            fd = sys.stdin.fileno()
-            old_attr = termios.tcgetattr(fd)
-            try:
+            # Disable local echo + canonical mode while AI processes if stdin is a tty
+            is_tty = sys.stdin.isatty()
+            if is_tty:
+                fd = sys.stdin.fileno()
+                old_attr = termios.tcgetattr(fd)
                 new_attr = termios.tcgetattr(fd)
                 new_attr[3] = new_attr[3] & ~termios.ECHO & ~termios.ICANON
                 termios.tcsetattr(fd, termios.TCSANOW, new_attr)
 
+            try:
                 response = await loop.process(text)
             except (KeyboardInterrupt, asyncio.CancelledError):
                 from ui.display import console as _ui_console, flush_stream as _fs
@@ -299,8 +405,9 @@ class FullScreenREPL:
                     self.application.invalidate()
                 return
             finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
-                termios.tcflush(fd, termios.TCIFLUSH)
+                if is_tty:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+                    termios.tcflush(fd, termios.TCIFLUSH)
 
             self.flush_stream()
 

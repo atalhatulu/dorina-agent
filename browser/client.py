@@ -33,7 +33,7 @@ class AsyncBrowserClient:
             self._page = await self._browser.new_page()
             self.available = True
             log.info("Browser (async) started")
-        except (ImportError, OSError, TimeoutError) as e:
+        except Exception as e:
             log.warning(f"Browser failed to start: {e}")
 
     async def navigate(self, url: str) -> str:

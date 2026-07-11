@@ -27,18 +27,18 @@ SLASH_COMMANDS = sorted([
 def get_app_style(mode: str) -> Style:
     colors = COLOR_PALETTE.get(mode, COLOR_PALETTE["normal"])
     return Style.from_dict({
-        "prompt": f"bold {colors["primary"]}",
-        "completion-menu": f"bg:#1e1e2e {colors["primary"]}",
-        "completion-menu.completion": f"bg:#1e1e2e {colors["primary"]}",
-        "completion-menu.completion.current": f"bg:#45475a {colors["accent"]} bold",
-        "completion-menu.meta": f"bg:#1e1e2e {colors["dim"]}",
-        "completion-menu.meta.current": f"bg:#45475a {colors["accent"]}",
-        "bottom-toolbar": f"fg:{colors["dim"]}",
+        "prompt": f"bold {colors['primary']}",
+        "completion-menu": f"bg:#1e1e2e {colors['primary']}",
+        "completion-menu.completion": f"bg:#1e1e2e {colors['primary']}",
+        "completion-menu.completion.current": f"bg:#45475a {colors['accent']} bold",
+        "completion-menu.meta": f"bg:#1e1e2e {colors['dim']}",
+        "completion-menu.meta.current": f"bg:#45475a {colors['accent']}",
+        "bottom-toolbar": f"fg:{colors['dim']}",
         # Custom styles for status bar fragments, using mode-specific colors
-        f"{mode}_primary": f"fg:{colors["primary"]} bold",
-        f"{mode}_secondary": f"fg:{colors["secondary"]}",
-        f"{mode}_dim": f"fg:{colors["dim"]}",
-        f"{mode}_accent": f"fg:{colors["accent"]}",
+        f"{mode}_primary": f"fg:{colors['primary']} bold",
+        f"{mode}_secondary": f"fg:{colors['secondary']}",
+        f"{mode}_dim": f"fg:{colors['dim']}",
+        f"{mode}_accent": f"fg:{colors['accent']}",
     })
 
 
