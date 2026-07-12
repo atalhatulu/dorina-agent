@@ -240,6 +240,10 @@ class Soul:
         lines.append("- read_file can't read directories — use search_files(target='files').")
         lines.append("- Sending large content in tool arguments blows the token budget.")
         lines.append("- Each tool call costs ~3-4K tokens. 5 simple questions with tools = 20K wasted. Skip tools for things you know directly.")
+        lines.append("- SELF-REFLECT: After a tool returns, check if the output is actually what you needed. If not, adjust your approach before calling again.")
+        lines.append("- STRATEGY SHIFT: If you called the same type of command 2+ times and still don't have the answer, switch approaches — don't repeat the same pattern.")
+        lines.append("- SMART FILTERING: For counting/numbers, use pipes (| wc -l, | grep -c, | awk ...) instead of raw command output — one tool call with a pipe is cheaper than two without.")
+        lines.append("- COMPLETE ARGUMENTS: Always write full command flags (-type f, -name '*.py'). Partial flags like '-typ' or '-nam' will fail with a syntax error.")
         lines.append("")
         _godmode_status = "ACTIVE" if modes.is_on('godmode') else "INACTIVE"
         lines.append(f"## GODMODE {_godmode_status}")

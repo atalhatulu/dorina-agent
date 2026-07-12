@@ -90,6 +90,52 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
     SUDO_PWD = getattr(_sp, "SUDO_PASSWORD", None)
     HAS_SUDO = "sudo" in command.split() if command else False
 
+    # ── SYNTAX GUARD: catch common LLM typos before execution ─────
+    _syntax_issues = []
+    # Eksik/tamamlanmamis argumanlar: -typ) -nam) -path) gibi
+    import re as _re_syntax
+    _broken_args = _re_syntax.findall(r'(-\w+)\)', command)
+    if _broken_args:
+        _broken_list = ', '.join(_broken_args)
+        _syntax_issues.append(
+            f"Syntax hatasi: {_broken_list} argumanlari tamamlanmamis. "
+            f"Ornek: '-typ)' degil '-type f' yazilmalidir."
+        )
+    # find / (tek basina, sadece root) asiri genis kapsam uyarisi
+    if _re_syntax.search(r'\bfind /\s', command) and '|' not in command:
+        _syntax_issues.append(
+            "Uyari: 'find /' tum dosya sistemini tarar, cok uzun surebilir. "
+            "Belirli bir dizinle sinirla (ornek: find /home/teha ...)."
+        )
+    # Sayi bulmak icin find + wc-l önerisi
+    if 'find' in command and '|' not in command:
+        _syntax_issues.append(
+            "Ipucu: find ciktisinda satir sayisi = dosya sayisi. "
+            "Sayi istiyorsan ' | wc -l' ekle."
+        )
+    # find sonu ) varsa ve broken_args degilse, yine de uyar (find argumani kesik olabilir)
+    if _re_syntax.search(r'\)$', command.strip()) and not _broken_args:
+        _syntax_issues.append(
+            "Komut sonu ')' ile bitiyor — find argumani kesilmis olabilir."
+        )
+
+    # Uyarilari topla ve hata varsa engelle
+    if _broken_args:
+        _err_msg = ' | '.join(_syntax_issues)
+        log.info("Syntax guard blocked: %s", _err_msg)
+        return json.dumps({
+            "error": f"Command has syntax errors and was not executed.\n{_err_msg}",
+            "hint": "Fix the broken arguments and try again."
+        })
+    elif _syntax_issues:
+        # Sadece uyarı: komut calisir ama uyarilar ciktiya eklenir
+        _warnings = '\n'.join(f'[!] {s}' for s in _syntax_issues)
+        log.info("Syntax guard: %d uyari", len(_syntax_issues))
+        # Uyarilari bir degiskene ata, sonuctan once eklenir
+        _guard_warning = _warnings + '\n---\n'
+    else:
+        _guard_warning = ''
+
     # ── Sudo password — prompt user if not set (*** masked, verified) ──
     if HAS_SUDO and not SUDO_PWD:
         try:
@@ -243,7 +289,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
 
             _os.close(master_fd)
             full = "".join(output)
-            return redact_secrets(full)[:50000]
+            return _guard_warning + redact_secrets(full)[:50000]
         else:
             import soul.personality as _sp
             pwd = getattr(_sp, "SUDO_PASSWORD", None)
@@ -262,7 +308,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
 
             result = await asyncio.to_thread(subprocess.run, command, **run_kwargs)
             output = result.stdout or result.stderr
-            return redact_secrets(output)[:50000]
+            return _guard_warning + redact_secrets(output)[:50000]
     except subprocess.TimeoutExpired:
         return json.dumps({"error": f"Command timed out ({timeout}s)"})
     except (subprocess.CalledProcessError, OSError) as e:

@@ -19,6 +19,7 @@ Farklar (eski AgentLoop'a gore):
 from __future__ import annotations
 from typing import Optional
 import asyncio
+import hashlib
 import json
 from collections import OrderedDict
 from pathlib import Path
@@ -409,6 +410,8 @@ class AgentLoopV2:
         """Tool'lari calistir. Read paralel, write sirali."""
         # Repetition guard: ayni dosyayi ayni turda 2. kez okuma
         seen_in_turn: set = set()
+        # Terminal command repetition guard: hash-based
+        _term_hashes: set = set()
         filtered = []
         for tc in tool_calls:
             fn = tc.get("function", {})
@@ -422,6 +425,18 @@ class AgentLoopV2:
                     )
                     continue
                 seen_in_turn.add(path)
+            # Terminal same-command guard
+            elif name == "terminal":
+                args = _parse_tool_args(fn.get("arguments", "{}"))
+                cmd = (args.get("command", "") if args else "").strip()
+                if cmd:
+                    _h = hashlib.md5(cmd.encode()).hexdigest()
+                    if _h in _term_hashes:
+                        _display.console.print(
+                            f"[dim]Ayni terminal komutu tekrarlaniyor, atlandi: {cmd[:80]}[/]"
+                        )
+                        continue
+                    _term_hashes.add(_h)
             filtered.append(tc)
 
         # Ayristir: read vs write
