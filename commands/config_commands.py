@@ -146,6 +146,7 @@ async def cmd_auto(app: "DorinaApp", cmd: str) -> None:
     """Toggle auto mode — autonomous continuous operation with extended timeouts and iterations."""
     from ui.display import print_success, print_error
     from core.mode_manager import modes
+    from core.constants import get_language
     modes.toggle('auto')
     
     _lang = get_language()
@@ -162,6 +163,7 @@ async def cmd_auto(app: "DorinaApp", cmd: str) -> None:
 async def cmd_mods(app: "DorinaApp", cmd: str) -> None:
     """Show active modes: godmode, audit, temp, speed, strict, silent, deep."""
     from core.mode_manager import modes
+    from core.constants import get_language
     from ui.display import console
 
     console.print("")
