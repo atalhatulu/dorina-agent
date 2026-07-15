@@ -247,7 +247,7 @@ class FullScreenREPL:
             key_bindings=kb,
             full_screen=True,
             style=get_app_style("normal"),
-            mouse_support=True,
+            mouse_support=False,
         )
 
     # ── Status bar fragments ──────────────────────────────────────────

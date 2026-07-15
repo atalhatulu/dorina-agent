@@ -142,6 +142,23 @@ async def cmd_audit(app: "DorinaApp", cmd: str) -> None:
         print_error(t("audit_deactivated"))
 
 
+async def cmd_auto(app: "DorinaApp", cmd: str) -> None:
+    """Toggle auto mode — autonomous continuous operation with extended timeouts and iterations."""
+    from ui.display import print_success, print_error
+    from core.mode_manager import modes
+    modes.toggle('auto')
+    
+    _lang = get_language()
+    _active = "Otonom mod aktif: Zaman aşımı ve döngü limitleri uzatıldı." if _lang == 'tr' else "Auto mode active: Extended timeouts and iteration limits."
+    _inactive = "Otonom mod kapatıldı." if _lang == 'tr' else "Auto mode deactivated."
+    
+    if modes.is_on('auto'):
+        print_success(_active)
+    else:
+        print_error(_inactive)
+
+
+
 async def cmd_mods(app: "DorinaApp", cmd: str) -> None:
     """Show active modes: godmode, audit, temp, speed, strict, silent, deep."""
     from core.mode_manager import modes
@@ -154,10 +171,17 @@ async def cmd_mods(app: "DorinaApp", cmd: str) -> None:
     _aud = f"[bold #E06C75]{t('model_audit_active')}[/bold #E06C75]" if modes.is_on('audit') else f"[dim]{t('model_audit_inactive')}[/dim]"
     _tmp = f"[bold #6C7086]{t('model_temp_active')}[/bold #6C7086]" if modes.is_on('temp') else f"[dim]{t('model_temp_inactive')}[/dim]"
     _spd = f"[bold #98C379]{t('model_speed_active')}[/bold #98C379]" if modes.is_on('speed') else f"[dim]{t('model_speed_inactive')}[/dim]"
+    
+    _lang = get_language()
+    _auto_active = "Otonom: Aktif" if _lang == 'tr' else "Auto: Active"
+    _auto_inactive = "Otonom: Pasif" if _lang == 'tr' else "Auto: Inactive"
+    _aut = f"[bold #E5C07B]{_auto_active}[/bold #E5C07B]" if modes.is_on('auto') else f"[dim]{_auto_inactive}[/dim]"
+
     console.print(f"    ⚡ {_god}")
     console.print(f"    🔍 {_aud}")
     console.print(f"    💭 {_tmp}")
     console.print(f"    🏎️  {_spd}")
+    console.print(f"    🤖 {_aut}")
     console.print("")
 
 

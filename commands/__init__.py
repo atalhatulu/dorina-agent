@@ -41,7 +41,7 @@ def register_commands() -> dict[str, CommandHandler]:
     )
     from commands.config_commands import (
         cmd_model, cmd_godmode, cmd_audit, cmd_mods, cmd_personality,
-        cmd_speed, cmd_budget,
+        cmd_speed, cmd_budget, cmd_auto,
     )
     from commands.tool_commands import (
         cmd_tools, cmd_tasks, cmd_crons, cmd_verify, cmd_review, cmd_skills,
@@ -57,6 +57,7 @@ def register_commands() -> dict[str, CommandHandler]:
         "/temp": cmd_temp,
         "/godmode": cmd_godmode,
         "/audit": cmd_audit,
+        "/auto": cmd_auto,
         "/model": cmd_model,
         "/export": cmd_export,
         "/save": cmd_save,

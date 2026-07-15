@@ -36,6 +36,7 @@ class ModeManager:
             "strict": {"active": False},
             "silent": {"active": False},
             "deep": {"active": False, "max_tools": 20, "max_turns": 100},
+            "auto": {"active": False, "max_iterations": 500},
         }
         self._profile = ""  # active user profile
         self._budget: int = 0  # token budget (0 = unlimited)
@@ -169,6 +170,8 @@ class ModeManager:
             parts.append("SILENT")
         if self.is_on("deep"):
             parts.append("DEEP")
+        if self.is_on("auto"):
+            parts.append("AUTO")
         if self._budget > 0:
             parts.append(f"BUDGET:{self._budget_used}/{self._budget}")
         return " | ".join(parts) if parts else "normal"

@@ -158,7 +158,8 @@ class AgentLoopV2:
         tool_schemas = get_active_schemas(user_input)
 
         # ── 2. THINK → ACT LOOP ────────────────────────────────────
-        while self._loop_iterations < _MAX_LOOP_ITERATIONS:
+        _max_iter = modes.get("auto")["max_iterations"] if modes.is_on("auto") else _MAX_LOOP_ITERATIONS
+        while self._loop_iterations < _max_iter:
             self._loop_iterations += 1
 
             # Context compression — Tier 1 (fast) by default, Tier 2 (LLM) for long convos
@@ -263,7 +264,7 @@ class AgentLoopV2:
             self._consecutive_llm_errors = 0
             return content
 
-        log.warning("AgentLoopV2: iteration budget exhausted (%d)", _MAX_LOOP_ITERATIONS)
+        log.warning("AgentLoopV2: iteration budget exhausted (%d)", _max_iter)
         _display.print_error("Maksimum islem butcesi doldu.")
         return "Maximum iterations reached."
 
@@ -412,22 +413,37 @@ class AgentLoopV2:
         seen_in_turn: set = set()
         # Terminal command repetition guard: hash-based
         _term_hashes: set = set()
+        
+        REPETITION_GUARD_TOOLS = {
+            "read_file": "path",
+            "search_files": "pattern",
+            "list_directory": "path",
+            "web_search": "query",
+        }
+
         filtered = []
         for tc in tool_calls:
             fn = tc.get("function", {})
             name = fn.get("name", "")
-            if name == "read_file":
-                args = _parse_tool_args(fn.get("arguments", "{}"))
-                path = args.get("path", "") if args else ""
-                if path and path in seen_in_turn:
-                    _display.console.print(
-                        f"[dim]{path} ayni turda 2. kez okunuyor, atlandi[/]"
-                    )
-                    continue
-                seen_in_turn.add(path)
+            args_raw = fn.get("arguments", "{}")
+            
+            if name in REPETITION_GUARD_TOOLS:
+                arg_key = REPETITION_GUARD_TOOLS[name]
+                try:
+                    _args = _parse_tool_args(args_raw) or {}
+                    _val = _args.get(arg_key, "")
+                    _key = f"{name}:{_val}"
+                    if _key in seen_in_turn:
+                        _display.console.print(
+                            f"[dim]{name} ayni argumanla tekrarliyor ({_val}), atlandi[/]"
+                        )
+                        continue
+                    seen_in_turn.add(_key)
+                except Exception:
+                    pass
             # Terminal same-command guard
             elif name == "terminal":
-                args = _parse_tool_args(fn.get("arguments", "{}"))
+                args = _parse_tool_args(args_raw)
                 cmd = (args.get("command", "") if args else "").strip()
                 if cmd:
                     _h = hashlib.md5(cmd.encode()).hexdigest()
@@ -467,7 +483,22 @@ class AgentLoopV2:
                         _display.print_tool_done(name, cached)
                         return
 
-                result = await executor.async_execute_json(name, args_raw)
+                TOOL_TIMEOUTS = {
+                    "terminal": 3600 if modes.is_on("auto") else 30,
+                    "web_search": 120 if modes.is_on("auto") else 15,
+                    "web_fetch": 120 if modes.is_on("auto") else 20,
+                    "deep_research": 3600 if modes.is_on("auto") else 120,
+                    "browser_navigate": 300 if modes.is_on("auto") else 30,
+                    "default": 3600 if modes.is_on("auto") else 60,
+                }
+                timeout = TOOL_TIMEOUTS.get(name, TOOL_TIMEOUTS["default"])
+                try:
+                    result = await asyncio.wait_for(
+                        executor.async_execute_json(name, args_raw),
+                        timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    result = f'{{"error": "Tool timeout ({timeout}s): {name}"}}'
 
                 # Cache store/update
                 if name == "read_file" and parsed_args:
@@ -538,11 +569,21 @@ class AgentLoopV2:
 
         # 3+ ayni hata → strategy change
         if prev[1] >= 3:
+            def _smart_escape(error_str: str, tool_name: str) -> str:
+                if "timeout" in error_str.lower():
+                    return f"{tool_name} zaman aşımına uğradı. Daha kısa bir komut dene."
+                if "permission" in error_str.lower() or "denied" in error_str.lower():
+                    return f"Yetki hatası. sudo gerekebilir: terminal(command='sudo ...', pty=True)"
+                if "not found" in error_str.lower() or "no such" in error_str.lower():
+                    return f"Dosya/komut bulunamadı. Path'i kontrol et."
+                if "connection" in error_str.lower():
+                    return f"Bağlantı hatası. İnternet bağlantısını kontrol et."
+                return f"3 kez hata aldım ({tool_name}). Farklı bir yaklaşım deniyorum."
+
             log.warning("Self-reflection: %s repeated %dx — forcing strategy change", sig, prev[1])
+            escape_msg = _smart_escape(str(error), name)
             self.context.add_user_message(
-                f"[SELF-REFLECTION] '{name}' araci {prev[1]} kez ayni hatayi "
-                f"verdi: {classified.reason}. Bu araci tekrar kullanma. "
-                f"Farkli bir yaklasim dene."
+                f"[SELF-REFLECTION] {escape_msg} Hata detayı: {classified.reason}"
             )
             self._error_patterns[sig][1] = 0
 
