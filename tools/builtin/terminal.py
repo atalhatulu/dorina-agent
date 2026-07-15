@@ -203,7 +203,9 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
         return json.dumps({"error": "git push/pull blocked. Only local git commands allowed."})
 
     if is_destructive(command):
-        return json.dumps({"error": "Command blocked (destructive pattern)"})
+        from core.mode_manager import modes
+        if not modes.is_on("godmode") and not modes.is_on("auto"):
+            return json.dumps({"error": "Command blocked (destructive pattern)"})
 
     if not background and "sleep " in command:
         import re as _re

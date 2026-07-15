@@ -26,6 +26,10 @@ class Approval:
 
     def needs_approval(self, tool_name: str, arguments: dict) -> bool:
         """Does this operation require approval?"""
+        from core.mode_manager import modes
+        if modes.is_on("godmode") or modes.is_on("auto"):
+            return False
+
         if self.mode == self.MODE_OFF:
             return False
 

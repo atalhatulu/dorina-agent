@@ -6,6 +6,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 
+@pytest.fixture(autouse=True)
+def reset_modes():
+    from core.mode_manager import modes
+    if "godmode" in modes._modes:
+        modes._modes["godmode"]["active"] = False
+    if "auto" in modes._modes:
+        modes._modes["auto"]["active"] = False
+
+
 class TestApproval:
     def test_off_mode_never_approves(self, fresh_approval):
         appr = fresh_approval  # mode="off"
