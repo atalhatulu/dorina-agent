@@ -1,4 +1,5 @@
 """Setup script for dorina-agent."""
+
 from setuptools import setup, find_packages
 
 setup(
