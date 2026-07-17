@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from core.logger import log
 from core.utils import safe_json_loads
@@ -36,6 +36,7 @@ class CronScheduler:
     """Simple file-based cron scheduler."""
 
     def __init__(self):
+        self.lock = threading.RLock()
         self.jobs: list[CronJob] = []
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -43,16 +44,18 @@ class CronScheduler:
         self._load()
 
     def _load(self):
-        if JOBS_FILE.exists():
-            data = safe_json_loads(JOBS_FILE, [])
-            self.jobs = [CronJob(**j) for j in data]
+        with self.lock:
+            if JOBS_FILE.exists():
+                data = safe_json_loads(JOBS_FILE, [])
+                self.jobs = [CronJob(**j) for j in data]
 
     def _save(self):
-        data = [{"id": j.id, "name": j.name, "schedule": j.schedule,
-                 "prompt": j.prompt, "last_run": j.last_run,
-                 "next_run": j.next_run, "enabled": j.enabled,
-                 "run_count": j.run_count} for j in self.jobs]
-        JOBS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        with self.lock:
+            data = [{"id": j.id, "name": j.name, "schedule": j.schedule,
+                     "prompt": j.prompt, "last_run": j.last_run,
+                     "next_run": j.next_run, "enabled": j.enabled,
+                     "run_count": j.run_count} for j in self.jobs]
+            JOBS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
     def add(self, name: str, schedule: str, prompt: str) -> str:
         """Add new cron job. schedule: '30m', '2h', 'daily', cron format."""
@@ -64,21 +67,24 @@ class CronScheduler:
             prompt=prompt,
             next_run=self._calculate_next(schedule),
         )
-        self.jobs.append(job)
-        self._save()
+        with self.lock:
+            self.jobs.append(job)
+            self._save()
         log.info(f"Cron added: {name} ({schedule})")
         return job.id
 
     def remove(self, job_id_or_name: str):
-        self.jobs = [j for j in self.jobs if j.id != job_id_or_name and j.name != job_id_or_name]
-        self._save()
+        with self.lock:
+            self.jobs = [j for j in self.jobs if j.id != job_id_or_name and j.name != job_id_or_name]
+            self._save()
 
     def add_job(self, name: str, schedule: str, prompt: str) -> str:
         """Add new cron job (alias for add())."""
         return self.add(name, schedule, prompt)
 
     def list_jobs(self) -> list[CronJob]:
-        return self.jobs
+        with self.lock:
+            return list(self.jobs)
 
     def start(self):
         """Start the scheduler in the background."""
@@ -96,7 +102,9 @@ class CronScheduler:
     def _loop(self):
         while self._running:
             now = datetime.now(timezone.utc).isoformat()
-            for job in self.jobs:
+            with self.lock:
+                jobs_copy = list(self.jobs)
+            for job in jobs_copy:
                 if job.enabled and job.next_run and job.next_run <= now:
                     self._execute(job)
             for _ in range(50):
@@ -107,10 +115,11 @@ class CronScheduler:
     def _execute(self, job: CronJob):
         """Execute a job."""
         log.info(f"Cron running: {job.name}")
-        job.run_count += 1
-        job.last_run = datetime.now(timezone.utc).isoformat()
-        job.next_run = self._calculate_next(job.schedule)
-        self._save()
+        with self.lock:
+            job.run_count += 1
+            job.last_run = datetime.now(timezone.utc).isoformat()
+            job.next_run = self._calculate_next(job.schedule)
+            self._save()
 
         # Save output
         output_file = JOBS_FILE.parent / f"cron_output_{job.id}.txt"
@@ -123,8 +132,9 @@ class CronScheduler:
             log.error(f"Cron execution error [{job.name}]: {e}")
 
         if job.schedule.startswith("in ") or job.schedule.startswith("once "):
-            self.jobs = [j for j in self.jobs if j.id != job.id]
-            self._save()
+            with self.lock:
+                self.jobs = [j for j in self.jobs if j.id != job.id]
+                self._save()
 
     def _calculate_next(self, schedule: str) -> str:
         """Calculate the next run time from a schedule string."""

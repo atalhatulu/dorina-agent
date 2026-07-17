@@ -75,7 +75,14 @@ class TaskManager:
             return notifs
 
     def list_tasks(self) -> list[BackgroundTask]:
-        """Return all tasks."""
+        """Return all tasks, auto-clean old ones beyond limit."""
+        MAX_TASKS = 100
+        if len(self._tasks) > MAX_TASKS:
+            # Keep only running + last 50 completed
+            running = {k: v for k, v in self._tasks.items() if v.status == "running"}
+            done = [(k, v) for k, v in self._tasks.items() if v.status != "running"]
+            done.sort(key=lambda x: x[1].finished_at, reverse=True)
+            self._tasks = {**running, **dict(done[:50])}
         return list(self._tasks.values())
 
     def get(self, task_id: str) -> Optional[BackgroundTask]:

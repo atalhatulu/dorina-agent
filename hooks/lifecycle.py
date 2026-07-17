@@ -32,10 +32,20 @@ class HookPipeline:
         else:
             log.warning(f"Unknown hook stage: {stage}")
 
+    def _same_callback(self, a: Callable, b: Callable) -> bool:
+        """Check if two callbacks are the same, handling bound methods."""
+        import inspect
+        if inspect.ismethod(a) and inspect.ismethod(b):
+            return getattr(a, '__func__', a) is getattr(b, '__func__', b) and getattr(a, '__self__', None) is getattr(b, '__self__', None)
+        return a is b
+
     def unregister(self, stage: str, callback: Callable):
         """Unregister a hook."""
         if stage in self._hooks:
-            self._hooks[stage] = [cb for cb in self._hooks[stage] if cb is not callback]
+            self._hooks[stage] = [
+                cb for cb in self._hooks[stage]
+                if not self._same_callback(cb, callback)
+            ]
 
     def unregister_all(self, stage: str | None = None):
         """Clear all hooks in a specific stage, or all stages."""

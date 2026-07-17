@@ -157,8 +157,6 @@ class DuckDuckGoProvider(SearchProvider):
             error = f"DuckDuckGo search failed: {e}"
             log.warning(error)
             return self._make_response(query, [], 0, error=error)
-            log.warning(error)
-            return self._make_response(query, [], 0, error=error)
 
 
 # ── Google Custom Search Provider ──────────────────────────────
@@ -184,7 +182,7 @@ class GoogleCustomSearchProvider(SearchProvider):
                 return key
         except AttributeError:
             pass
-        return os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        return os.getenv("GOOGLE_API_KEY")
 
     def _get_cse_id(self) -> str | None:
         """Get Custom Search Engine ID."""

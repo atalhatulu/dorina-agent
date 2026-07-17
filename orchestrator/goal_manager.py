@@ -150,6 +150,13 @@ class GoalManager:
         goal.status = "cancelled"
         goal.completed_at = time.time()
         goal.result = "iptal edildi"
+        # Cancel background task
+        if goal._bg_task_id:
+            try:
+                from bg_tools.task_manager import task_manager
+                task_manager.cancel(goal._bg_task_id)
+            except (ImportError, AttributeError, KeyError):
+                pass
         bus.publish("goal:cancelled", goal_id=goal.id, name=goal.name)
         log.info("Goal iptal edildi: [%s] %s", goal.short_id, goal.name)
         return True

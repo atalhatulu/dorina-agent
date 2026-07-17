@@ -129,7 +129,7 @@ class SelfEvolution:
         """Track tool calls, find recurring patterns."""
         now = time.time()
         
-        # Track last 10 calls
+        # Track last 10 calls, cap at 100 to prevent memory leak
         if not hasattr(self, "_recent_calls"):
             self._recent_calls = []
         self._recent_calls.append({
@@ -137,6 +137,8 @@ class SelfEvolution:
             "time": now,
             "args": kw.get("arguments", {}),
         })
+        if len(self._recent_calls) > 100:
+            self._recent_calls = self._recent_calls[-50:]
         
         # Pattern: 5+ same tool calls in last 30 seconds
         recent = [c for c in self._recent_calls if now - c["time"] < 30]

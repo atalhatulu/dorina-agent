@@ -207,11 +207,11 @@ class ReasoningEngine:
         except Exception as e:
             if llm is None:
                 llm = self._get_llm()  # liteLLM needed for fallback
-            return await self._handle_llm_error(e, llm, params, model_name, full_messages, stream_callback)
+            return await self._handle_llm_error(e, llm, params, model_name, full_messages, stream_callback, messages)
 
     async def _handle_llm_error(
         self, e: Exception, llm, params: dict, model_name: str,
-        full_messages: list, stream_callback=None
+        full_messages: list, stream_callback=None, original_messages: list | None = None
     ) -> dict:
         """Cross-provider fallback: try model chain on retryable errors."""
         from core.error_classifier import classify_api_error, FailoverReason
@@ -269,8 +269,14 @@ class ReasoningEngine:
 
                 # Retry — same model, same params (with repaired messages)
                 if stream_callback:
-                    return await self._think_stream(llm, params, stream_callback)
-                resp = await llm.acompletion(**params)
+                    resp = await self._think_stream(llm, params, stream_callback)
+                else:
+                    resp = await llm.acompletion(**params)
+                # Sync repaired messages back to caller's context
+                if original_messages is not None:
+                    repaired_msg = params.get("messages", [])
+                    msg_only = [m for m in repaired_msg if m.get("role") != "system"]
+                    original_messages[:] = msg_only
                 return self._parse_response(resp)
             except (KeyError, json.JSONDecodeError, ImportError, OSError) as _repair_e:
                 log.error(f"Tool format repair also failed: {_repair_e}")
@@ -315,8 +321,17 @@ class ReasoningEngine:
                 try:
                     log.info(f"Trying: {fb_model_name}")
                     if stream_callback:
-                        return await self._think_stream(llm, fb_params, stream_callback)
-                    resp = await llm.acompletion(**fb_params)
+                        resp = await self._think_stream(llm, fb_params, stream_callback)
+                    else:
+                        resp = await llm.acompletion(**fb_params)
+                    # Persist successful fallback so next turn uses it
+                    log.info(f"Fallback succeeded: {fb_model_name} — persisting as active model")
+                    settings.model.provider = fb_provider
+                    settings.model.default = fb_model_name
+                    try:
+                        settings.save()
+                    except Exception:
+                        pass
                     return self._parse_response(resp)
                 except Exception as fb_e:
                     log.error(f"Fallback failed ({fb_model_name}): {fb_e}")

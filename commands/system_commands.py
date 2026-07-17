@@ -62,9 +62,9 @@ async def cmd_help(app: "DorinaApp", cmd: str) -> None:
 
 async def cmd_clear(app: "DorinaApp", cmd: str) -> None:
     """Clear the terminal screen."""
-    import subprocess
-
-    subprocess.run(["clear"], check=False)
+    import sys
+    sys.stdout.write("\033[H\033[2J")
+    sys.stdout.flush()
 
 
 async def cmd_status(app: "DorinaApp", cmd: str) -> None:

@@ -68,5 +68,5 @@ async def stream_chat(
 
     except ImportError:
         yield {"choices": [{"delta": {"content": "Provider system not available: litellm not installed"}}]}
-    except (TimeoutError, OSError, KeyError) as e:
+    except (TimeoutError, OSError, KeyError, Exception) as e:
         yield {"choices": [{"delta": {"content": f"Streaming error: {str(e)[:200]}"}}]}

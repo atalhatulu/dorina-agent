@@ -283,3 +283,7 @@ class AsyncBrowserClient:
 
 # Global async browser singleton
 browser = AsyncBrowserClient()
+
+# Register cleanup on exit
+import atexit
+atexit.register(lambda: asyncio.run(browser.close()) if browser.available else None)

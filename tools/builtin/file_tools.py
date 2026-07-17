@@ -7,9 +7,7 @@ import subprocess
 from pathlib import Path
 
 from tools.registry import register_tool
-from core.constants import DORINA_HOME
-from core.utils import safe_json_loads
-from tools.security import is_blocked_path, safe_resolve
+from tools.security import safe_resolve
 from core.logger import log
 
 
@@ -215,41 +213,47 @@ def read_file_tool(path: str, start_line: int = None, end_line: int = None, limi
 )
 def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
     """Write file (overwrite flag for safety)."""
-    from history.file_history import file_history
-    file_history.snapshot_before(path, "write_file")
     p = Path(path).expanduser()
 
-    # Path traversal protection (early check if absolute path)
-    if p.is_absolute():
-        try:
-            safe_resolve(str(p))
-        except ValueError as e:
-            return json.dumps({"error": str(e)})
-
     # Fix common LLM path hallucinations: /home/user → actual home
-    if p.is_absolute() and str(p).startswith("/home/user"):
+    if str(p).startswith("/home/user"):
         p = Path(str(p).replace("/home/user", str(Path.home()), 1))
 
-    # Only allow writing to specific directories, redirect to Desktop if not allowed
-    from soul.personality import GODMODE
-    if p.is_absolute() and not GODMODE:
-        _allowed = [Path.home() / d for d in ("Desktop", "Documents", "Downloads", ".dorina")]
-        _in_allowed = any(str(p).startswith(str(a)) for a in _allowed)
-        if not _in_allowed:
-            p = Path.home() / "Desktop" / p.name
-
-    if p.exists() and not overwrite:
-        return json.dumps({"error": f"File already exists: {path}. Use overwrite=true to overwrite, or try the patch tool."})
-
+    # Resolve relative paths to absolute
     if not p.is_absolute():
-        # Default projects directory
         projects_dir = Path.home() / "Documents" / "dorina-projects"
         candidate = Path.cwd() / p
         if not candidate.parent.exists() and not candidate.exists():
             p = projects_dir / p
         else:
             p = candidate
+
+    # Resolve symlinks and relative parts
+    try:
+        p = p.resolve()
+    except Exception:
+        pass
+
+    # Path traversal protection
+    try:
+        safe_resolve(str(p))
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    # Only allow writing to specific directories, redirect to Desktop if not allowed
+    from soul.personality import GODMODE
+    if not GODMODE:
+        _allowed = [Path.home() / d for d in ("Desktop", "Documents", "Downloads", ".dorina")]
+        _in_allowed = any(p.is_relative_to(a) for a in _allowed)
+        if not _in_allowed:
+            p = Path.home() / "Desktop" / p.name
+
+    if p.exists() and not overwrite:
+        return json.dumps({"error": f"File already exists: {path}. Use overwrite=true to overwrite, or try the patch tool."})
+
     p.parent.mkdir(parents=True, exist_ok=True)
+    from history.file_history import file_history
+    file_history.snapshot_before(str(p), "write_file")
     p.write_text(content)
     return json.dumps({"success": True, "path": str(p), "bytes": len(content)})
 
@@ -273,7 +277,6 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
 async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") -> str:
     import json  # local import (Python 3.14.6 intermittent GC edge-case)
     import subprocess
-    import shlex
     from pathlib import Path as _Path
 
     # Use ripgrep if available, fallback otherwise
@@ -349,10 +352,9 @@ async def search_files_tool(pattern: str, path: str = ".", file_glob: str = "") 
         # ── Fallback (Python brute-force) ──
         # Mode 1: find by name
         try:
-            find_cmd = ["find"] + search_dirs + ["-maxdepth", "6", "-iname", f"*{shlex.quote(pattern)}*", "-type", "f"]
+            find_cmd = ["find"] + search_dirs + ["-maxdepth", "6", "-iname", f"*{pattern}*", "-type", "f"]
             find_result = await asyncio.to_thread(subprocess.run,
-                " ".join(find_cmd) if not isinstance(find_cmd, str) else find_cmd,
-                shell=True, capture_output=True, text=True, timeout=30
+                find_cmd, capture_output=True, text=True, timeout=30
             )
             if find_result.stdout.strip():
                 # Filter out excluded dirs

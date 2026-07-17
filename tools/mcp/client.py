@@ -290,7 +290,8 @@ class MCPClient:
                 except json.JSONDecodeError:
                     log.debug(f"MCP parse error: {text[:100]}")
         except asyncio.TimeoutError:
-            log.debug("MCP read timeout (120s) — end of loop")
+            log.debug("MCP read timeout (120s) — disconnecting")
+            self._connected = False
         except asyncio.CancelledError:
             pass
         except (OSError, UnicodeDecodeError) as e:

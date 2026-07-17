@@ -175,12 +175,13 @@ class KeyManager:
         """Save API key for a provider — persists to providers.json + sets env."""
         self._keys[provider] = key
 
-        # Write to providers.json
+        # Write to providers.json with restricted permissions
         if PROVIDERS_FILE.exists():
             try:
                 raw = json.loads(PROVIDERS_FILE.read_text())
                 raw.setdefault("providers", {}).setdefault(provider, {})["api_key"] = key
                 PROVIDERS_FILE.write_text(json.dumps(raw, indent=2, ensure_ascii=False))
+                PROVIDERS_FILE.chmod(0o600)
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -198,6 +199,7 @@ class KeyManager:
                 prov = raw.get("providers", {}).get(provider, {})
                 prov.pop("api_key", None)
                 PROVIDERS_FILE.write_text(json.dumps(raw, indent=2, ensure_ascii=False))
+                PROVIDERS_FILE.chmod(0o600)
             except (json.JSONDecodeError, OSError):
                 pass
         ev = ENV_MAP.get(provider, "")
