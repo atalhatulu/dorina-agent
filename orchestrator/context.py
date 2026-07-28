@@ -32,7 +32,7 @@ class Context:
                 import json as _j
                 parsed = _j.loads(result)
                 if "error" in parsed:
-                    content = f"[{tool_name}] → ✗ {parsed['error'][:200]}"
+                    content = f"[{tool_name}] → ✗ {str(parsed['error'])[:200]}"
                 else:
                     content = f"[{tool_name}] → {result}"
             except _j.JSONDecodeError:

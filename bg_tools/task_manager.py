@@ -32,9 +32,11 @@ class TaskManager:
         """Start a coroutine in the background and return its task ID."""
         task_id = uuid.uuid4().hex[:8]
         task = BackgroundTask(id=task_id, name=name, _process=process)
+        task._original_coro = coro  # Store in case we cancel before starting
         self._tasks[task_id] = task
 
         async def _run():
+            task._original_coro = None  # We're running it, no longer need fallback close
             try:
                 result = await coro
                 if task.status != "cancelled":
@@ -103,6 +105,10 @@ class TaskManager:
                 task._process.terminate()
             except ProcessLookupError:
                 pass
+                
+        if getattr(task, '_original_coro', None) and hasattr(task._original_coro, 'close'):
+            task._original_coro.close()
+            task._original_coro = None
                 
         if task._asyncio_task:
             task._asyncio_task.cancel()

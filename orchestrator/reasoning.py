@@ -237,9 +237,10 @@ class ReasoningEngine:
                             tcid = tc.get("id", "") or tc.get("tool_call_id", "")
                             if tcid:
                                 valid_ids.add(tcid)
-                        # Look at tool messages that come after this assistant message
+                        # Look ONLY at tool messages that come after this assistant message
+                        _idx = repaired.index(m)
                         _future_tool_ids = {
-                            mm.get("tool_call_id", "") for mm in repaired
+                            mm.get("tool_call_id", "") for mm in repaired[_idx+1:]
                             if mm.get("role") == "tool"
                         }
                         valid_tcs = [
