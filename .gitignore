@@ -10,6 +10,7 @@
 !Dockerfile
 !LICENSE
 !README.md
+!app.py
 !config.yaml.example
 !docker-compose.prod.yml
 !docker-compose.yml
