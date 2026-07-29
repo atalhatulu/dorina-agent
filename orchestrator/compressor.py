@@ -72,13 +72,11 @@ class ContextCompressor:
                 current = [m]
             elif role == "assistant":
                 current.append(m)
-                # If tool_calls present, continue (tool results will follow)
+                # If no tool_calls, assistant turn is complete
                 if not m.get("tool_calls"):
-                    # No tool_calls = turn is complete
                     if current:
-                        # If current only contains assistant (no preceding user),
-                        # that's a bug — turns should start with user
-                        pass
+                        turns.append(current)
+                        current = []
             elif role == "tool":
                 current.append(m)
                 # Tool sonrasi assistant mesaji ayni turda olabilir

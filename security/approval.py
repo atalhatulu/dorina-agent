@@ -62,9 +62,12 @@ class Approval:
         if not self.needs_approval(tool_name, arguments):
             return True
 
-        print(t("approval_tool_called", tool=tool_name, arguments=arguments))
-        resp = input(t("approval_prompt_confirm")).strip().lower()
-        return resp in ("", "e", "evet", "y", "yes")
+        try:
+            print(t("approval_tool_called", tool=tool_name, arguments=arguments))
+            resp = input(t("approval_prompt_confirm")).strip().lower()
+            return resp in ("", "e", "evet", "y", "yes")
+        except (EOFError, OSError):
+            return False
 
     def reload_from_config(self):
         """Reload config file (hot-reload)."""

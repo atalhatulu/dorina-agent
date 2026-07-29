@@ -84,28 +84,36 @@ class GoalManager:
 
         # Background task olarak sub-agent baslat
         async def _run_goal():
-            agent = SubAgent(
-                goal=goal.description or goal.name,
-                context=f"Goal adi: {goal.name}",
-                toolsets=toolsets or ["file", "web", "terminal"],
-            )
-            result = await agent.run()
-            goal.turn_count = agent.turn_count
-            if agent.status == "completed":
-                goal.status = "completed"
-                goal.result = result[:500] if result else ""
-                goal.completed_at = time.time()
-                bus.publish("goal:completed", goal_id=goal_id, name=goal.name)
-                log.info("Goal tamamlandi: [%s] %s (%s)", goal.short_id, goal.name, goal.elapsed)
-                preview = (goal.result[:100].replace("\n", " ") if goal.result else "")
-                return f"[{goal.name}] tamamlandi ({goal.elapsed})\n  {preview}"
-            else:
+            try:
+                agent = SubAgent(
+                    goal=goal.description or goal.name,
+                    context=f"Goal adi: {goal.name}",
+                    toolsets=toolsets or ["file", "web", "terminal"],
+                )
+                result = await agent.run()
+                goal.turn_count = getattr(agent, "turn_count", 0)
+                if getattr(agent, "status", "") == "completed":
+                    goal.status = "completed"
+                    goal.result = result[:500] if result else ""
+                    goal.completed_at = time.time()
+                    bus.publish("goal:completed", goal_id=goal_id, name=goal.name)
+                    log.info("Goal tamamlandi: [%s] %s (%s)", goal.short_id, goal.name, goal.elapsed)
+                    preview = (goal.result[:100].replace("\n", " ") if goal.result else "")
+                    return f"[{goal.name}] tamamlandi ({goal.elapsed})\n  {preview}"
+                else:
+                    goal.status = "failed"
+                    goal.error = getattr(agent, "error", "") or "bilinmeyen hata"
+                    goal.completed_at = time.time()
+                    bus.publish("goal:failed", goal_id=goal_id, name=goal.name, error=goal.error)
+                    log.error("Goal basarisiz: [%s] %s: %s", goal.short_id, goal.name, goal.error)
+                    return f"[{goal.name}] basarisiz: {goal.error}"
+            except Exception as exc:
                 goal.status = "failed"
-                goal.error = agent.error or "bilinmeyen hata"
+                goal.error = str(exc)
                 goal.completed_at = time.time()
                 bus.publish("goal:failed", goal_id=goal_id, name=goal.name, error=goal.error)
-                log.error("Goal basarisiz: [%s] %s: %s", goal.short_id, goal.name, goal.error)
-                return f"[{goal.name}] basarisiz: {goal.error}"
+                log.error("Goal beklenmedik hata ile sonlandi: [%s] %s: %s", goal.short_id, goal.name, exc)
+                return f"[{goal.name}] basarisiz: {exc}"
 
         bg_id = task_manager.start(_run_goal(), name=f"goal:{goal.short_id}")
         goal._bg_task_id = bg_id

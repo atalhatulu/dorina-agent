@@ -153,15 +153,24 @@ class CheckpointManager:
     def _row_to_dict(row: sqlite3.Row) -> Optional[dict[str, Any]]:
         if row is None:
             return None
+
+        def _safe_parse(val, fallback):
+            if not val:
+                return fallback
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return fallback
+
         return {
             "type": row["type"],
             "name": row["name"],
             "created_at": row["created_at"],
             "turn": row["turn"],
-            "state": json.loads(row["state"]) if row["state"] else "",
-            "messages": json.loads(row["messages"]) if row["messages"] else [],
-            "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
-            "sm_history": json.loads(row["sm_history"]) if row["sm_history"] else [],
+            "state": _safe_parse(row["state"], ""),
+            "messages": _safe_parse(row["messages"], []),
+            "metadata": _safe_parse(row["metadata"], {}),
+            "sm_history": _safe_parse(row["sm_history"], []),
         }
 
     # ── Public API ─────────────────────────────────────────────
