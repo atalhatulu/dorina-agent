@@ -111,6 +111,7 @@ class TestSessionManager:
         assert _decrypt("") == ""
         assert _decrypt("[]") == "[]"
 
+    @pytest.mark.asyncio
     async def test_list_checkpoints(self):
         """list_checkpoints async calismali ve coroutine degil liste dönmeli."""
         from session.manager import SessionManager
