@@ -117,6 +117,7 @@ class AgentLoopV2:
         self._temp_mode = False
         self._loop_iterations = 0
         self._on_step = None  # web UI callback for streaming steps
+        self._turn_term_calls = 0  # terminal calls in current turn
 
     # ────────────────────────────────────────────────────────────────
     # PUBLIC API
@@ -147,6 +148,7 @@ class AgentLoopV2:
 
         self.turn += 1
         self._loop_iterations = 0
+        self._turn_term_calls = 0
         _status.start_turn()
         self._streamed_this_turn = False
 
@@ -415,6 +417,59 @@ class AgentLoopV2:
 
     async def _execute_tools(self, tool_calls: list[dict]):
         """Tool'lari calistir. Read paralel, write sirali."""
+        # ── Consolidation check: birden cok terminal → tek kapsamli komut ──
+        _term_calls = []
+        _info_indicators = ("cat ", "free ", "lsblk", "df ", "uname ", "lscpu", "lspci", "lsusb",
+                           "inxi", "neofetch", "hostnamectl", "uptime", "dmesg", "sysctl",
+                           "dmidecode", "hwinfo", "lshw", "fdisk", "blkid", "mount ")
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            name = fn.get("name", "")
+            if name == "terminal":
+                args_raw = fn.get("arguments", "{}")
+                try:
+                    _args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+                    cmd = (_args or {}).get("command", "")
+                    if any(cmd.startswith(ind) for ind in _info_indicators):
+                        _term_calls.append(cmd)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        if len(_term_calls) >= 3:
+            # Inject reflection: suggest consolidation
+            _combined = "; ".join(_term_calls)
+            self.context.add_user_message(
+                f"⚠️ Şu an {len(_term_calls)} ayrı terminal komutu planladın. "
+                f"Bunları tek bir kapsamlı komutta birleştir. "
+                f"Hepsi sistem bilgisi sorguluyor — `inxi -Fz` veya `neofetch` tek seferde yeter."
+            )
+            _display.print_warning(f"{len(_term_calls)} info command(s) → consolidation recommended")
+            # Don't execute — let model retry with consolidated command
+            # (The loop will call _think again without incrementing iteration count)
+            self._loop_iterations -= 1  # don't consume iteration budget
+            return
+
+        # Turn-level guard: 3+ terminal calls in same turn → consolidate
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            name = fn.get("name", "")
+            if name == "terminal":
+                self._turn_term_calls += 1
+
+        # After 4th terminal call in same turn, suggest consolidation
+        if self._turn_term_calls > 3 and all(
+            tc.get("function", {}).get("name") == "terminal"
+            for tc in tool_calls
+        ):
+            self.context.add_user_message(
+                f"⚠️ Bu turda {self._turn_term_calls}. terminal komutun. "
+                f"Kalan bilgileri tek bir komutla topla. "
+                f"`inxi -Fz` tüm sistem bilgisini verir, ek komut gerekmez."
+            )
+            _display.print_warning(f"Turn has {self._turn_term_calls} terminal calls → consolidate")
+            self._loop_iterations -= 1
+            return
+
         # Repetition guard: ayni dosyayi ayni turda 2. kez okuma
         seen_in_turn: set = set()
         # Terminal command repetition guard: hash-based

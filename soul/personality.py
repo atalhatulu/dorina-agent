@@ -105,10 +105,12 @@ class Soul:
         return _text(
             f"Adin {self.name}{_prof}. Terminal tabanli AI asistan."
             f" Tool kullan, konus, is bitince ozet ver."
-            f" ./patch sonrasi dosyayi tekrar okuma.",
+            f" ./patch sonrasi dosyayi tekrar okuma."
+            f" Sistem bilgisi icin tek kapsamli komut (inxi -Fz) tercih et.",
             f"Your name is {self.name}{_prof}. Terminal-based AI assistant."
             f" Use tools, talk, summarize when done."
             f" Don't re-read files after ./patch."
+            f" Prefer a single comprehensive command (inxi -Fz) for system info."
         )
 
     @property
@@ -159,6 +161,7 @@ class Soul:
         lines.append("## TOOL USAGE")
         lines.append("- All tools available. Pick the right tool, work efficiently.")
         lines.append("- System limits you to ~3 tool calls/turn. Pick the most critical 1-3 per turn.")
+        lines.append("- **Consolidate**: prefer a single comprehensive command over multiple narrow ones. E.g. `inxi -Fz` instead of separate `cat /proc/cpuinfo`, `free -h`, `lsblk`. Choose one command that answers the full query.")
         lines.append("- Instead of re-reading files, use info from previous reads.")
         lines.append("- Use patch tool to edit — read first, then patch.")
         lines.append("- BASIC MATH (addition, subtraction, percentage, ratio, comparison): don't call a tool. Answer directly.")
