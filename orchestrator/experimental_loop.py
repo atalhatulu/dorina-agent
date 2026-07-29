@@ -758,6 +758,10 @@ class AgentLoopV2:
         except (ImportError, AttributeError):
             pass
         messages = self.context.get_messages()
+        # 5'ten az mesajli sohbetleri kaydetme (tek mesajlik selamlasmalar)
+        _MIN_SAVE = 5
+        if len(messages) < _MIN_SAVE:
+            return
         asyncio.ensure_future(self._do_save(messages, summary, quick))
 
     async def _do_save(self, messages: list[dict], summary: str = "", quick: bool = False):
