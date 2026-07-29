@@ -34,7 +34,11 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 @app.get("/")
 async def index():
     html = (static_dir / "index.html").read_text(encoding="utf-8")
-    return HTMLResponse(html)
+    from fastapi.responses import HTMLResponse
+    from fastapi import Response
+    return Response(content=html, media_type="text/html",
+                    headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                             "Pragma": "no-cache", "Expires": "0"})
 
 
 # ── REST API ─────────────────────────────────────────────────
