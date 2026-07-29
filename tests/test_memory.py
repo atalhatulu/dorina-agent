@@ -1,6 +1,9 @@
 """Memory module tests."""
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    pytest = None
 
 
 class TestBaseMemory:

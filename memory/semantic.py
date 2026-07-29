@@ -97,7 +97,7 @@ class SemanticMemory(BaseMemory):
         doc_id = doc_id or str(uuid.uuid4())
         try:
             if self.embedder:
-                emb = list(self.embedder.embed(text))[0]
+                emb = list(self.embedder.embed([text]))[0]
                 embedding = self._to_float_list(emb)
                 self.collection.add(
                     embeddings=[embedding],
@@ -119,7 +119,7 @@ class SemanticMemory(BaseMemory):
             return []
         try:
             if self.embedder:
-                emb = list(self.embedder.embed(query))[0]
+                emb = list(self.embedder.embed([query]))[0]
                 query_emb = self._to_float_list(emb)
                 results = self.collection.query(
                     query_embeddings=[query_emb],

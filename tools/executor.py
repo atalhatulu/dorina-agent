@@ -249,11 +249,8 @@ class ToolExecutor:
                 import asyncio
                 try:
                     loop = asyncio.get_running_loop()
-                    # Running inside an event loop — submit to loop via a thread
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        fut = pool.submit(asyncio.run, tool.handler(**resolved_args))
-                        result = fut.result(timeout=timeout)
+                    fut = asyncio.run_coroutine_threadsafe(tool.handler(**resolved_args), loop)
+                    result = fut.result(timeout=timeout)
                 except RuntimeError:
                     # No running event loop
                     result = asyncio.run(tool.handler(**resolved_args))

@@ -47,7 +47,10 @@ def is_destructive(command: str) -> bool:
 def is_blocked_path(path: str) -> bool:
     """Is the path blocked?"""
     p = Path(path).resolve()
+    home = Path.home().resolve()
     for blocked in BLOCKED_PATHS:
+        if blocked == "/root" and (p == home or str(p).startswith(str(home))):
+            continue
         if str(p).startswith(blocked):
             return True
     return False
@@ -67,9 +70,12 @@ def safe_resolve(path: str, allowed_prefixes: list[str] | None = None) -> Path:
     if not p.is_absolute():
         p = Path.cwd() / p
     resolved = p.resolve()
+    home = Path.home().resolve()
 
     # Check BLOCKED_PATHS
     for blocked in BLOCKED_PATHS:
+        if blocked == "/root" and (resolved == home or str(resolved).startswith(str(home))):
+            continue
         if str(resolved).startswith(blocked):
             raise ValueError(
                 f"Path traversal blocked: '{path}' -> '{resolved}' "

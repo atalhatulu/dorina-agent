@@ -1,6 +1,9 @@
 """Tool module tests."""
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    pytest = None
 import json
 
 
