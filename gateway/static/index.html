@@ -101,15 +101,20 @@
   .msg-bubble.typing::after { content: '...'; animation: dts 1.5s steps(4) infinite; }
   @keyframes dts { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
 
-  /* ── Tool steps ── */
-  .tool-steps { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  /* ── Tool steps (live stream) ── */
+  .tool-steps { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
   .tool-step {
     font-size: 11px; padding: 2px 8px; border-radius: 4px;
-    background: var(--tool-bg); border: 1px solid var(--border); color: var(--dim);
+    background: linear-gradient(135deg, #2a1a1a 0%, #1e1e35 100%);
+    border: 1px solid rgba(212, 98, 42, 0.3); color: #c8c8e0;
     display: inline-flex; align-items: center; gap: 4px;
+    line-height: 1.4; transition: all 0.15s;
   }
-  .tool-step .ts-icon { color: var(--accent); }
-  .tool-step .ts-name { font-family: monospace; color: var(--text); }
+  .tool-step:hover { border-color: #d4622a; background: #2a1a2a; }
+  .ts-icon { font-size: 12px; }
+  .ts-name { font-weight: 500; }
+  .step-enter { animation: stepIn 0.2s ease-out; }
+  @keyframes stepIn { from { opacity: 0; transform: translateY(-4px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
   /* ── Usage footer ── */
   .msg-footer { margin-top: 4px; font-size: 11px; color: var(--dim); display: flex; gap: 12px; }
@@ -213,28 +218,30 @@ function connectWS() {
           scrollB();
         }
         break;
+      case 'step':
+        // Real-time tool step streaming (before response)
+        if (typingRow) {
+          const container = typingRow.querySelector('.tool-steps');
+          if (container) {
+            const el = document.createElement('span');
+            el.className = 'tool-step';
+            if (m.step === 'tool_call') {
+              el.innerHTML = `<span class="ts-icon">🔧</span> <span class="ts-name">${esc(m.name)}</span>`;
+            } else if (m.step === 'tool_result') {
+              el.innerHTML = `<span class="ts-icon">✅</span> <span class="ts-name">${esc(m.name)}</span>`;
+            } else if (m.step === 'tool_error') {
+              el.innerHTML = `<span class="ts-icon">❌</span> <span class="ts-name">${esc(m.name)}</span>`;
+            }
+            container.appendChild(el);
+            scrollB();
+          }
+        }
+        break;
       case 'assistant':
         if (typingRow) {
           const bbl = typingRow.querySelector('.msg-bubble');
           bbl.textContent = m.content;
           bbl.classList.remove('typing');
-
-          // Tool steps
-          if (m.tools && m.tools.length) {
-            const steps = document.createElement('div');
-            steps.className = 'tool-steps';
-            for (const t of m.tools) {
-              const el = document.createElement('span');
-              el.className = 'tool-step';
-              if (t.type === 'tool_call') {
-                el.innerHTML = `<span class="ts-icon">🔧</span> <span class="ts-name">${esc(t.name)}</span>`;
-              } else {
-                el.innerHTML = `<span class="ts-icon">📥</span> <span class="ts-name">${esc(t.name)}</span>`;
-              }
-              steps.appendChild(el);
-            }
-            typingRow.querySelector('.msg-body').appendChild(steps);
-          }
 
           // Usage footer
           if (m.usage) {
@@ -300,6 +307,13 @@ function addBubble(role, content) {
   bbl.className = 'msg-bubble';
   bbl.textContent = content;
   body.appendChild(bbl);
+
+  // Tool steps container (for streaming steps while typing)
+  const stepsEl = document.createElement('div');
+  stepsEl.className = 'tool-steps';
+  stepsEl.id = 'ts-' + Date.now();
+  body.appendChild(stepsEl);
+
   row.appendChild(body);
   messages.appendChild(row);
   return row;

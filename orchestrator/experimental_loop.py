@@ -116,18 +116,24 @@ class AgentLoopV2:
         self._error_patterns: dict[str, list] = {}
         self._temp_mode = False
         self._loop_iterations = 0
+        self._on_step = None  # web UI callback for streaming steps
 
     # ────────────────────────────────────────────────────────────────
     # PUBLIC API
     # ────────────────────────────────────────────────────────────────
 
-    async def process(self, user_input: str) -> str:
+    async def process(self, user_input: str, on_step: Optional[callable] = None) -> str:
         """Think → act dongusu.
 
         1. Greeting kontrolu (LLM cagrisi yok)
         2. System prompt hazirlik (ilk tur: title, skill, RAG)
         3. Think → Act loop
+
+        Args:
+            user_input: Kullanici mesaji.
+            on_step: Varsa, her tool call/result icin cagrilir (web UI streaming).
         """
+        self._on_step = on_step
         # ── 0. GIRIS KONTROLLERI ───────────────────────────────────
 
         if is_greeting(user_input):
@@ -472,6 +478,8 @@ class AgentLoopV2:
 
             parsed_args = _parse_tool_args(args_raw)
             _display.print_tool_start(name, parsed_args)
+            if self._on_step:
+                await self._on_step("tool_call", name, parsed_args)
 
             try:
                 # Cache: read_file kontrol
@@ -515,15 +523,23 @@ class AgentLoopV2:
 
                 if "error" in result[:20].lower():
                     _display.print_tool_error(name, result)
+                    if self._on_step:
+                        await self._on_step("tool_error", name, {"error": result[:200]})
                 else:
                     _display.print_tool_done(name, result)
+                    if self._on_step:
+                        await self._on_step("tool_result", name, {"preview": result[:200]})
                     if not self._temp_mode:
                         self._schedule_save(f"[{name}] {result[:100]}", quick=True)
 
             except (ValueError, json.JSONDecodeError, RuntimeError, OSError) as e:
+                if self._on_step:
+                    await self._on_step("tool_error", name, {"error": str(e)[:200]})
                 self._handle_tool_error(name, e, tool_call_id)
             except Exception as e:
                 log.warning("Unexpected tool error type (%s): %s", type(e).__name__, e)
+                if self._on_step:
+                    await self._on_step("tool_error", name, {"error": str(e)[:200]})
                 self._handle_tool_error(name, e, tool_call_id)
 
         # Read paralel, write sirali

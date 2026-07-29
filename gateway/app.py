@@ -21,6 +21,9 @@ from core.logger import log
 from core.constants import NAME, VERSION
 from session.manager import manager as session_manager
 
+# Register all tools at startup
+import tools.builtin  # noqa: F401 — @register_tool decorators execute here
+
 app = FastAPI(title=f"{NAME} Dashboard", version=VERSION)
 
 static_dir = Path(__file__).parent / "static"
@@ -109,7 +112,6 @@ async def api_chat(query: str, session_id: Optional[str] = None):
 # ── WebSocket ────────────────────────────────────────────────
 
 def _extract_tool_calls(messages: list[dict]) -> list[dict]:
-    """Extract assistant tool calls and tool results from context messages."""
     steps = []
     for msg in messages:
         role = msg.get("role", "")
@@ -152,15 +154,24 @@ async def websocket_chat(ws: WebSocket):
 
             await ws.send_json({"type": "user", "content": query})
 
-            # Track pre-call token/cost for diff
             tokens_before = status.tokens_in + status.tokens_out
             cost_before = status.cost
 
             try:
-                result = await loop.process(query)
+                async def _on_step(step_type: str, name: str, data: dict):
+                    try:
+                        await ws.send_json({
+                            "type": "step",
+                            "step": step_type,
+                            "name": name,
+                            "data": data,
+                        })
+                    except Exception:
+                        pass
+
+                result = await loop.process(query, on_step=_on_step)
                 final_text = str(result) if result else ""
 
-                # Token usage delta
                 tokens_after = status.tokens_in + status.tokens_out
                 usage = {
                     "prompt_tokens": max(0, status.tokens_in - (tokens_before - status.tokens_out)),
@@ -172,13 +183,12 @@ async def websocket_chat(ws: WebSocket):
                     "total_cost": status.cost,
                 }
 
-                # Tool calls from context
                 tool_steps = _extract_tool_calls(loop.context.get_messages())
 
                 await ws.send_json({
                     "type": "assistant",
                     "content": final_text,
-                    "tools": tool_steps[-10:] if tool_steps else [],  # last 10
+                    "tools": tool_steps[-10:] if tool_steps else [],
                     "usage": usage,
                     "done": True,
                 })
