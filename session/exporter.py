@@ -22,13 +22,20 @@ def _ensure_dir(session_id: str) -> Path:
 
 def _cleanup_old():
     """MAX_SESSIONS'u gecen eski session'lari sil."""
-    all_md = sorted(BASE_DIR.rglob("*.md"), key=os.path.getmtime, reverse=True)
-    if len(all_md) > MAX_SESSIONS:
-        for old in all_md[MAX_SESSIONS:]:
-            try:
-                old.unlink()
-            except OSError:
-                pass
+    try:
+        all_md = sorted(
+            [f for f in BASE_DIR.rglob("*.md") if f.is_file()],
+            key=lambda p: p.stat().st_mtime if p.exists() else 0,
+            reverse=True
+        )
+        if len(all_md) > MAX_SESSIONS:
+            for old in all_md[MAX_SESSIONS:]:
+                try:
+                    old.unlink(missing_ok=True)
+                except OSError:
+                    pass
+    except Exception:
+        pass
 
 
 def export_session(session_id: str, messages: list[dict] = None,

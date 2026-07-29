@@ -2,7 +2,7 @@
 from __future__ import annotations
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from core.logger import log
 
 
@@ -12,6 +12,8 @@ class AgentCrew:
         self._forks: dict[str, dict] = {}
 
     def add_member(self, role: str, goal: str):
+        if not role:
+            return
         self.members.append({"role": role, "goal": goal})
         log.info(f"Added to crew: {role}")
 
@@ -49,7 +51,7 @@ class AgentCrew:
             "tools": tools or [],
             "bubble_permissions": bubble_permissions,
             "status": "pending",
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self._forks[fork_id] = fork
         # Status: pending → running

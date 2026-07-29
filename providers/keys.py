@@ -181,7 +181,10 @@ class KeyManager:
                 raw = json.loads(PROVIDERS_FILE.read_text())
                 raw.setdefault("providers", {}).setdefault(provider, {})["api_key"] = key
                 PROVIDERS_FILE.write_text(json.dumps(raw, indent=2, ensure_ascii=False))
-                PROVIDERS_FILE.chmod(0o600)
+                try:
+                    PROVIDERS_FILE.chmod(0o600)
+                except (OSError, NotImplementedError, PermissionError):
+                    pass
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -199,7 +202,10 @@ class KeyManager:
                 prov = raw.get("providers", {}).get(provider, {})
                 prov.pop("api_key", None)
                 PROVIDERS_FILE.write_text(json.dumps(raw, indent=2, ensure_ascii=False))
-                PROVIDERS_FILE.chmod(0o600)
+                try:
+                    PROVIDERS_FILE.chmod(0o600)
+                except (OSError, NotImplementedError, PermissionError):
+                    pass
             except (json.JSONDecodeError, OSError):
                 pass
         ev = ENV_MAP.get(provider, "")

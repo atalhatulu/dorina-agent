@@ -13,6 +13,7 @@ Supports:
 """
 from __future__ import annotations
 
+import inspect
 import json
 import os
 from typing import AsyncIterator, Optional
@@ -301,7 +302,9 @@ async def _chat_stream(
             if delta.get("content"):
                 content_chunks.append(delta["content"])
                 if stream_callback:
-                    stream_callback(delta["content"])
+                    res = stream_callback(delta["content"])
+                    if inspect.iscoroutine(res):
+                        await res
 
             if delta.get("tool_calls"):
                 for tc in delta["tool_calls"]:

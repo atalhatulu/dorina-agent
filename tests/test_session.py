@@ -1,6 +1,9 @@
 """Session manager tests."""
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    pytest = None
 
 
 class TestSessionManager:
@@ -101,3 +104,16 @@ class TestSessionManager:
         _dir = os.path.dirname(md_path)
         if _dir and not os.listdir(_dir):
             os.rmdir(_dir)
+
+    def test_decrypt_empty_string(self):
+        """Bos string veya plaintext decrypt hatasiz dönmeli."""
+        from session.manager import _decrypt
+        assert _decrypt("") == ""
+        assert _decrypt("[]") == "[]"
+
+    async def test_list_checkpoints(self):
+        """list_checkpoints async calismali ve coroutine degil liste dönmeli."""
+        from session.manager import SessionManager
+        mgr = SessionManager()
+        cps = await mgr.list_checkpoints()
+        assert isinstance(cps, list)

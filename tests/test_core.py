@@ -1,6 +1,9 @@
 """Core module tests."""
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    pytest = None
 
 
 class TestConstants:
@@ -49,3 +52,24 @@ class TestLogger:
         logger = setup_logging()
         assert logger.name == "dorina"
         assert logger.level > 0
+
+    def test_secret_redaction(self):
+        import logging
+        from core.logger import RedactingFormatter
+        fmt = RedactingFormatter("%(message)s")
+        rec = logging.LogRecord("test", logging.INFO, "", 0, "API key is sk-12345678901234567890secret", (), None)
+        formatted = fmt.format(rec)
+        assert "12345678901234567890secret" not in formatted
+        assert "sk-***REDACTED***" in formatted
+
+
+class TestUtils:
+    def test_safe_json_loads(self):
+        from core.utils import safe_json_loads
+        # Direct string JSON parse
+        assert safe_json_loads('{"a": 1}') == {"a": 1}
+        # Bad string JSON returns default
+        assert safe_json_loads('not json', default=[]) == []
+        # Long string JSON is not attempted as file path
+        long_json = '{"data": "' + 'x' * 600 + '"}'
+        assert safe_json_loads(long_json)["data"].startswith("x")

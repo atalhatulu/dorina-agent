@@ -87,6 +87,8 @@ def _decrypt(ciphertext: str) -> str:
       2. Plaintext JSON (pre-encryption era) → return as-is
       3. Encrypted with old/different key    → raise ValueError (data lost)
     """
+    if not ciphertext:
+        return ciphertext
     f = _get_fernet()
     if f is None:
         return ciphertext
@@ -113,13 +115,17 @@ Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine)
 
 
+def _utc_now():
+    return datetime.now(timezone.utc)
+
+
 class SessionModel(Base):
     __tablename__ = "sessions"
     
     id = Column(String, primary_key=True)
     title = Column(String, default="Untitled")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
     messages = Column(Text, default="[]")
     summary = Column(Text, default="")
     model = Column(String, default="")
@@ -189,7 +195,16 @@ class SessionManager:
                     break
         # Skip if no changes (using debounce to prevent unnecessary repeats)
         import hashlib
-        new_hash = hashlib.md5(str(messages).encode()).hexdigest()
+        hash_payload = json.dumps({
+            "messages": messages,
+            "summary": summary,
+            "title": title,
+            "tool_calls": tool_calls_data,
+            "token_total": token_total,
+            "cost": cost,
+            "tags": tags,
+        }, sort_keys=True, default=str)
+        new_hash = hashlib.md5(hash_payload.encode("utf-8")).hexdigest()
         if new_hash == self._last_messages_hash:
             self._save_debounce_count += 1
             if self._save_debounce_count >= 5:
@@ -380,7 +395,7 @@ class SessionManager:
             return data.get("messages", [])
         return None
 
-    def list_checkpoints(self, cp_type: Optional[str] = None) -> list[dict]:
+    async def list_checkpoints(self, cp_type: Optional[str] = None) -> list[dict]:
         """List all checkpoints, optionally filtered by type.
 
         Args:
@@ -389,7 +404,7 @@ class SessionManager:
         Returns:
             List of checkpoint summary dicts.
         """
-        return checkpoint_manager.list(cp_type)
+        return await checkpoint_manager.list(cp_type)
 
     async def save_snapshot(
         self, messages: list[dict], summary: str = "",

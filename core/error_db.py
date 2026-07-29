@@ -13,7 +13,7 @@ try:
     import sqlite3
     _DB_PATH = DORINA_HOME / "data" / "error_log.db"
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _conn = sqlite3.connect(str(_DB_PATH))
+    _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
     _conn.execute("""
         CREATE TABLE IF NOT EXISTS error_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

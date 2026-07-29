@@ -84,10 +84,12 @@ class RedactingFormatter(SessionInjector):
         for prefix, keep in _REDACT_PATTERNS:
             idx = msg.find(prefix)
             while idx != -1:
-                end = idx + keep
-                if end < len(msg):
-                    msg = msg[:end] + "***" + msg[end:]
-                idx = msg.find(prefix, idx + 1)
+                start = idx + len(prefix)
+                end = min(idx + keep, len(msg))
+                # Check if already redacted
+                if not msg[start:end].startswith("***"):
+                    msg = msg[:start] + "***REDACTED***" + msg[end:]
+                idx = msg.find(prefix, start + 14)
         return msg
 
 
