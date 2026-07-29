@@ -112,7 +112,7 @@ async def api_chat(query: str, session_id: Optional[str] = None):
 
     # Set current session
     session_manager.current_id = session_id
-    result = await loop.run(query)
+    result = await loop.process(query)
     return {"response": result, "session_id": session_id}
 
 
@@ -141,7 +141,7 @@ async def websocket_chat(ws: WebSocket):
 
             # Run agent
             try:
-                result = await loop.run(query)
+                result = await loop.process(query)
                 if result and isinstance(result, str):
                     await ws.send_json({"type": "assistant", "content": result, "done": True})
                 else:

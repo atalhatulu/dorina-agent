@@ -25,7 +25,7 @@ from core.error_classifier import classify_api_error, FailoverReason
 
 # ── Constants ────────────────────────────────────────────────
 
-DEEPSEEK_API_BASE = "https://api.deepseek.com"
+DEEPSEEK_API_BASE = os.getenv("DORINA_API_BASE", "https://api.deepseek.com")
 CHAT_ENDPOINT = f"{DEEPSEEK_API_BASE}/chat/completions"
 
 # Retry config
