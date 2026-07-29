@@ -9,23 +9,20 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Proje kokunu PYTHONPATH'e ekle
 _proj_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_proj_root))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
 import uvicorn
 
 from core.logger import log
 from core.constants import NAME, VERSION
 from session.manager import manager as session_manager
 
-# ── FastAPI ──────────────────────────────────────────────────
 app = FastAPI(title=f"{NAME} Dashboard", version=VERSION)
 
-# ── Static files ─────────────────────────────────────────────
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -34,8 +31,6 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 @app.get("/")
 async def index():
     html = (static_dir / "index.html").read_text(encoding="utf-8")
-    from fastapi.responses import HTMLResponse
-    from fastapi import Response
     return Response(content=html, media_type="text/html",
                     headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                              "Pragma": "no-cache", "Expires": "0"})
@@ -45,7 +40,6 @@ async def index():
 
 @app.get("/api/status")
 async def api_status():
-    """System status: version, session count, uptime."""
     from core.config import settings
     sessions = session_manager.list_sessions(limit=100)
     active_sid = getattr(session_manager, "current_id", None) or ""
@@ -76,14 +70,12 @@ def get_active_modes() -> list[str]:
 
 @app.get("/api/sessions")
 async def api_sessions(limit: int = 50):
-    """List sessions."""
     sessions = session_manager.list_sessions(limit=limit)
     return {"sessions": sessions}
 
 
 @app.delete("/api/sessions/{session_id}")
 async def api_delete_session(session_id: str):
-    """Delete a session."""
     ok = session_manager.delete(session_id)
     if not ok:
         raise HTTPException(404, "Session not found")
@@ -92,14 +84,12 @@ async def api_delete_session(session_id: str):
 
 @app.post("/api/sessions")
 async def api_create_session():
-    """Create a new session."""
     sid = session_manager.create(title="Web Session")
     return {"session_id": sid, "title": "Web Session"}
 
 
 @app.get("/api/sessions/{session_id}")
 async def api_get_session(session_id: str):
-    """Get session details with messages."""
     session = session_manager.load(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
@@ -108,13 +98,9 @@ async def api_get_session(session_id: str):
 
 @app.post("/api/chat")
 async def api_chat(query: str, session_id: Optional[str] = None):
-    """Send a message to agent (non-streaming)."""
     from orchestrator.experimental_loop import loop_v2 as loop
-
     if not session_id:
         session_id = session_manager.current_id or session_manager.create(title="Web Chat")
-
-    # Set current session
     session_manager.current_id = session_id
     result = await loop.process(query)
     return {"response": result, "session_id": session_id}
@@ -122,11 +108,34 @@ async def api_chat(query: str, session_id: Optional[str] = None):
 
 # ── WebSocket ────────────────────────────────────────────────
 
+def _extract_tool_calls(messages: list[dict]) -> list[dict]:
+    """Extract assistant tool calls and tool results from context messages."""
+    steps = []
+    for msg in messages:
+        role = msg.get("role", "")
+        if role == "assistant" and msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                if isinstance(tc, dict):
+                    fn = tc.get("function", {})
+                    steps.append({
+                        "type": "tool_call",
+                        "name": fn.get("name", "?"),
+                        "args": fn.get("arguments", "{}")[:200],
+                    })
+        elif role == "tool":
+            steps.append({
+                "type": "tool_result",
+                "name": msg.get("name", "?"),
+                "content_preview": str(msg.get("content", ""))[:100],
+            })
+    return steps
+
+
 @app.websocket("/ws/chat")
 async def websocket_chat(ws: WebSocket):
-    """Streaming chat via WebSocket."""
     await ws.accept()
     from orchestrator.experimental_loop import loop_v2 as loop
+    from ui.status_bar import status
 
     session_id = session_manager.current_id or session_manager.create(title="Web Chat")
     session_manager.current_id = session_id
@@ -143,13 +152,36 @@ async def websocket_chat(ws: WebSocket):
 
             await ws.send_json({"type": "user", "content": query})
 
-            # Run agent
+            # Track pre-call token/cost for diff
+            tokens_before = status.tokens_in + status.tokens_out
+            cost_before = status.cost
+
             try:
                 result = await loop.process(query)
-                if result and isinstance(result, str):
-                    await ws.send_json({"type": "assistant", "content": result, "done": True})
-                else:
-                    await ws.send_json({"type": "assistant", "content": str(result) if result else "", "done": True})
+                final_text = str(result) if result else ""
+
+                # Token usage delta
+                tokens_after = status.tokens_in + status.tokens_out
+                usage = {
+                    "prompt_tokens": max(0, status.tokens_in - (tokens_before - status.tokens_out)),
+                    "completion_tokens": max(0, status.tokens_out - (tokens_before - status.tokens_in)),
+                    "total_tokens": max(0, tokens_after - tokens_before),
+                    "cost": max(0, status.cost - cost_before),
+                    "total_in": status.tokens_in,
+                    "total_out": status.tokens_out,
+                    "total_cost": status.cost,
+                }
+
+                # Tool calls from context
+                tool_steps = _extract_tool_calls(loop.context.get_messages())
+
+                await ws.send_json({
+                    "type": "assistant",
+                    "content": final_text,
+                    "tools": tool_steps[-10:] if tool_steps else [],  # last 10
+                    "usage": usage,
+                    "done": True,
+                })
             except Exception as e:
                 await ws.send_json({"type": "error", "content": str(e), "done": True})
 
@@ -159,13 +191,9 @@ async def websocket_chat(ws: WebSocket):
         log.error(f"WebSocket error: {e}")
 
 
-# ── Entry point ──────────────────────────────────────────────
-
 def main():
-    """Start the dashboard server."""
     port = 5792
     print(f"  {NAME} Dashboard → http://localhost:{port}")
-    print(f"  (Ctrl+C to stop)")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 

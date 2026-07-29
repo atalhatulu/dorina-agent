@@ -4,64 +4,93 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
 <title>Dorina</title>
 <style>
   :root {
-    --bg: #212121;
-    --surface: #171717;
-    --border: #333;
-    --text: #e0e0e0;
-    --dim: #888;
-    --accent: #d4622a;
-    --input-bg: #2a2a2a;
+    --bg: #212121; --surface: #171717; --border: #333;
+    --text: #e0e0e0; --dim: #888; --accent: #d4622a; --accent-hover: #e5753a;
+    --input-bg: #2a2a2a; --tool-bg: #1e1e1e;
+    --sidebar-w: 280px;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     background: var(--bg); color: var(--text);
-    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    height: 100vh; display: flex; overflow: hidden;
   }
-  .topbar {
-    display: flex; align-items: center; padding: 12px 20px;
-    border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0;
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: var(--sidebar-w); background: var(--surface);
+    border-right: 1px solid var(--border); display: flex;
+    flex-direction: column; flex-shrink: 0;
   }
-  .topbar .brand { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-  .topbar .brand span { color: var(--accent); }
-  .topbar .status { margin-left: auto; font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
-  .topbar .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
-  .topbar .status .model { font-family: monospace; font-size: 11px; }
-  .chat-area { flex: 1; overflow-y: auto; padding: 0; scroll-behavior: smooth; }
+  .sidebar-header {
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sidebar-header .brand { font-size: 16px; font-weight: 600; }
+  .sidebar-header .brand span { color: var(--accent); }
+  .sidebar-header .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .sidebar-header .ver { font-size: 11px; color: var(--dim); margin-left: auto; }
+  .session-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .session-list .s-head {
+    padding: 4px 16px; font-size: 11px; color: var(--dim); text-transform: uppercase;
+    letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .session-list .s-head button {
+    background: none; border: 1px solid var(--border); color: var(--dim);
+    font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;
+  }
+  .session-list .s-head button:hover { border-color: var(--accent); color: var(--accent); }
+  .s-item {
+    padding: 8px 16px; cursor: pointer; border-left: 3px solid transparent;
+    font-size: 13px; transition: all 0.12s;
+  }
+  .s-item:hover { background: rgba(255,255,255,0.04); }
+  .s-item.active { border-left-color: var(--accent); background: rgba(212,98,42,0.1); }
+  .s-item .s-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s-item .s-meta { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .sidebar-footer {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--dim);
+  }
+  .sidebar-footer .model { font-family: monospace; }
+
+  /* ── Main ── */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .chat-area { flex: 1; overflow-y: auto; }
   .chat-area::-webkit-scrollbar { width: 6px; }
   .chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   .chat-area::-webkit-scrollbar-track { background: transparent; }
-  .messages { max-width: 720px; margin: 0 auto; padding: 20px 20px 80px; }
+  .messages { max-width: 740px; margin: 0 auto; padding: 20px 24px 100px; }
+
   .empty-state {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     height: 60vh; text-align: center; color: var(--dim);
   }
-  .empty-state h2 { font-size: 28px; color: var(--text); margin-bottom: 8px; }
-  .empty-state .logo { font-size: 48px; margin-bottom: 16px; }
-  .empty-state p { font-size: 14px; max-width: 400px; line-height: 1.6; }
+  .empty-state .logo { font-size: 48px; margin-bottom: 12px; }
+  .empty-state h2 { font-size: 24px; color: var(--text); margin-bottom: 6px; }
+  .empty-state p { font-size: 14px; max-width: 360px; line-height: 1.6; }
 
-  .msg-row { display: flex; gap: 12px; margin-bottom: 20px; align-items: flex-start; }
+  /* ── Message rows ── */
+  .msg-row { display: flex; gap: 12px; margin-bottom: 24px; align-items: flex-start; }
   .msg-row.user { flex-direction: row-reverse; }
   .msg-avatar {
-    width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0;
+    width: 30px; height: 30px; border-radius: 6px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
-    font-size: 14px; font-weight: 600; margin-top: 4px;
+    font-size: 13px; font-weight: 600; margin-top: 2px;
   }
-  .msg-avatar.av-user { background: var(--accent); color: #fff; }
-  .msg-avatar.av-bot { background: #333; color: var(--accent); }
-  .msg-body { max-width: 75%; }
-  .msg-header {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
-    font-size: 13px; color: var(--text);
+  .msg-avatar.au { background: var(--accent); color: #fff; }
+  .msg-avatar.ab { background: #333; color: var(--accent); }
+  .msg-body { max-width: 78%; min-width: 0; }
+  .msg-row.user .msg-body { display: flex; flex-direction: column; align-items: flex-end; }
+  .msg-hdr {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 13px;
   }
-  .msg-row.user .msg-header { flex-direction: row-reverse; }
-  .msg-header .name { font-weight: 500; }
-  .msg-header .time { font-size: 11px; color: var(--dim); }
+  .msg-row.user .msg-hdr { flex-direction: row-reverse; }
+  .msg-hdr .name { font-weight: 500; }
+  .msg-hdr .time { font-size: 11px; color: var(--dim); }
   .msg-bubble {
     padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6;
     white-space: pre-wrap; word-break: break-word;
@@ -69,13 +98,29 @@
   .msg-row.user .msg-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 2px; }
   .msg-row.assistant .msg-bubble { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
   .msg-bubble.typing { min-width: 60px; }
-  .msg-bubble.typing::after { content: '...'; animation: dots 1.5s steps(4) infinite; }
-  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  .msg-bubble.typing::after { content: '...'; animation: dts 1.5s steps(4) infinite; }
+  @keyframes dts { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
 
-  .input-area { flex-shrink: 0; padding: 0 20px 20px; background: var(--bg); position: sticky; bottom: 0; }
+  /* ── Tool steps ── */
+  .tool-steps { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .tool-step {
+    font-size: 11px; padding: 2px 8px; border-radius: 4px;
+    background: var(--tool-bg); border: 1px solid var(--border); color: var(--dim);
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .tool-step .ts-icon { color: var(--accent); }
+  .tool-step .ts-name { font-family: monospace; color: var(--text); }
+
+  /* ── Usage footer ── */
+  .msg-footer { margin-top: 4px; font-size: 11px; color: var(--dim); display: flex; gap: 12px; }
+  .msg-row.user .msg-footer { justify-content: flex-end; }
+
+  /* ── Input ── */
+  .input-area { flex-shrink: 0; padding: 0 24px 20px; background: var(--bg); }
   .input-wrap {
-    max-width: 720px; margin: 0 auto; background: var(--input-bg); border: 1px solid var(--border);
-    border-radius: 14px; padding: 4px; display: flex; align-items: flex-end; transition: border-color 0.15s;
+    max-width: 740px; margin: 0 auto; background: var(--input-bg);
+    border: 1px solid var(--border); border-radius: 14px; padding: 4px;
+    display: flex; align-items: flex-end; transition: border-color 0.15s;
   }
   .input-wrap:focus-within { border-color: var(--accent); }
   .input-wrap textarea {
@@ -93,33 +138,51 @@
   .input-wrap button:hover { background: var(--accent-hover); }
   .input-wrap button:disabled { opacity: 0.3; cursor: not-allowed; }
   .input-wrap button svg { width: 18px; height: 18px; }
+
+  @media (max-width: 768px) { .sidebar { display: none; } }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="brand">🧿 <span>Dorina</span></div>
-  <div class="status"><span class="dot"></span><span class="model" id="modelName">yükleniyor...</span></div>
-</div>
-
-<div class="chat-area" id="chatArea">
-  <div class="messages" id="messages">
-    <div class="empty-state" id="emptyState">
-      <div class="logo">🧿</div>
-      <h2>Dorina</h2>
-      <p>Merhaba! Bana bir soru sor.</p>
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    <span class="status-dot"></span>
+    <span class="brand">🧿 <span>Dorina</span></span>
+    <span class="ver" id="sVersion">-</span>
+  </div>
+  <div class="session-list">
+    <div class="s-head">
+      <span>Sohbetler</span>
+      <button onclick="newSession()">+ Yeni</button>
     </div>
+    <div id="sessionItems"></div>
+  </div>
+  <div class="sidebar-footer">
+    <div class="model" id="sModel">yükleniyor...</div>
   </div>
 </div>
 
-<div class="input-area">
-  <div class="input-wrap">
-    <textarea id="msgInput" rows="1" placeholder="Mesaj yaz..." autofocus></textarea>
-    <button id="sendBtn" onclick="sendMessage()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-      </svg>
-    </button>
+<!-- Main -->
+<div class="main">
+  <div class="chat-area" id="chatArea">
+    <div class="messages" id="messages">
+      <div class="empty-state" id="emptyState">
+        <div class="logo">🧿</div>
+        <h2>Dorina</h2>
+        <p>Bir soru sor veya bir şey yapmamı söyle.</p>
+      </div>
+    </div>
+  </div>
+  <div class="input-area">
+    <div class="input-wrap">
+      <textarea id="msgInput" rows="1" placeholder="Mesaj yaz..." autofocus></textarea>
+      <button id="sendBtn" onclick="sendMsg()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+        </svg>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -130,42 +193,73 @@ const emptyState = document.getElementById('emptyState');
 const msgInput = document.getElementById('msgInput');
 const sendBtn = document.getElementById('sendBtn');
 
-msgInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-});
-loadStatus(); connectWS(); msgInput.focus();
+msgInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } });
+loadStatus(); loadSessions(); connectWS(); msgInput.focus();
 
+// ── WS ──
 function connectWS() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    switch (msg.type) {
-      case 'session': sessionId = msg.session_id; break;
+  const p = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${p}://${location.host}/ws/chat`);
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    switch (m.type) {
+      case 'session':
+        sessionId = m.session_id;
+        break;
       case 'user':
-        // Kullanici mesaji geldi → altina typing indicator koy
-        if (!isWaiting) break; // ignore stale echos
-        typingRow = addBubble('assistant', '');
-        typingRow.querySelector('.msg-bubble').classList.add('typing');
-        scrollBottom();
+        if (isWaiting) {
+          typingRow = addBubble('assistant', '');
+          typingRow.querySelector('.msg-bubble').classList.add('typing');
+          scrollB();
+        }
         break;
       case 'assistant':
-        if (msg.done) {
-          if (typingRow) {
-            typingRow.querySelector('.msg-bubble').textContent = msg.content;
-            typingRow.querySelector('.msg-bubble').classList.remove('typing');
-            typingRow = null;
-          } else { addBubble('assistant', msg.content); }
-          isWaiting = false; updateBtn(); scrollBottom();
+        if (typingRow) {
+          const bbl = typingRow.querySelector('.msg-bubble');
+          bbl.textContent = m.content;
+          bbl.classList.remove('typing');
+
+          // Tool steps
+          if (m.tools && m.tools.length) {
+            const steps = document.createElement('div');
+            steps.className = 'tool-steps';
+            for (const t of m.tools) {
+              const el = document.createElement('span');
+              el.className = 'tool-step';
+              if (t.type === 'tool_call') {
+                el.innerHTML = `<span class="ts-icon">🔧</span> <span class="ts-name">${esc(t.name)}</span>`;
+              } else {
+                el.innerHTML = `<span class="ts-icon">📥</span> <span class="ts-name">${esc(t.name)}</span>`;
+              }
+              steps.appendChild(el);
+            }
+            typingRow.querySelector('.msg-body').appendChild(steps);
+          }
+
+          // Usage footer
+          if (m.usage) {
+            const u = m.usage;
+            const footer = document.createElement('div');
+            footer.className = 'msg-footer';
+            let parts = [];
+            if (u.total_tokens) parts.push(`${u.total_tokens} token`);
+            if (u.cost > 0) parts.push(`$${u.cost.toFixed(5)}`);
+            parts.push(`toplam ${u.total_in + u.total_out} token`);
+            footer.textContent = parts.join(' · ');
+            typingRow.querySelector('.msg-body').appendChild(footer);
+          }
+
+          typingRow = null;
         }
+        isWaiting = false; updateBtn(); scrollB();
         break;
       case 'error':
         if (typingRow) {
-          typingRow.querySelector('.msg-bubble').textContent = '❌ ' + msg.content;
+          typingRow.querySelector('.msg-bubble').textContent = '❌ ' + m.content;
           typingRow.querySelector('.msg-bubble').classList.remove('typing');
           typingRow = null;
         }
-        isWaiting = false; updateBtn(); scrollBottom();
+        isWaiting = false; updateBtn(); scrollB();
         break;
     }
   };
@@ -173,28 +267,29 @@ function connectWS() {
   ws.onerror = () => ws.close();
 }
 
-function sendMessage() {
-  const text = msgInput.value.trim();
-  if (!text || isWaiting) return;
+// ── Send ──
+function sendMsg() {
+  const t = msgInput.value.trim();
+  if (!t || isWaiting) return;
   if (emptyState) emptyState.remove();
-  ws.send(JSON.stringify({ query: text }));
+  ws.send(JSON.stringify({ query: t }));
   msgInput.value = ''; msgInput.style.height = 'auto';
   isWaiting = true; updateBtn();
-  // Kullanici mesajini hemen ekle (beklemeden)
-  addBubble('user', text);
+  addBubble('user', t);
 }
 
+// ── Bubble ──
 function addBubble(role, content) {
   const row = document.createElement('div');
   row.className = `msg-row ${role}`;
   const av = document.createElement('div');
-  av.className = `msg-avatar av-${role === 'user' ? 'user' : 'bot'}`;
+  av.className = `msg-avatar ${role === 'user' ? 'au' : 'ab'}`;
   av.textContent = role === 'user' ? 'S' : 'D';
   row.appendChild(av);
   const body = document.createElement('div');
   body.className = 'msg-body';
   const hdr = document.createElement('div');
-  hdr.className = 'msg-header';
+  hdr.className = 'msg-hdr';
   const nm = document.createElement('span'); nm.className = 'name'; nm.textContent = role === 'user' ? 'Siz' : 'Dorina';
   hdr.appendChild(nm);
   const tm = document.createElement('span'); tm.className = 'time';
@@ -210,13 +305,79 @@ function addBubble(role, content) {
   return row;
 }
 
-function scrollBottom() { document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight; }
+// ── Session nav ──
+async function loadSessions() {
+  try {
+    const r = await fetch('/api/sessions?limit=30');
+    const d = await r.json();
+    const el = document.getElementById('sessionItems');
+    el.innerHTML = d.sessions.map(s =>
+      `<div class="s-item${s.id === sessionId ? ' active' : ''}" onclick="loadSession('${s.id}')">
+        <div class="s-title">${esc(s.title || 'İsimsiz')}</div>
+        <div class="s-meta">${s.message_count || 0} mesaj · ${ago(s.updated_at || s.created_at)}</div>
+      </div>`
+    ).join('');
+  } catch(e) { setTimeout(loadSessions, 5000); }
+  setTimeout(loadSessions, 10000);
+}
+
+async function loadSession(id) {
+  if (isWaiting) return;
+  const r = await fetch(`/api/sessions/${id}`);
+  const d = await r.json();
+  sessionId = id;
+  messages.querySelectorAll('.msg-row').forEach(el => el.remove());
+  emptyState && emptyState.remove();
+  if (d.messages) {
+    for (const m of d.messages) {
+      const role = m.role === 'user' ? 'user' : 'assistant';
+      const c = m.content || '';
+      if (c) addBubble(role, c);
+    }
+  }
+  loadSessions();
+}
+
+async function newSession() {
+  if (isWaiting) return;
+  const r = await fetch('/api/sessions', { method: 'POST' });
+  const d = await r.json();
+  sessionId = d.session_id;
+  messages.querySelectorAll('.msg-row').forEach(el => el.remove());
+  emptyState && emptyState.remove();
+  const es = document.createElement('div');
+  es.className = 'empty-state'; es.id = 'emptyState';
+  es.innerHTML = '<div class="logo">🧿</div><h2>Dorina</h2><p>Bir soru sor.</p>';
+  messages.prepend(es);
+  ws && ws.close(); connectWS();
+  loadSessions();
+}
+
+// ── Util ──
+function scrollB() { document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight; }
 function updateBtn() { sendBtn.disabled = isWaiting; }
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function ago(ts) {
+  if (!ts) return '';
+  const s = (Date.now() - new Date(ts).getTime()) / 1000;
+  if (s < 60) return 'az önce';
+  if (s < 3600) return `${Math.floor(s/60)}dk`;
+  if (s < 86400) return `${Math.floor(s/3600)}s`;
+  return `${Math.floor(s/86400)}g`;
+}
 
 async function loadStatus() {
   try {
-    const r = await fetch('/api/status'); const d = await r.json();
-    document.getElementById('modelName').textContent = d.model || '-';
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    document.getElementById('sVersion').textContent = 'v' + d.version;
+    document.getElementById('sModel').textContent = d.model || '-';
   } catch(e) { setTimeout(loadStatus, 3000); }
 }
 </script>
