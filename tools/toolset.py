@@ -72,10 +72,6 @@ def get_active_schemas(user_input: str = "") -> list[dict]:
     tools_enable is always included (belongs to the system toolset but stays open as a meta-tool)."""
     from tools.registry import registry
 
-    # Is the task read-only? (inspect, review, audit, search, etc.)
-    _readonly_keywords = {"incele", "analiz", "kontrol", "bak", "goster", "listele", "ara", "oku", "audit", "review", "inspect", "ne yap", "nasil", "açıkla", "anlat"}
-    _is_readonly = any(k in user_input.lower() for k in _readonly_keywords) if user_input else False
-
     active = get_active_toolsets()
     schemas = []
     for tool in registry.list():
@@ -91,12 +87,6 @@ def get_active_schemas(user_input: str = "") -> list[dict]:
             })
             continue
         if tool.toolset not in active:
-            continue
-        # Read-only task: only reading tools
-        if _is_readonly and tool.name not in {
-            "read_file", "search_files", "web_search", "web_fetch",
-            "terminal",
-        }:
             continue
         schemas.append({
             "type": "function",

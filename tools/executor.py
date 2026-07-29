@@ -258,13 +258,27 @@ class ToolExecutor:
                 import asyncio as _aio
                 import inspect as _ins
                 if _ins.iscoroutinefunction(tool.handler):
-                    result = _aio.run(tool.handler(**resolved_args))
+                    try:
+                        loop = _aio.get_running_loop()
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                            fut = pool.submit(_aio.run, tool.handler(**resolved_args))
+                            result = fut.result(timeout=timeout)
+                    except RuntimeError:
+                        result = _aio.run(tool.handler(**resolved_args))
                 else:
                     result = tool.handler(**resolved_args)
                     if type(result).__name__ == "coroutine":
                         try:
-                            result = _aio.run(result)
-                        except (RuntimeError, TypeError):
+                            try:
+                                loop = _aio.get_running_loop()
+                                import concurrent.futures
+                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                                    fut = pool.submit(_aio.run, result)
+                                    result = fut.result(timeout=timeout)
+                            except RuntimeError:
+                                result = _aio.run(result)
+                        except TypeError:
                             return json.dumps({"error": f"Async tool '{tool_name}' returned coroutine"})
 
             if not isinstance(result, str):

@@ -220,7 +220,7 @@ class SessionManager:
         if session:
             session.messages = _encrypt(json.dumps(messages, ensure_ascii=False))
             session.summary = summary
-            session.updated_at = datetime.now(timezone.utc)
+            session.updated_at = datetime.utcnow()
             session.token_count = count_messages_tokens(messages)
             session.message_count = len([m for m in messages if m.get("role") == "user"])
             if tool_calls_data is not None:
@@ -260,8 +260,15 @@ class SessionManager:
         # Filter out sessions with no messages
         result = []
         for s in sessions:
-            if s.message_count == 0 and (not s.messages or s.messages.strip() in ("", "[]", "{}")):
-                continue
+            if s.message_count == 0:
+                if not s.messages:
+                    continue
+                try:
+                    dec = _decrypt(s.messages).strip()
+                    if dec in ("", "[]", "{}"):
+                        continue
+                except Exception:
+                    pass
             result.append({
                 "id": s.id,
                 "title": s.title,
@@ -509,14 +516,42 @@ class SessionManager:
             log.warning(f"prune_session({session_id}): decrypt failed")
             return -1
 
-        if len(messages) <= keep_last:
+        original_len = len(messages)
+        if original_len <= keep_last:
             return 0
 
-        removed = len(messages) - keep_last
-        messages = messages[-keep_last:]
+        groups = []
+        i = 0
+        while i < original_len:
+            msg = messages[i]
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                tc_ids = {tc.get("id", "") for tc in msg.get("tool_calls", [])}
+                group = [msg]
+                i += 1
+                while i < original_len and messages[i].get("role") == "tool":
+                    if messages[i].get("tool_call_id", "") in tc_ids:
+                        group.append(messages[i])
+                        i += 1
+                    else:
+                        break
+                groups.append(group)
+            else:
+                groups.append([msg])
+                i += 1
+
+        target_remove = original_len - keep_last
+        removed = 0
+        keep = []
+        for group in groups:
+            if removed < target_remove:
+                removed += len(group)
+            else:
+                keep.extend(group)
+
+        messages = keep
 
         session.messages = _encrypt(json.dumps(messages, ensure_ascii=False))
-        session.updated_at = datetime.now(timezone.utc)
+        session.updated_at = datetime.utcnow()
         self.db.commit()
         log.info(f"Pruned {removed} message(s) from session {session_id}")
         return removed
