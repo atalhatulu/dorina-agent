@@ -66,7 +66,7 @@ def _resolve_encoding(model: str = "") -> str:
             if max_input >= 128000:
                 return "o200k_base"
             return "cl100k_base"
-    except (ImportError, AttributeError, KeyError):
+    except (ImportError, AttributeError, KeyError, ValueError, Exception):
         pass
 
     # Default fallback

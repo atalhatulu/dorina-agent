@@ -4,42 +4,73 @@ Simple SQLite-based logger. Falls back to log.error if DB unavailable.
 """
 
 from __future__ import annotations
+import atexit
 from pathlib import Path
 from core.constants import DORINA_HOME
 from datetime import datetime, timezone
 import traceback
 
-try:
-    import sqlite3
-    _DB_PATH = DORINA_HOME / "data" / "error_log.db"
-    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
-    _conn.execute("""
-        CREATE TABLE IF NOT EXISTS error_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            source TEXT,
-            error_type TEXT,
-            error_msg TEXT,
-            traceback TEXT,
-            context TEXT
-        )
-    """)
-    _conn.execute("""
-        CREATE TABLE IF NOT EXISTS error_patterns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pattern_key TEXT UNIQUE,
-            count INTEGER DEFAULT 1,
-            first_seen TEXT,
-            last_seen TEXT,
-            last_error_msg TEXT,
-            last_source TEXT
-        )
-    """)
-    _conn.commit()
-    _db_ok = True
-except (sqlite3.Error, OSError):
-    _db_ok = False
+_DB_PATH = DORINA_HOME / "data" / "error_log.db"
+_conn = None
+_db_ok = False
+
+
+def _get_conn():
+    """Lazy-init SQLite connection. Returns connection or None on failure."""
+    global _conn, _db_ok
+    if _conn is not None:
+        return _conn
+    try:
+        import sqlite3
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
+        _conn.execute("""
+            CREATE TABLE IF NOT EXISTS error_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                source TEXT,
+                error_type TEXT,
+                error_msg TEXT,
+                traceback TEXT,
+                context TEXT
+            )
+        """)
+        _conn.execute("""
+            CREATE TABLE IF NOT EXISTS error_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern_key TEXT UNIQUE,
+                count INTEGER DEFAULT 1,
+                first_seen TEXT,
+                last_seen TEXT,
+                last_error_msg TEXT,
+                last_source TEXT
+            )
+        """)
+        _conn.commit()
+        _db_ok = True
+    except Exception:
+        _conn = None
+        _db_ok = False
+    return _conn
+
+
+# Warm up the connection at module level so _db_ok is set
+_get_conn()
+
+
+def close_db():
+    """Close the SQLite connection. Safe to call multiple times."""
+    global _conn, _db_ok
+    if _conn is not None:
+        try:
+            _conn.close()
+        except Exception:
+            pass
+        _conn = None
+        _db_ok = False
+
+
+atexit.register(close_db)
 
 from core.logger import log
 
@@ -50,13 +81,14 @@ def _log(source: str, error_type: str, error_msg: str, context: str = ""):
     if not _db_ok:
         return
     try:
-        _conn.execute(
+        conn = _get_conn()
+        conn.execute(
             "INSERT INTO error_log (timestamp, source, error_type, error_msg, traceback, context) VALUES (?, ?, ?, ?, ?, ?)",
             (datetime.now(timezone.utc).isoformat(), source, error_type, str(error_msg)[:500],
              traceback.format_exc()[:2000], str(context)[:500])
         )
-        _conn.commit()
-    except sqlite3.Error:
+        conn.commit()
+    except Exception:
         pass
 
 
@@ -90,23 +122,24 @@ def log_error_pattern(source: str, error_type: str, error_msg: str = "") -> str:
 
     now = datetime.now(timezone.utc).isoformat()
     try:
-        cursor = _conn.execute(
+        conn = _get_conn()
+        cursor = conn.execute(
             "SELECT id, count FROM error_patterns WHERE pattern_key = ?",
             (pattern_key,),
         )
         row = cursor.fetchone()
         if row:
-            _conn.execute(
+            conn.execute(
                 "UPDATE error_patterns SET count = count + 1, last_seen = ?, last_error_msg = ?, last_source = ? WHERE pattern_key = ?",
                 (now, str(error_msg)[:300], str(source)[:100], pattern_key),
             )
         else:
-            _conn.execute(
+            conn.execute(
                 "INSERT INTO error_patterns (pattern_key, count, first_seen, last_seen, last_error_msg, last_source) VALUES (?, 1, ?, ?, ?, ?)",
                 (pattern_key, now, now, str(error_msg)[:300], str(source)[:100]),
             )
-        _conn.commit()
-    except sqlite3.Error:
+        conn.commit()
+    except Exception:
         pass
 
     return pattern_key
@@ -122,7 +155,8 @@ def get_frequent_patterns(min_count: int = 3) -> list[dict]:
         return []
 
     try:
-        cursor = _conn.execute(
+        conn = _get_conn()
+        cursor = conn.execute(
             "SELECT pattern_key, count, first_seen, last_seen, last_error_msg, last_source "
             "FROM error_patterns WHERE count >= ? ORDER BY count DESC LIMIT 20",
             (min_count,),
@@ -138,7 +172,7 @@ def get_frequent_patterns(min_count: int = 3) -> list[dict]:
             }
             for row in cursor.fetchall()
         ]
-    except sqlite3.Error:
+    except Exception:
         return []
 
 
@@ -147,8 +181,9 @@ def clear_error_patterns() -> int:
     if not _db_ok:
         return 0
     try:
-        cursor = _conn.execute("DELETE FROM error_patterns")
-        _conn.commit()
+        conn = _get_conn()
+        cursor = conn.execute("DELETE FROM error_patterns")
+        conn.commit()
         return cursor.rowcount
-    except sqlite3.Error:
+    except Exception:
         return 0
