@@ -118,6 +118,8 @@ class AgentLoopV2:
         self._loop_iterations = 0
         self._on_step = None  # web UI callback for streaming steps
         self._turn_term_calls = 0  # terminal calls in current turn
+        self._turn_tool_calls = 0  # total tool calls in current turn
+        self._consolidation_sent = False  # consolidation warning already sent this turn
 
     # ────────────────────────────────────────────────────────────────
     # PUBLIC API
@@ -149,6 +151,8 @@ class AgentLoopV2:
         self.turn += 1
         self._loop_iterations = 0
         self._turn_term_calls = 0
+        self._turn_tool_calls = 0
+        self._consolidation_sent = False
         _status.start_turn()
         self._streamed_this_turn = False
 
@@ -449,26 +453,44 @@ class AgentLoopV2:
             self._loop_iterations -= 1  # don't consume iteration budget
             return
 
-        # Turn-level guard: 3+ terminal calls in same turn → consolidate
+        # Turn-level guards — consolidate redundant calls, hard limit tool calls
+        # Count tool calls first (without incrementing turn counters yet)
+        _new_term = 0
+        _new_total = 0
         for tc in tool_calls:
             fn = tc.get("function", {})
             name = fn.get("name", "")
             if name == "terminal":
-                self._turn_term_calls += 1
+                _new_term += 1
+            _new_total += 1
 
-        # After 4th terminal call in same turn, suggest consolidation
-        if self._turn_term_calls > 3 and all(
-            tc.get("function", {}).get("name") == "terminal"
-            for tc in tool_calls
-        ):
+        _total_term = self._turn_term_calls + _new_term
+        _total_all = self._turn_tool_calls + _new_total
+
+        # Hard limit: 5 total tool calls per turn
+        if _total_all >= 5:
+            _display.print_warning(f"Turn would have {_total_all} tool calls → forcing final response")
             self.context.add_user_message(
-                f"⚠️ Bu turda {self._turn_term_calls}. terminal komutun. "
-                f"Kalan bilgileri tek bir komutla topla. "
-                f"`inxi -Fz` tüm sistem bilgisini verir, ek komut gerekmez."
+                "⚠️ Araç limitine ulaşıldı (5). Artık yeni araç çağırma."
+                " Sahip olduğun bilgilerle kullanıcıya cevap ver."
             )
-            _display.print_warning(f"Turn has {self._turn_term_calls} terminal calls → consolidate")
             self._loop_iterations -= 1
             return
+
+        # 3+ terminal calls → consolidate (only once per turn)
+        if _total_term >= 3 and not self._consolidation_sent:
+            self._consolidation_sent = True
+            self.context.add_user_message(
+                "⚠️ Bu iş için çok fazla terminal komutu kullanıyorsun. "
+                "Kalan tüm bilgiyi TEK bir kapsamlı komutla al ve bitir."
+            )
+            _display.print_warning(f"Turn has {_total_term} terminal calls → consolidate")
+            self._loop_iterations -= 1
+            return
+
+        # No guard triggered — update counters and proceed
+        self._turn_term_calls = _total_term
+        self._turn_tool_calls = _total_all
 
         # Repetition guard: ayni dosyayi ayni turda 2. kez okuma
         seen_in_turn: set = set()
