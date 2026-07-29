@@ -13,10 +13,7 @@
     --dim: #888;
     --accent: #d4622a;
     --accent-hover: #e5753a;
-    --user-msg: #2d2d2d;
-    --bot-msg: #1a1a1a;
     --input-bg: #2a2a2a;
-    --shadow: rgba(0,0,0,0.3);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -28,7 +25,7 @@
 
   /* ── Top bar ── */
   .topbar {
-    display: flex; align-items: center; padding: 10px 20px;
+    display: flex; align-items: center; padding: 12px 20px;
     border-bottom: 1px solid var(--border); background: var(--surface);
     flex-shrink: 0;
   }
@@ -38,7 +35,7 @@
   .topbar .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
   .topbar .status .model { font-family: monospace; font-size: 11px; }
 
-  /* ── Chat area ── */
+  /* ── Chat container ── */
   .chat-area {
     flex: 1; overflow-y: auto; padding: 0;
     scroll-behavior: smooth;
@@ -49,6 +46,7 @@
 
   .messages { max-width: 720px; margin: 0 auto; padding: 20px 20px 0; }
 
+  /* ── Empty state ── */
   .empty-state {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     height: 60vh; text-align: center; color: var(--dim);
@@ -57,36 +55,54 @@
   .empty-state .logo { font-size: 48px; margin-bottom: 16px; }
   .empty-state p { font-size: 14px; max-width: 400px; line-height: 1.6; }
 
-  .msg-group { margin-bottom: 6px; }
-  .msg { padding: 12px 16px; line-height: 1.6; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
-  .msg.user { color: var(--text); }
-  .msg.assistant { color: var(--text); }
-  .msg.system { color: var(--dim); font-style: italic; font-size: 13px; text-align: center; padding: 8px; }
-  .msg.typing { color: var(--dim); }
-  .msg.typing .dots::after { content: '...'; animation: dots 1.5s steps(4, end) infinite; }
-  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  /* ── Message bubbles ── */
+  .msg-row {
+    display: flex; gap: 12px; margin-bottom: 20px; align-items: flex-start;
+  }
+  .msg-row.user { flex-direction: row-reverse; }
+
+  .msg-avatar {
+    width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600; margin-top: 4px;
+  }
+  .msg-avatar.user-av { background: var(--accent); color: #fff; }
+  .msg-avatar.bot-av { background: #333; color: var(--accent); }
+
+  .msg-body { max-width: 85%; }
 
   .msg-header {
-    display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
-    font-size: 12px; color: var(--dim);
+    display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+    font-size: 13px; color: var(--text);
   }
-  .msg-header .avatar {
-    width: 24px; height: 24px; border-radius: 4px;
-    display: flex; align-items: center; justify-content: center; font-size: 13px;
-  }
-  .msg-header .avatar.user-av { background: var(--accent); color: #fff; }
-  .msg-header .avatar.bot-av { background: #333; color: var(--accent); }
   .msg-header .name { font-weight: 500; }
-  .msg-header .time { margin-left: auto; font-size: 11px; }
+  .msg-header .time { font-size: 11px; color: var(--dim); }
+  .msg-row.user .msg-header { flex-direction: row-reverse; }
 
-  /* ── Input area ── */
-  .input-area {
-    flex-shrink: 0; padding: 0 20px 20px; background: var(--bg);
+  .msg-content {
+    padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
   }
+  .msg-row.user .msg-content {
+    background: var(--accent); color: #fff;
+    border-bottom-right-radius: 2px;
+  }
+  .msg-row.assistant .msg-content {
+    background: var(--surface); border: 1px solid var(--border);
+    border-bottom-left-radius: 2px;
+  }
+
+  .msg-content.typing::after {
+    content: '...'; animation: dots 1.5s steps(4) infinite;
+  }
+  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+
+  /* ── Input ── */
+  .input-area { flex-shrink: 0; padding: 0 20px 20px; background: var(--bg); }
   .input-wrap {
     max-width: 720px; margin: 0 auto;
     background: var(--input-bg); border: 1px solid var(--border);
-    border-radius: 12px; padding: 4px; display: flex; align-items: flex-end;
+    border-radius: 14px; padding: 4px; display: flex; align-items: flex-end;
     transition: border-color 0.15s;
   }
   .input-wrap:focus-within { border-color: var(--accent); }
@@ -98,27 +114,22 @@
   .input-wrap textarea::placeholder { color: var(--dim); }
   .input-wrap button {
     background: var(--accent); color: #fff; border: none;
-    width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
+    width: 34px; height: 34px; border-radius: 10px; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     margin: 6px; flex-shrink: 0; transition: background 0.15s;
   }
   .input-wrap button:hover { background: var(--accent-hover); }
   .input-wrap button:disabled { opacity: 0.3; cursor: not-allowed; }
   .input-wrap button svg { width: 18px; height: 18px; }
-
-  .input-hint {
-    max-width: 720px; margin: 6px auto 0;
-    font-size: 11px; color: var(--dim); text-align: center;
-  }
+  .input-hint { max-width: 720px; margin: 6px auto 0; font-size: 11px; color: var(--dim); text-align: center; }
 
   /* ── New chat button ── */
   .new-chat-btn {
     position: fixed; bottom: 100px; right: 24px;
     background: var(--accent); color: #fff; border: none;
-    width: 44px; height: 44px; border-radius: 50%;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 12px var(--shadow); transition: background 0.15s;
-    z-index: 10;
+    width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3); transition: background 0.15s; z-index: 10;
   }
   .new-chat-btn:hover { background: var(--accent-hover); }
   .new-chat-btn svg { width: 20px; height: 20px; }
@@ -126,7 +137,6 @@
 </head>
 <body>
 
-<!-- Top bar -->
 <div class="topbar">
   <div class="brand">🧿 <span>Dorina</span></div>
   <div class="status">
@@ -135,7 +145,6 @@
   </div>
 </div>
 
-<!-- Chat area -->
 <div class="chat-area" id="chatArea">
   <div class="messages" id="messages">
     <div class="empty-state" id="emptyState">
@@ -146,14 +155,12 @@
   </div>
 </div>
 
-<!-- New chat button -->
 <button class="new-chat-btn" id="newChatBtn" title="Yeni sohbet" onclick="newChat()">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
     <path d="M12 5v14M5 12h14"/>
   </svg>
 </button>
 
-<!-- Input -->
 <div class="input-area">
   <div class="input-wrap">
     <textarea id="msgInput" rows="1" placeholder="Mesaj yaz..." autofocus></textarea>
@@ -167,14 +174,8 @@
 </div>
 
 <script>
-// ── State ──
-let ws = null;
-let sessionId = '';
-let isWaiting = false;
-let currentStreamMsg = null; // div element for streaming
-let messageCount = 0;
+let ws = null, sessionId = '', isWaiting = false, typingRow = null;
 
-// ── DOM ──
 const chatArea = document.getElementById('chatArea');
 const messages = document.getElementById('messages');
 const emptyState = document.getElementById('emptyState');
@@ -183,20 +184,14 @@ const sendBtn = document.getElementById('sendBtn');
 const hint = document.getElementById('hint');
 const modelName = document.getElementById('modelName');
 
-// ── Auto-resize textarea ──
 msgInput.addEventListener('input', () => {
   msgInput.style.height = 'auto';
   msgInput.style.height = Math.min(msgInput.scrollHeight, 200) + 'px';
 });
-
 msgInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
-// ── Init ──
 loadStatus();
 connectWS();
 msgInput.focus();
@@ -205,152 +200,111 @@ msgInput.focus();
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
-
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     switch (msg.type) {
-      case 'session':
-        sessionId = msg.session_id;
-        break;
-      case 'user':
-        addMessage('user', msg.content);
-        messageCount++;
-        break;
+      case 'session': sessionId = msg.session_id; break;
+      case 'user': addMessage('user', msg.content); break;
       case 'assistant':
         if (msg.done) {
-          if (currentStreamMsg) {
-            currentStreamMsg.textContent = msg.content;
-            currentStreamMsg.classList.remove('typing');
-            currentStreamMsg = null;
+          if (typingRow) {
+            const content = typingRow.querySelector('.msg-content');
+            content.textContent = msg.content;
+            content.classList.remove('typing');
+            typingRow = null;
           } else {
             addMessage('assistant', msg.content);
           }
-          isWaiting = false;
-          updateSendBtn();
-          scrollBottom();
-        } else {
-          // Streaming in progress - handled by middleware or full response
+          isWaiting = false; updateSendBtn(); scrollBottom();
         }
         break;
       case 'error':
-        if (currentStreamMsg) {
-          currentStreamMsg.textContent = '❌ ' + msg.content;
-          currentStreamMsg.classList.remove('typing');
-          currentStreamMsg = null;
-        } else {
-          addMessage('assistant', '❌ ' + msg.content);
+        if (typingRow) {
+          const content = typingRow.querySelector('.msg-content');
+          content.textContent = '❌ ' + msg.content;
+          content.classList.remove('typing');
+          typingRow = null;
         }
-        isWaiting = false;
-        updateSendBtn();
-        scrollBottom();
+        isWaiting = false; updateSendBtn(); scrollBottom();
         break;
     }
   };
-
-  ws.onclose = () => {
-    if (!isWaiting) setTimeout(connectWS, 3000);
-  };
-  ws.onerror = () => { ws.close(); };
+  ws.onclose = () => { if (!isWaiting) setTimeout(connectWS, 3000); };
+  ws.onerror = () => ws.close();
 }
 
 // ── Send ──
 function sendMessage() {
   const text = msgInput.value.trim();
   if (!text || isWaiting) return;
-
-  // Clear empty state
   if (emptyState) emptyState.remove();
 
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ query: text }));
-    msgInput.value = '';
-    msgInput.style.height = 'auto';
-    isWaiting = true;
-    updateSendBtn();
+    msgInput.value = ''; msgInput.style.height = 'auto';
+    isWaiting = true; updateSendBtn();
 
-    // Show typing indicator
-    addMessage('assistant', '');
-    currentStreamMsg = messages.lastElementChild?.querySelector('.msg');
-    if (currentStreamMsg) {
-      currentStreamMsg.classList.add('typing');
-      currentStreamMsg.innerHTML = '<span class="dots"></span>';
-    }
+    typingRow = addMessage('assistant', '');
+    const content = typingRow.querySelector('.msg-content');
+    content.classList.add('typing');
     scrollBottom();
-  } else {
-    addMessage('system', '⚠️ Sunucuya bağlanılamadı. Sayfayı yenileyin.');
   }
 }
 
 // ── New chat ──
 function newChat() {
   if (isWaiting) return;
-  messages.querySelectorAll('.msg-group').forEach(el => el.remove());
+  messages.querySelectorAll('.msg-row').forEach(el => el.remove());
   if (!emptyState) {
     const es = document.createElement('div');
-    es.className = 'empty-state';
-    es.id = 'emptyState';
+    es.className = 'empty-state'; es.id = 'emptyState';
     es.innerHTML = '<div class="logo">🧿</div><h2>Dorina</h2><p>Merhaba! Bana bir soru sorabilir, bir şeyler yazmamı isteyebilir veya bir dosyayı incelememi söyleyebilirsin.</p>';
     messages.prepend(es);
   }
-  messageCount = 0;
-  sessionId = '';
-  // Reconnect to get new session
-  ws && ws.close();
-  connectWS();
+  sessionId = ''; ws && ws.close(); connectWS();
 }
 
-// ── UI ──
+// ── Message render ──
 function addMessage(role, content) {
-  const group = document.createElement('div');
-  group.className = 'msg-group';
+  const row = document.createElement('div');
+  row.className = `msg-row ${role}`;
+
+  // Avatar
+  const avatar = document.createElement('div');
+  avatar.className = `msg-avatar ${role === 'user' ? 'user-av' : 'bot-av'}`;
+  avatar.textContent = role === 'user' ? 'S' : 'D';
+  row.appendChild(avatar);
+
+  // Body
+  const body = document.createElement('div');
+  body.className = 'msg-body';
 
   const header = document.createElement('div');
   header.className = 'msg-header';
-
-  const avatar = document.createElement('div');
-  avatar.className = `avatar ${role === 'user' ? 'user-av' : 'bot-av'}`;
-  avatar.textContent = role === 'user' ? 'S' : 'D';
-  header.appendChild(avatar);
-
   const name = document.createElement('span');
   name.className = 'name';
   name.textContent = role === 'user' ? 'Siz' : 'Dorina';
   header.appendChild(name);
-
   const time = document.createElement('span');
   time.className = 'time';
   time.textContent = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
   header.appendChild(time);
+  body.appendChild(header);
 
-  group.appendChild(header);
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-content';
+  bubble.textContent = content;
+  body.appendChild(bubble);
 
-  const msg = document.createElement('div');
-  msg.className = `msg ${role}`;
-  if (content) msg.textContent = content;
-  group.appendChild(msg);
-
-  // Check if last group is same role and merge
-  const lastGroup = messages.lastElementChild;
-  if (lastGroup && lastGroup.querySelector('.msg')?.className?.includes(role) && role !== 'system') {
-    // Just add content to last message
-    const lastMsg = lastGroup.querySelector('.msg');
-    if (content) lastMsg.textContent = lastMsg.textContent + '\n' + content;
-    return;
-  }
-
-  messages.appendChild(group);
-  return group;
+  row.appendChild(body);
+  messages.appendChild(row);
+  scrollBottom();
+  return row;
 }
 
-function scrollBottom() {
-  chatArea.scrollTop = chatArea.scrollHeight;
-}
+function scrollBottom() { chatArea.scrollTop = chatArea.scrollHeight; }
+function updateSendBtn() { sendBtn.disabled = isWaiting; }
 
-function updateSendBtn() {
-  sendBtn.disabled = isWaiting;
-}
-
-// ── Status ──
 async function loadStatus() {
   try {
     const res = await fetch('/api/status');
