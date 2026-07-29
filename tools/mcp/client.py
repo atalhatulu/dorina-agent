@@ -217,10 +217,12 @@ class MCPClient:
 
     async def ping(self) -> bool:
         """Ping the server."""
+        if not self._connected:
+            return False
         try:
             await self._request("ping", {})
             return True
-        except (OSError, asyncio.TimeoutError):
+        except (OSError, asyncio.TimeoutError, AttributeError):
             return False
 
     async def _request(self, method: str, params: dict) -> str:
