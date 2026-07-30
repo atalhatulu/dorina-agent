@@ -228,7 +228,7 @@ class Soul:
         except ImportError:
             pass
         lines.append("- Talk, call tools. Don't say 'let me check' — call read_file.")
-        lines.append("- Don't describe plans — implement directly. If a tool errors, search the web for solutions and try again.")
+        lines.append("- If a tool errors, search the web for solutions and try again.")
         lines.append("- Don't say 'I can't' — find a solution and apply it. Never give up.")
         lines.append("- Only ask for approval on: file deletion, system changes, irreversible operations.")
         lines.append('- When task is done, save pattern via save_memory(target=skill).')

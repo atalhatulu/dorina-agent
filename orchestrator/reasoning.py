@@ -44,7 +44,7 @@ class ReasoningEngine:
     MODEL_FALLBACK_CHAIN: list[tuple[str, str]] = [
         # (provider, litellm_model_name) — tried in order when primary fails
         ("deepseek", "deepseek/deepseek-chat"),
-        ("deepseek", "deepseek/deepseek-reasoner"),
+        # reasoner removed: reasoning_content leaks into content without proper extraction
     ]
 
     def _get_fallback_chain(self, exclude_provider: str = "", exclude_model: str = "") -> list[tuple[str, str]]:
@@ -403,6 +403,7 @@ class ReasoningEngine:
             _est_out = max(_est_out, 1)
         result = {
             "content": content,
+            "reasoning_content": "",  # stream mode: litellm doesn't provide delta; populated by direct_deepseek
             "tool_calls": [],
             "finish_reason": finish_reason,
             "usage": {"prompt_tokens": _est_in, "completion_tokens": _est_out},
@@ -438,6 +439,7 @@ class ReasoningEngine:
 
         result = {
             "content": choice.message.content or "",
+            "reasoning_content": getattr(choice.message, "reasoning_content", "") or "",
             "tool_calls": [],
             "finish_reason": getattr(choice, "finish_reason", "stop"),
             "usage": {

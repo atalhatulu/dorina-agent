@@ -1,5 +1,4 @@
-"""
-Active toolset manager — replaces the old ChromaDB-based selector.
+"""Active toolset manager — replaces the old ChromaDB-based selector.
 
 Instead of sending every tool to the LLM each turn, only active toolset
 tools are sent. The agent opens new toolsets via tools_enable() as needed.
@@ -65,17 +64,68 @@ def get_active_toolsets() -> frozenset[str]:
     return frozenset(ACTIVE_TOOLSETS)
 
 
-def get_active_schemas(user_input: str = "") -> list[dict]:
-    """Return schemas for tools in active toolsets.
-    If the task is read-only, only reading tools are sent (token savings).
+def _classify_query(user_input: str) -> str:
+    """Classify query into: 'read', 'chat', 'code', 'general'."""
+    if not user_input or not user_input.strip():
+        return "general"
+    text = user_input.lower().strip()
 
-    tools_enable is always included (belongs to the system toolset but stays open as a meta-tool)."""
+    # Read-only info queries — only need WEB
+    read_patterns = [
+        "hava durumu", "weather", "haber", "news", "nedir", "ne demek",
+        "nasil", "how to", "what is", "who is", "where", "when",
+        "saat", "time", "tarih", "date", "fiyat", "price", "kac",
+        "bul", "ara", "search", "find", "get",
+        "indir", "download", "oku", "read",
+    ]
+    if any(p in text for p in read_patterns) and len(text.split()) <= 6:
+        return "read"
+
+    # Chat/greeting — minimal tools
+    chat_patterns = ["merhaba", "selam", "hey", "nasilsin", "naber",
+                     "tesekkur", "thanks", "gorusuruz", "bye", "hello"]
+    if text in chat_patterns or (
+        len(text.split()) <= 3 and not any(c in text for c in "./\\")
+    ):
+        return "chat"
+    # Also: if starts with a greeting word and has no tool-like patterns
+    first_word = text.split()[0] if text.split() else ""
+    if first_word in {"merhaba", "selam", "hey", "hello", "hi", "selamun aleykum"}:
+        return "chat"
+
+    # Code tasks — need file + terminal
+    code_patterns = ["kod", "code", "yaz", "write", "olustur", "create",
+                     "build", "compile", "refactor", "duzelt", "fix",
+                     "debug", "hata", "error", "bug", "test", "patch",
+                     "fonksiyon", "function", "class", "import"]
+    if any(p in text for p in code_patterns):
+        return "code"
+
+    return "general"
+
+
+def get_active_schemas(user_input: str = "") -> list[dict]:
+    """Return schemas for tools — smart selection based on query type.
+
+    Classifies the query to only send relevant tool schemas, saving tokens.
+    tools_enable is always included so the agent can open more toolsets if needed.
+    """
     from tools.registry import registry
 
-    active = get_active_toolsets()
+    # Classify query to pick relevant toolsets
+    qtype = _classify_query(user_input)
+    query_toolsets = {
+        "read":    {"web"},
+        "chat":    set(),       # no tools needed for greetings
+        "code":    {"file", "terminal"},
+        "general": get_active_toolsets(),
+    }
+    needed = query_toolsets.get(qtype, get_active_toolsets())
+    # Always include system toolset (tools_enable, cron, etc.)
+    needed = needed | {"system"}
+
     schemas = []
     for tool in registry.list():
-        # tools_enable always active (meta-tool)
         if tool.name == "tools_enable":
             schemas.append({
                 "type": "function",
@@ -86,7 +136,7 @@ def get_active_schemas(user_input: str = "") -> list[dict]:
                 },
             })
             continue
-        if tool.toolset not in active:
+        if tool.toolset not in needed:
             continue
         schemas.append({
             "type": "function",

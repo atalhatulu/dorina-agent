@@ -24,7 +24,7 @@ from core.tokenizer import count_tokens, count_messages_tokens
 COMPRESSION_THRESHOLD = 0.50  # Start compression at 50% capacity
 KEEP_LATEST_TURNS = 4         # Latest turns preserved in Tier 1 truncation
 SUMMARY_MAX_CHARS = 1500      # Summary maximum length
-TIER2_TURN_THRESHOLD = 30     # Minimum turns before triggering Tier 2
+TIER2_TURN_THRESHOLD = 6     # LLM summarization after 6 turns (was 30)
 
 
 class ContextCompressor:
@@ -89,9 +89,16 @@ class ContextCompressor:
         
         return turns
 
-    def should_compress(self, messages: list[dict]) -> bool:
+    def should_compress(self, messages: list[dict], turn_count: int = 0) -> bool:
         if not messages:
             return False
+        
+        # Smart: compress every 4 turns to keep context lean
+        # This is proactive instead of reactive (waiting for 64K)
+        if turn_count > 0 and turn_count % 4 == 0:
+            return True
+        
+        # Also compress if over threshold (safety net)
         estimated = self.estimate_tokens(messages)
         ratio = estimated / self.max_tokens
         return ratio > COMPRESSION_THRESHOLD

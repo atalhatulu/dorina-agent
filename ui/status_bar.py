@@ -81,6 +81,8 @@ class StatusBar:
         self.context_pct = 0
         self.turn_tokens_in = 0
         self.turn_tokens_out = 0
+        self._last_prompt = 0
+        self._last_completion = 0
         self._status_text = "idle"
         self._last_update = time.time()
         self.git_branch = self._get_git_branch()
@@ -141,8 +143,18 @@ class StatusBar:
         self.tool_calls = 0
         self.turn_tokens_in = 0
         self.turn_tokens_out = 0
+        self._last_prompt = 0
+        self._last_completion = 0
         self.turn_start_time = time.time()
         self.set_status("Thinking")
+
+
+# ── Last-LLM-call token accessors (dashboard uses these) ──
+    def get_last_prompt_tokens(self):
+        return self._last_prompt
+
+    def get_last_completion_tokens(self):
+        return self._last_completion
 
     def add_tokens(self, prompt_tokens: int = 0, completion_tokens: int = 0, cost: float = 0.0):
         self._ensure_lock()
@@ -150,6 +162,8 @@ class StatusBar:
         self.tokens_out += completion_tokens
         self.turn_tokens_in += prompt_tokens
         self.turn_tokens_out += completion_tokens
+        self._last_prompt = prompt_tokens
+        self._last_completion = completion_tokens
         self.cost += cost
 
     def end_turn(self):

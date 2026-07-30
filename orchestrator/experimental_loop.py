@@ -21,6 +21,7 @@ from typing import Optional
 import asyncio
 import hashlib
 import json
+import inspect
 from collections import OrderedDict
 from pathlib import Path
 
@@ -54,11 +55,15 @@ def _null_noop(*_args, **_kwargs):
 
 try:
     from ui.status_bar import status as _status
+    if not hasattr(_status, 'set_status'):
+        _status = _NullUI()
 except ImportError:
     _status = _NullUI()
 
 try:
     from ui import display as _display
+    if not hasattr(_display, 'print_warning'):
+        _display = _NullUI()
 except ImportError:
     _display = _NullUI()
 
@@ -175,7 +180,7 @@ class AgentLoopV2:
             self._loop_iterations += 1
 
             # Context compression — Tier 1 (fast) by default, Tier 2 (LLM) for long convos
-            if self.compressor.should_compress(self.context.get_messages()):
+            if self.compressor.should_compress(self.context.get_messages(), self.turn):
                 compressed = await self.compressor.compress(
                     self.context.get_messages(),
                     llm_callback=self._summarize,
@@ -193,6 +198,17 @@ class AgentLoopV2:
                 response = await self._think(tool_schemas)
             finally:
                 _status.set_status("idle")
+
+            # Stream reasoning content to frontend (if available and callback exists)
+            reasoning = response.get("reasoning_content", "")
+            if reasoning and self._on_step:
+                try:
+                    if inspect.iscoroutinefunction(self._on_step):
+                        await self._on_step("reasoning", "thinking", {"content": reasoning})
+                    else:
+                        self._on_step("reasoning", "thinking", {"content": reasoning})
+                except Exception:
+                    pass
 
             # Status: token kullanimi
             self._update_status(response)
@@ -259,6 +275,29 @@ class AgentLoopV2:
 
             # Yanit — is bitti
             content = clean_content(content)
+
+            # Extract <thinking> block for UI display
+            thinking_text = ""
+            import re as _re
+            _thinking_match = _re.search(r'<thinking>(.*?)(?:</thinking>|$)', content, _re.DOTALL)
+            if _thinking_match:
+                thinking_text = _thinking_match.group(1).strip()
+                content = _re.sub(r'<thinking>.*?(?:</thinking>|$)\s*', '', content, flags=_re.DOTALL).strip()
+                # If content became empty after stripping thinking, agent had nothing else to say
+                if not content:
+                    content = thinking_text
+                    thinking_text = ""
+
+            # Stream thinking to frontend if callback exists
+            if thinking_text and self._on_step:
+                try:
+                    if inspect.iscoroutinefunction(self._on_step):
+                        await self._on_step("reasoning", "thinking", {"content": thinking_text})
+                    else:
+                        self._on_step("reasoning", "thinking", {"content": thinking_text})
+                except Exception:
+                    pass
+
             self.context.add_assistant_message(content)
 
             # Loop → Goal entegrasyonu: her tur sonunda tamamlanan goal'leri kontrol et
@@ -331,17 +370,10 @@ class AgentLoopV2:
         except (ImportError, OSError, ValueError):
             pass
 
-        # Kisa prompt mu?
-        _simple_words = {
-            "merhaba", "selam", "hey", "naber", "nasilsin",
-            "gunaydin", "kolay gelsin", "ne haber",
-        }
-        _input_lower = (user_input or "").lower().strip().rstrip(".!?,")
-        if (
-            modes.is_on("speed")
-            or _input_lower in _simple_words
-            or len((user_input or "").split()) <= 3
-        ):
+        # Kisa prompt mu? Akilli siniflandirma
+        from tools.toolset import _classify_query
+        qtype = _classify_query(user_input)
+        if modes.is_on("speed") or qtype in ("chat", "read"):
             base = soul.system_prompt_short
         else:
             base = soul.system_prompt
@@ -471,8 +503,9 @@ class AgentLoopV2:
         if _total_all >= 5:
             _display.print_warning(f"Turn would have {_total_all} tool calls → forcing final response")
             self.context.add_user_message(
-                "⚠️ Araç limitine ulaşıldı (5). Artık yeni araç çağırma."
-                " Sahip olduğun bilgilerle kullanıcıya cevap ver."
+                "⚠️ Araç limitine ulaşıldı (5). Yeni araç çağırma."
+                " Sahip olduğun bilgilerle EN FAZLA 3 CÜMLE ile doğrudan cevap ver."
+                " Ne denediğini, hangi kaynağa gittiğini anlatma — sadece sonucu söyle."
             )
             self._loop_iterations -= 1
             return
@@ -685,11 +718,28 @@ class AgentLoopV2:
     # ────────────────────────────────────────────────────────────────
 
     def _handle_greeting(self, user_input: str) -> str:
-        """Selamlari Python tarafinda cevapla (LLM yok)."""
+        """Selamlari ve basit kendini tanitma sorularini Python tarafinda cevapla (LLM yok)."""
         _status.set_status("idle")
         self.turn = max(0, self.turn - 1)
 
         text = (user_input or "").lower().strip().rstrip(".!?,")
+
+        # Kimlik sorusu: "sen kimsin", "adin ne", "who are you" etc.
+        identity_questions = {"sen kimsin", "adin ne", "adın ne", "kimsin", "kimsin sen",
+                             "who are you", "what is your name", "tanit kendini",
+                             "kendini tanit", "tanışalım"}
+        if text in identity_questions or any(q in text for q in ["kimsin", "adin ne", "adın ne", "who are you"]):
+            name = soul.name
+            yanit = (
+                f"Merhaba! Ben {name}, terminal tabanlı bir yapay zeka asistanıyım. "
+                f"Size kodlama, dosya işlemleri, sistem bilgisi toplama, "
+                f"web araması ve daha pek çok konuda yardımcı olabilirim.\n\n"
+                f"Nasıl yardımcı olabilirim?"
+            )
+            self.context.add_assistant_message(yanit)
+            return yanit
+
+        selam_sozu = "Hi" if "hi" in text or "hey" in text else "Hello"
         words = set(text.split())
         ad = ""
         skip_words = {
@@ -702,7 +752,6 @@ class AgentLoopV2:
                 ad = w
                 break
 
-        selam_sozu = "Hi" if "hi" in text or "hey" in text else "Hello"
         yanit = f"{selam_sozu}{' ' + ad.title() if ad else ''}! How can I help you?"
         self.context.add_assistant_message(yanit)
         return yanit

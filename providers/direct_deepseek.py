@@ -261,6 +261,7 @@ async def _chat_stream(
     body["stream"] = True
 
     content_chunks: list[str] = []
+    reasoning_chunks: list[str] = []
     tool_call_deltas: dict[int, dict] = {}
     finish_reason = "stop"
 
@@ -306,6 +307,10 @@ async def _chat_stream(
                     if inspect.iscoroutine(res):
                         await res
 
+            if delta.get("reasoning_content"):
+                reasoning_chunks.append(delta["reasoning_content"])
+                # No streaming callback needed — reasoning is returned in result dict
+
             if delta.get("tool_calls"):
                 for tc in delta["tool_calls"]:
                     idx = tc.get("index", 0)
@@ -332,6 +337,7 @@ async def _chat_stream(
 
     result = {
         "content": content,
+        "reasoning_content": "".join(reasoning_chunks) if reasoning_chunks else "",
         "tool_calls": [],
         "finish_reason": finish_reason,
         "usage": {
@@ -376,6 +382,7 @@ def _parse_direct_response(data: dict) -> dict:
 
     result = {
         "content": msg.get("content", "") or "",
+        "reasoning_content": msg.get("reasoning_content", "") or "",
         "tool_calls": [],
         "finish_reason": choice.get("finish_reason", "stop"),
         "usage": {

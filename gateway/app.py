@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +23,7 @@ from core.constants import NAME, VERSION
 from session.manager import manager as session_manager
 
 # Register all tools at startup
-import tools.builtin  # noqa: F401 — @register_tool decorators execute here
+import tools.builtin  # noqa: F401
 
 app = FastAPI(title=f"{NAME} Dashboard", version=VERSION)
 
@@ -31,39 +32,14 @@ static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
-@app.get("/")
-async def index():
-    html = (static_dir / "index.html").read_text(encoding="utf-8")
-    return Response(content=html, media_type="text/html",
-                    headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                             "Pragma": "no-cache", "Expires": "0"})
+# ── Helpers ──────────────────────────────────────────────
+
+def _get_loop():
+    from orchestrator.experimental_loop import loop_v2
+    return loop_v2
 
 
-# ── REST API ─────────────────────────────────────────────────
-
-@app.get("/api/status")
-async def api_status():
-    from core.config import settings
-    sessions = session_manager.list_sessions(limit=100)
-    active_sid = getattr(session_manager, "current_id", None) or ""
-    active_session = None
-    if active_sid:
-        active_session = session_manager.load(active_sid)
-    return {
-        "name": NAME,
-        "version": VERSION,
-        "model": settings.model.default,
-        "provider": settings.model.provider,
-        "sessions": {
-            "total": len(sessions),
-            "active_id": active_sid,
-            "active_title": (active_session or {}).get("title", "") if active_session else "",
-        },
-        "modes": get_active_modes(),
-    }
-
-
-def get_active_modes() -> list[str]:
+def _get_modes() -> list[str]:
     try:
         from core.mode_manager import modes
         return modes.active
@@ -71,18 +47,41 @@ def get_active_modes() -> list[str]:
         return []
 
 
+# ── HTML ─────────────────────────────────────────────────
+
+@app.get("/")
+async def index():
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    return Response(
+        content=html, media_type="text/html",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache", "Expires": "0",
+        },
+    )
+
+
+# ── REST API ─────────────────────────────────────────────
+
+@app.get("/api/status")
+async def api_status():
+    from core.config import settings
+    sessions = session_manager.list_sessions(limit=100)
+    active_sid = getattr(session_manager, "current_id", None) or ""
+    return {
+        "name": NAME,
+        "version": VERSION,
+        "model": settings.model.default,
+        "provider": settings.model.provider,
+        "sessions": {"total": len(sessions)},
+        "modes": _get_modes(),
+    }
+
+
 @app.get("/api/sessions")
 async def api_sessions(limit: int = 50):
     sessions = session_manager.list_sessions(limit=limit)
     return {"sessions": sessions}
-
-
-@app.delete("/api/sessions/{session_id}")
-async def api_delete_session(session_id: str):
-    ok = session_manager.delete(session_id)
-    if not ok:
-        raise HTTPException(404, "Session not found")
-    return {"ok": True}
 
 
 @app.post("/api/sessions")
@@ -99,19 +98,184 @@ async def api_get_session(session_id: str):
     return session
 
 
-@app.post("/api/chat")
-async def api_chat(query: str, session_id: Optional[str] = None):
+@app.delete("/api/sessions/{session_id}")
+async def api_delete_session(session_id: str):
+    ok = session_manager.delete(session_id)
+    if not ok:
+        raise HTTPException(404, "Session not found")
+    return {"ok": True}
+
+
+@app.post("/api/sessions/{session_id}/rename")
+async def api_rename_session(session_id: str, data: dict):
+    title = data.get("title", "")
+    if not title:
+        raise HTTPException(400, "Title is required")
+    session_manager.rename(session_id, title)
+    return {"ok": True}
+
+
+@app.get("/api/sessions/search/{query}")
+async def api_search_sessions(query: str):
+    results = session_manager.search(query)
+    return {"results": results}
+
+
+# ── WebSocket ────────────────────────────────────────────
+
+class ConnectionState:
+    """Per-connection state for tracking tool steps and usage."""
+    def __init__(self):
+        self.session_id: str = ""
+        self.tools_before: list = []
+        self.tokens_before = 0
+        self.cost_before = 0.0
+
+
+async def _tool_step_callback(ws: WebSocket, state: ConnectionState, step_type: str, name: str, data: dict):
+    """Stream tool steps and reasoning to the WebSocket in real-time."""
+    try:
+        # Reasoning content goes as a special step type
+        if step_type == "reasoning":
+            await ws.send_json({
+                "type": "reasoning",
+                "content": data.get("content", ""),
+            })
+        else:
+            await ws.send_json({
+                "type": "step",
+                "step": step_type,
+                "name": name,
+                "data": data,
+            })
+    except Exception:
+        pass
+
+
+@app.websocket("/ws/chat")
+async def websocket_chat(ws: WebSocket):
+    await ws.accept()
     from orchestrator.experimental_loop import loop_v2 as loop
-    if not session_id:
-        session_id = session_manager.current_id or session_manager.create(title="Web Chat")
-    session_manager.current_id = session_id
-    result = await loop.process(query)
-    return {"response": result, "session_id": session_id}
+    from ui.status_bar import status
 
+    state = ConnectionState()
+    state.session_id = session_manager.current_id or session_manager.create(title="Web Chat")
+    session_manager.current_id = state.session_id
 
-# ── WebSocket ────────────────────────────────────────────────
+    await ws.send_json({"type": "session", "session_id": state.session_id, "title": "Web Session"})
+
+    try:
+        while True:
+            data = await ws.receive_text()
+            msg = json.loads(data)
+
+            # ── Session management commands ──
+            if msg.get("type") == "switch_session":
+                sid = msg.get("session_id", "")
+                session = session_manager.load(sid)
+                if session:
+                    session_manager.current_id = sid
+                    state.session_id = sid
+                    await ws.send_json({
+                        "type": "session_loaded",
+                        "session_id": sid,
+                        "title": session.get("title", "Web Session"),
+                        "messages": session.get("messages", []),
+                    })
+                continue
+
+            if msg.get("type") == "new_session":
+                sid = session_manager.create(title="Web Session")
+                session_manager.current_id = sid
+                state.session_id = sid
+                await ws.send_json({
+                    "type": "session_loaded",
+                    "session_id": sid,
+                    "title": "Web Session",
+                    "messages": [],
+                })
+                continue
+
+            if msg.get("type") == "delete_session":
+                sid = msg.get("session_id", "")
+                session_manager.delete(sid)
+                await ws.send_json({"type": "session_deleted", "session_id": sid})
+                continue
+
+            if msg.get("type") == "rename_session":
+                sid = msg.get("session_id", "")
+                title = msg.get("title", "")
+                session_manager.rename(sid, title)
+                await ws.send_json({"type": "session_renamed", "session_id": sid, "title": title})
+                continue
+
+            # ── Chat message ──
+            query = msg.get("query", "").strip()
+            if not query:
+                continue
+
+            # Set session
+            req_session_id = msg.get("session_id", "")
+            if req_session_id and req_session_id != state.session_id:
+                session_manager.current_id = req_session_id
+                state.session_id = req_session_id
+
+            await ws.send_json({"type": "user", "content": query})
+
+            state.tokens_before = status.tokens_in + status.tokens_out
+            state.cost_before = status.cost
+            state.tools_before = []
+
+            try:
+                # Create streaming callback
+                async def _on_step(st, nm, dd):
+                    await _tool_step_callback(ws, state, st, nm, dd)
+
+                result = await loop.process(query, on_step=_on_step)
+                final_text = str(result) if result else ""
+
+                # Calculate usage — only count LAST LLM call's context size
+                # (cumulative add inflates it due to tool loop iterations)
+                last_prompt = status.get_last_prompt_tokens()
+                last_completion = status.get_last_completion_tokens()
+                cumulative_in = status.tokens_in
+                cumulative_out = status.tokens_out
+                usage = {
+                    "prompt_tokens": last_prompt,
+                    "completion_tokens": last_completion,
+                    "total_tokens": last_prompt + last_completion,
+                    "total_in": cumulative_in,
+                    "total_out": cumulative_out,
+                    "cumulative_tokens": max(0, cumulative_in + cumulative_out - state.tokens_before),
+                    "cost": max(0, status.cost - state.cost_before),
+                    "total_cost": status.cost,
+                }
+
+                # Extract tool steps from context
+                tool_steps = _extract_tool_calls(loop.context.get_messages())
+
+                await ws.send_json({
+                    "type": "assistant",
+                    "content": final_text,
+                    "tools": tool_steps[-15:] if tool_steps else [],
+                    "usage": usage,
+                    "done": True,
+                })
+
+                # Auto-save
+                session_manager.save(loop.context.get_messages())
+
+            except Exception as e:
+                await ws.send_json({"type": "error", "content": str(e), "done": True})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        log.error(f"WebSocket error: {e}")
+
 
 def _extract_tool_calls(messages: list[dict]) -> list[dict]:
+    """Extract tool call/result steps from message history."""
     steps = []
     for msg in messages:
         role = msg.get("role", "")
@@ -122,84 +286,19 @@ def _extract_tool_calls(messages: list[dict]) -> list[dict]:
                     steps.append({
                         "type": "tool_call",
                         "name": fn.get("name", "?"),
-                        "args": fn.get("arguments", "{}")[:200],
+                        "args": str(fn.get("arguments", "{}"))[:300],
                     })
         elif role == "tool":
             steps.append({
                 "type": "tool_result",
                 "name": msg.get("name", "?"),
-                "content_preview": str(msg.get("content", ""))[:100],
+                "content_preview": str(msg.get("content", ""))[:200],
+                "tool_call_id": msg.get("tool_call_id", ""),
             })
     return steps
 
 
-@app.websocket("/ws/chat")
-async def websocket_chat(ws: WebSocket):
-    await ws.accept()
-    from orchestrator.experimental_loop import loop_v2 as loop
-    from ui.status_bar import status
-
-    session_id = session_manager.current_id or session_manager.create(title="Web Chat")
-    session_manager.current_id = session_id
-
-    await ws.send_json({"type": "session", "session_id": session_id})
-
-    try:
-        while True:
-            data = await ws.receive_text()
-            msg = json.loads(data)
-            query = msg.get("query", "").strip()
-            if not query:
-                continue
-
-            await ws.send_json({"type": "user", "content": query})
-
-            tokens_before = status.tokens_in + status.tokens_out
-            cost_before = status.cost
-
-            try:
-                async def _on_step(step_type: str, name: str, data: dict):
-                    try:
-                        await ws.send_json({
-                            "type": "step",
-                            "step": step_type,
-                            "name": name,
-                            "data": data,
-                        })
-                    except Exception:
-                        pass
-
-                result = await loop.process(query, on_step=_on_step)
-                final_text = str(result) if result else ""
-
-                tokens_after = status.tokens_in + status.tokens_out
-                usage = {
-                    "prompt_tokens": max(0, status.tokens_in - (tokens_before - status.tokens_out)),
-                    "completion_tokens": max(0, status.tokens_out - (tokens_before - status.tokens_in)),
-                    "total_tokens": max(0, tokens_after - tokens_before),
-                    "cost": max(0, status.cost - cost_before),
-                    "total_in": status.tokens_in,
-                    "total_out": status.tokens_out,
-                    "total_cost": status.cost,
-                }
-
-                tool_steps = _extract_tool_calls(loop.context.get_messages())
-
-                await ws.send_json({
-                    "type": "assistant",
-                    "content": final_text,
-                    "tools": tool_steps[-10:] if tool_steps else [],
-                    "usage": usage,
-                    "done": True,
-                })
-            except Exception as e:
-                await ws.send_json({"type": "error", "content": str(e), "done": True})
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        log.error(f"WebSocket error: {e}")
-
+# ── Entry ────────────────────────────────────────────────
 
 def main():
     port = 5792
