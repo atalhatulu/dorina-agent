@@ -136,7 +136,7 @@ SKILL_TRIGGER_KEYWORDS = {
 }
 
 # Which skills auto-load at session start
-SKILL_AUTO_LOAD_THRESHOLD = 2  # How many keyword matches trigger auto-loading
+SKILL_AUTO_LOAD_THRESHOLD = 1  # How many keyword matches trigger auto-loading
 
 # ── P0-06: Prompt Caching ──────────────────────────────────────
 # Cache TTL (seconds)
@@ -149,7 +149,7 @@ MAX_CACHE_SIZE = 100000  # 100KB
 CACHE_ENABLED_PROVIDERS = {"deepseek", "anthropic"}
 
 # Cache strategy
-CACHE_STRATEGY = "conservative"
+CACHE_STRATEGY = "always"  # DeepSeek does automatic prefix caching — always send cache params
 
 
 # ═══════════════════════════════════════════════════════════════

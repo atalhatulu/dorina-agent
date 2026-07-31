@@ -120,11 +120,9 @@ created_at: {datetime.now(timezone.utc).isoformat()}
         """Find skills matching the session context.
 
         Session context can be a user message (str) or dict.
-        Uses keyword matching to detect relevant skill categories
-        and returns skills registered in procedural memory.
-
-        Returns:
-            List of skill dicts: [{"name": "...", "content": "...", "trigger": "..."}, ...]
+        Scores each skill by keyword overlap + usage recency (skills used
+        within the last 7 days rank higher; never-used skills rank lower).
+        Returns top 3 matching skills.
         """
         # Extract text from session context
         if isinstance(session_context, str):
@@ -142,38 +140,124 @@ created_at: {datetime.now(timezone.utc).isoformat()}
         if not text:
             return []
 
-        # Find which categories match
-        matched_categories = set()
-        word_set = set(text.split())
-        for category, keywords in SKILL_TRIGGER_KEYWORDS.items():
-            # Both word-level and substring matching
-            keyword_matches = sum(1 for kw in keywords if kw in word_set or kw in text)
-            if keyword_matches >= SKILL_AUTO_LOAD_THRESHOLD:
-                matched_categories.add(category)
+        # Smart matching: score each skill by keyword overlap between the query
+        # and the skill's name + description + first lines of content.
+        # This replaces brittle category-keyword matching — skills without
+        # frontmatter (plain Turkish files) now work too.
+        query_words = set(w for w in text.split() if len(w) > 2)
+        all_skills = self.procedural.list_skills()
+        scored: list[tuple[int, dict]] = []
+        for skill in all_skills:
+            name = skill.get("name", "").lower()
+            desc = (skill.get("description", "") or "").lower()
+            content = (skill.get("content") or "")
+            if isinstance(content, dict):
+                content = content.get("content", "") or str(content)
+            content = str(content).lower()
+            # Search space: name + description + first 600 chars of content
+            haystack = f"{name} {desc} {content[:600]}"
+            hay_words = set(w for w in haystack.split() if len(w) > 2)
+            hits = query_words & hay_words
+            # Also substring match for compound terms (e.g. "deauth", "docker")
+            substr_hits = sum(1 for kw in query_words if kw in haystack)
+            score = len(hits) + substr_hits
+            if score >= SKILL_AUTO_LOAD_THRESHOLD:
+                # Usage recency bonus: +2 if used in last 7 days, +1 if ever used
+                stats = self.usage_data.get(name, {})
+                last_used = stats.get("last_used", "")
+                use_count = stats.get("use_count", 0)
+                if last_used:
+                    try:
+                        from datetime import datetime as _dt
+                        last_dt = _dt.fromisoformat(last_used)
+                        days_since = (datetime.now(timezone.utc) - last_dt).days
+                        if days_since <= 7:
+                            score += 2
+                        elif use_count > 0:
+                            score += 1
+                    except (ValueError, TypeError):
+                        pass
+                scored.append((score, skill))
 
-        if not matched_categories:
+        if not scored:
             return []
 
-        # Find matching skills from registered ones
-        all_skills = self.procedural.list_skills()
+        scored.sort(key=lambda x: -x[0])
+        # Only load the top 3 most relevant skills to keep prompt small
         applicable = []
-        for skill in all_skills:
-            skill_name = skill.get("name", "").lower()
-            skill_desc = skill.get("description", "").lower()
-            # Does skill name or description match the category?
-            for category in matched_categories:
-                if category in skill_name or category in skill_desc:
-                    content = self.procedural.get_skill(skill["name"])
-                    if content:
-                        applicable.append({
-                            "name": skill["name"],
-                            "content": content.get("content", "") if isinstance(content, dict) else str(content),
-                            "trigger": category,
-                        })
-                    break
+        for score, skill in scored[:3]:
+            content = self.procedural.get_skill(skill.get("name", ""))
+            if isinstance(content, dict):
+                content = content.get("content", "") or str(content)
+            applicable.append({
+                "name": skill.get("name", "skill"),
+                "content": str(content),
+                "trigger": f"score={score}",
+            })
+            # Track usage so archive_stale_skills can rank by real usage
+            _n = skill.get("name", "")
+            if _n:
+                self.usage_data.setdefault(_n, {"use_count": 0, "created": ""})
+                self.usage_data[_n]["use_count"] = self.usage_data[_n].get("use_count", 0) + 1
+                self.usage_data[_n]["last_used"] = datetime.now(timezone.utc).isoformat()
+                self._save_usage()
 
-        log.info(f"Session-start: {len(applicable)} skills found (categories={matched_categories})")
+        log.info(f"Session-start: {len(applicable)} skills found (top matches)")
         return applicable
+
+    def archive_stale_skills(self, days: int = 30, max_active: int = 10) -> list[str]:
+        """Move stale skills (never used / unused for N days) to _archive/.
+
+        Keeps only the most recently used `max_active` skills active.
+        Returns list of archived skill names.
+        """
+        import shutil as _sh
+        from datetime import datetime as _dt
+
+        archive_dir = self.learned_dir.parent / "_archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        # Never archive system dirs
+        protected = {"_archive", "_agents", "_references", "learned", "store"}
+        all_skills = self.procedural.list_skills()
+        now = datetime.now(timezone.utc)
+        archived = []
+
+        # Sort by last_used (never used = oldest → archived first)
+        def _sort_key(s):
+            lu = self.usage_data.get(s["name"], {}).get("last_used", "")
+            if not lu:
+                return _dt.min.replace(tzinfo=timezone.utc)  # never used = oldest
+            try:
+                return _dt.fromisoformat(lu)
+            except (ValueError, TypeError):
+                return _dt.min.replace(tzinfo=timezone.utc)
+        all_skills.sort(key=_sort_key)
+
+        # Keep the most recent `max_active` active, archive the rest
+        keep_names = {s["name"] for s in all_skills[-max_active:]}
+        for skill in all_skills:
+            name = skill["name"]
+            if name in protected or name in keep_names:
+                continue
+            stats = self.usage_data.get(name, {})
+            last_used = stats.get("last_used", "")
+            use_count = stats.get("use_count", 0)
+            stale = (not last_used) or (now - _dt.fromisoformat(last_used)).days > days
+            if stale:
+                src = self.procedural.skills_dir / name
+                dst = archive_dir / name
+                if src.exists() and not dst.exists():
+                    try:
+                        _sh.move(str(src), str(dst))
+                        self.usage_data.pop(name, None)
+                        archived.append(name)
+                    except (OSError, ValueError):
+                        pass
+        if archived:
+            self._save_usage()
+            log.info(f"Archived {len(archived)} stale skills: {archived}")
+        return archived
 
     def inject_skills_to_prompt(self, session_context: dict | str, system_prompt: str) -> str:
         """Inject skills into system prompt based on session context.

@@ -75,11 +75,22 @@ def _classify_query(user_input: str) -> str:
         "hava durumu", "weather", "haber", "news", "nedir", "ne demek",
         "nasil", "how to", "what is", "who is", "where", "when",
         "saat", "time", "tarih", "date", "fiyat", "price", "kac",
-        "bul", "ara", "search", "find", "get",
         "indir", "download", "oku", "read",
+        "internet", "web", "online", "sitede", "sayfasinda",
     ]
     if any(p in text for p in read_patterns) and len(text.split()) <= 6:
         return "read"
+
+    # Code tasks — need file + terminal (check BEFORE chat — 'dosya ara' is not a greeting)
+    code_patterns = ["kod", "code", "yaz", "write", "olustur", "create",
+                     "build", "compile", "refactor", "duzelt", "fix",
+                     "debug", "hata", "error", "bug", "test", "patch",
+                     "fonksiyon", "function", "class", "import",
+                     "dosya", "kac tane", "say", "liste", "list",
+                     "tara", "goster", "bul", "ara", "grep", "klasor",
+                     "dizin", "python", "py dosyas"]
+    if any(p in text for p in code_patterns):
+        return "code"
 
     # Chat/greeting — minimal tools
     chat_patterns = ["merhaba", "selam", "hey", "nasilsin", "naber",
@@ -92,14 +103,6 @@ def _classify_query(user_input: str) -> str:
     first_word = text.split()[0] if text.split() else ""
     if first_word in {"merhaba", "selam", "hey", "hello", "hi", "selamun aleykum"}:
         return "chat"
-
-    # Code tasks — need file + terminal
-    code_patterns = ["kod", "code", "yaz", "write", "olustur", "create",
-                     "build", "compile", "refactor", "duzelt", "fix",
-                     "debug", "hata", "error", "bug", "test", "patch",
-                     "fonksiyon", "function", "class", "import"]
-    if any(p in text for p in code_patterns):
-        return "code"
 
     return "general"
 
@@ -138,15 +141,38 @@ def get_active_schemas(user_input: str = "") -> list[dict]:
             continue
         if tool.toolset not in needed:
             continue
+        # Inject project directory into terminal's cwd param — agent runs commands in the right place
+        params = tool.parameters
+        if tool.name == "terminal" and isinstance(params, dict):
+            import copy
+            params = copy.deepcopy(params)
+            _proj = _get_project_dir()
+            if _proj:
+                cwd_desc = params.get("properties", {}).get("cwd", {}).get("description", "Working directory (Optional)")
+                params["properties"]["cwd"]["description"] = f"{cwd_desc}. DEFAULT: {_proj} — project files live here. Use it unless the user asks about elsewhere."
         schemas.append({
             "type": "function",
             "function": {
                 "name": tool.name,
                 "description": tool.description,
-                "parameters": tool.parameters,
+                "parameters": params,
             },
         })
     return schemas
+
+
+def _get_project_dir() -> str:
+    """Return user's project directory from profile, or empty string."""
+    try:
+        from core.constants import DORINA_HOME
+        p = DORINA_HOME / "user_profile.json"
+        if p.exists():
+            import json
+            prof = json.loads(p.read_text())
+            return prof.get("project_dir", "")
+    except Exception:
+        pass
+    return ""
 
 
 def toolset_summary() -> str:

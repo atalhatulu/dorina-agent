@@ -693,6 +693,26 @@ class AgentLoopV2:
         except (ImportError, KeyError, AttributeError):
             pass
 
+        # ── Reflexion: hata özetini episodic memory'ye kalıcı yaz ──
+        # Böylece gelecek oturumlar da bu hatadan ders çıkarabilir.
+        try:
+            from memory.episodic import EpisodicMemory
+            _episodic = EpisodicMemory()
+            _lesson = f"Tool '{name}' hatası ({prev[1]}. kez): {classified.reason}"
+            _episodic.add(
+                key=f"tool_error:{name}:{classified.reason[:60]}",
+                content=_lesson,
+                metadata={
+                    "category": "reflexion",
+                    "tool": name,
+                    "error": classified.reason[:200],
+                    "occurrences": prev[1],
+                },
+            )
+            log.debug("Reflexion: error recorded to episodic memory (%s)", name)
+        except (ImportError, AttributeError, OSError):
+            pass
+
         # 3+ ayni hata → strategy change
         if prev[1] >= 3:
             def _smart_escape(error_str: str, tool_name: str) -> str:

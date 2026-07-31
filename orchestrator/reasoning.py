@@ -182,7 +182,7 @@ class ReasoningEngine:
                     tools=tools,
                     max_tokens=params.get("max_tokens", 8192),
                     stream=bool(stream_callback),
-                    api_key=api_key,
+                    cache=cache_params or None,
                     stream_callback=stream_callback,
                 )
                 # Token budget check (same as _parse_response)

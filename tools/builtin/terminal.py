@@ -198,6 +198,14 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
         _env = os.environ.copy()
         _env["PATH"] = str(_venv_bin) + ":" + _env.get("PATH", "")
 
+    # ── Injection / DoS guard ────────────────────────────────────
+    from tools.security import MAX_COMMAND_LENGTH
+    if len(command) > MAX_COMMAND_LENGTH:
+        return json.dumps({
+            "error": f"Command too long ({len(command)} > {MAX_COMMAND_LENGTH} chars).",
+            "hint": "Break the command into smaller steps."
+        })
+
     # git push/pull engelle
     if command.strip().startswith("git push") or command.strip().startswith("git pull"):
         return json.dumps({"error": "git push/pull blocked. Only local git commands allowed."})
@@ -341,6 +349,17 @@ async def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) 
         sandbox_result = _run_python_in_sandbox(code, timeout=timeout)
         if sandbox_result is not None:
             return sandbox_result
+
+    # ── High-risk Python guard (exec/eval/subprocess/os.system) ──
+    # Normal imports (os, sys, re, json...) stay allowed — only arbitrary
+    # code execution / process spawning is flagged. godmode bypasses.
+    from tools.security import has_high_risk_python
+    from core.mode_manager import modes
+    if has_high_risk_python(code) and not modes.is_on("godmode"):
+        return json.dumps({
+            "error": "Code blocked: contains high-risk operations (subprocess, os.system, exec, eval, __import__, compile).",
+            "hint": "Use the terminal tool instead if you need to run shell commands, or enable godmode."
+        })
 
     import subprocess, sys, tempfile, os
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:

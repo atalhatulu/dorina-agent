@@ -117,6 +117,7 @@ async def chat(
     stream: bool = False,
     api_key: Optional[str] = None,
     stream_callback: Optional[callable] = None,
+    cache: Optional[dict] = None,
 ) -> dict:
     """Direct HTTP chat completion call to DeepSeek.
 
@@ -155,6 +156,10 @@ async def chat(
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
+
+    # Prompt caching params (DeepSeek automatic prefix caching)
+    if cache:
+        body["cache"] = cache
 
     last_error: Exception | None = None
     last_httpx_error: httpx.HTTPStatusError | None = None

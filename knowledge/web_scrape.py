@@ -4,6 +4,15 @@ from __future__ import annotations
 from core.logger import log
 
 
+def _sanitize(text: str) -> str:
+    """Sanitize scraped content against prompt injection."""
+    try:
+        from tools.security import sanitize_external_content
+        return sanitize_external_content(text)
+    except (ImportError, AttributeError):
+        return text
+
+
 class WebScraper:
     """Fetch content from URL."""
 
@@ -52,13 +61,14 @@ class WebScraper:
 
                     text = soup.get_text(separator="\n", strip=True)
                     lines = [line.strip() for line in text.split("\n") if line.strip()]
-                    return "\n".join(lines[:200])  # First 200 lines
+                    result = "\n".join(lines[:200])  # First 200 lines
+                    return _sanitize(result)
 
                 elif "application/json" in content_type:
-                    return resp.text[:5000]
+                    return _sanitize(resp.text[:5000])
 
                 else:
-                    return resp.text[:5000]
+                    return _sanitize(resp.text[:5000])
 
         except (httpx.RequestError, OSError) as e:
             log.error(f"Web scraping error [{url}]: {e}")

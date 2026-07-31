@@ -137,6 +137,8 @@ class Soul:
                 if _profile.get('os'):
                     lines.append(f"- OS: {_profile['os']}")
                 lines.append(f"- Home directory: {_profile.get('project_dir', str(Path.cwd()))}")
+                lines.append(f"- PROJECT DIRECTORY: {_profile.get('project_dir', str(Path.cwd()))} — 'bu projede' / 'dosya ara' / 'kaç dosya' gibi sorularda SADECE bu dizini tara. Asla / veya /home altında tüm sistemi tarama.")
+                lines.append("- Dosya sayma/listeleme sorgularında venv, node_modules, __pycache__, .git, .test_venv dizinlerini HARİÇ tut. Önce tek komutla hariç tutarak say: `find . -name '*.py' -not -path '*/venv/*' -not -path '*/.test_venv/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -not -path '*/.git/*' | wc -l`")
                 if _profile.get('editor'):
                     lines.append(f"- Editor: {_profile['editor']}")
                 # Personality style determines system prompt tone
@@ -182,17 +184,10 @@ class Soul:
                     _mem_found.append(("SYSTEM INFO", _mem_data["system"]))
             except (json.JSONDecodeError, OSError, KeyError):
                 pass
-        if _mem_skill_dir.exists():
-            _skill_entries = []
-            for _skill_folder in sorted(_mem_skill_dir.iterdir()):
-                if _skill_folder.is_dir():
-                    _sk = _skill_folder / "SKILL.md"
-                    if _sk.exists():
-                        _content = _sk.read_text(encoding="utf-8").strip()
-                        _skill_entries.append(f"[{_skill_folder.name}]")
-                        _skill_entries.append(_content)
-            if _skill_entries:
-                _mem_found.append(("LEARNED SKILLS", "\n".join(_skill_entries)))
+        # NOTE: Skill injection is handled by _build_system_prompt via
+        # skills.manager.get_applicable_skills(user_input) — smart, query-based.
+        # The old blind "LEARNED SKILLS" dump here injected ALL 42 skills
+        # (~5.5K tokens) into every prompt. Removed for token efficiency.
         for title, content in _mem_found:
             lines.append("")
             lines.append(f"## {title}")

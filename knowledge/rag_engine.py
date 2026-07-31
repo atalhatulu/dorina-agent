@@ -80,7 +80,13 @@ class RAGEngine:
 
     def context_for_query(self, question: str, max_chars: int = 2000, include_research: bool = True) -> str:
         """Build context for a question (to feed the LLM)."""
-        return self._memory.context_for_query(question, max_chars=max_chars)
+        try:
+            from tools.security import sanitize_external_content
+            return sanitize_external_content(
+                self._memory.context_for_query(question, max_chars=max_chars)
+            )
+        except (ImportError, AttributeError):
+            return self._memory.context_for_query(question, max_chars=max_chars)
 
     def count(self) -> int:
         if self._ready:

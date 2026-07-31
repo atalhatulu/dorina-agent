@@ -27,6 +27,35 @@ BLOCKED_PATHS = [
 ]
 
 
+# ── Command length guard (DoS protection) ──
+MAX_COMMAND_LENGTH = 10000
+
+# ── High-risk Python operations (batch_python) ──
+# NOT blocking normal imports (os, sys are fine — os.path/os.listdir are
+# everyday usage). Only blocking operations that execute arbitrary code or
+# spawn system processes without the agent's own tooling.
+HIGH_RISK_PYTHON = [
+    r"import\s+subprocess",
+    r"from\s+subprocess",
+    r"os\.system\s*\(",
+    r"os\.popen\s*\(",
+    r"\bexec\s*\(",
+    r"\beval\s*\(",
+    r"__import__\s*\(",
+    r"compile\s*\(",
+    r"pty\.spawn",
+    r"paramiko",
+    r"shutil\.rmtree\s*\(['\"]/['\"]",  # root silme
+]
+
+def has_high_risk_python(code: str) -> bool:
+    """High-risk Python operations that execute code / spawn processes."""
+    for pattern in HIGH_RISK_PYTHON:
+        if re.search(pattern, code):
+            return True
+    return False
+
+
 def is_destructive(command: str) -> bool:
     """Is the command destructive? Regex + AST-level check."""
     cmd_lower = command.lower().strip()
@@ -144,4 +173,59 @@ def redact_secrets(text: str) -> str:
     ]
     for pattern, replacement in patterns:
         text = re.sub(pattern, replacement, text)
+    return text
+
+
+# ── Prompt injection guard (external content) ──────────────────────
+# Scans untrusted content (web pages, RAG results) for instruction
+# hijacking attempts. Blocks/neutralizes the most common injection
+# patterns instead of letting raw instructions reach the LLM.
+INJECTION_PATTERNS = [
+    r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions|prompts|rules|messages)",
+    r"disregard\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)",
+    r"forget\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)",
+    r"unutm[aıe]?\s+(tüm|onceki|önceki)\s+(talimat|komut|yönergeleri)",
+    r"(tüm|bütün|onceki|önceki)\s+(talimat|komut|yönergeleri)[a-z]*\s+unut\b",
+    r"artık\s+(şu|bu)\s+(talimat|komut)",
+    r"you\s+are\s+now\s+",
+    r"you\s+must\s+ignore",
+    r"system\s*(prompt)?\s*:\s*",
+    r"developer\s*(message)?\s*:\s*",
+    r"simulate\s+(being|as)\s+",
+    r"pretend\s+you\s+are",
+    r"<\|?(system|developer|user)\|?>\s*[:：]",
+    r"\[SYSTEM\]|\[INST\]|\[/INST\]",
+]
+
+# Suspicious tags that indicate injected instructions, not content
+INJECTION_TAG_PATTERNS = [
+    r"<script[\s>]",
+    r"<iframe[\s>]",
+    r"onerror\s*=",
+    r"javascript:",
+    r"data:text/html",
+]
+
+
+def sanitize_external_content(text: str) -> str:
+    """Sanitize untrusted external text (web/RAG) against prompt injection.
+
+    - Drops HTML tags that carry active content (script/iframe/events).
+    - Replaces instruction-hijacking phrases with a neutral marker so the
+      content stays readable but can't re-program the model.
+    Returns the sanitized text.
+    """
+    if not text:
+        return text
+
+    # 1. Remove active HTML elements entirely
+    text = re.sub(r"<script[^>]*>.*?</script>", "[script removed]", text, flags=re.S | re.I)
+    text = re.sub(r"<iframe[^>]*>.*?</iframe>", "[iframe removed]", text, flags=re.S | re.I)
+    text = re.sub(r"on\w+\s*=\s*[\"'][^\"']*[\"']", "", text, flags=re.I)
+    text = re.sub(r"javascript:[^\"'\s)]+", "", text, flags=re.I)
+
+    # 2. Neutralize instruction-hijacking phrases
+    for pattern in INJECTION_PATTERNS:
+        text = re.sub(pattern, "[untrusted instruction removed]", text, flags=re.I)
+
     return text

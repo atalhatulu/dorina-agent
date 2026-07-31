@@ -130,6 +130,36 @@ class ConnectionState:
         self.tools_before: list = []
         self.tokens_before = 0
         self.cost_before = 0.0
+        self.last_msg_time = 0.0
+        self.msg_count = 0
+
+
+# ── Rate limiting (per-connection, token-bucket style) ──
+import time as _time
+
+RATE_LIMIT = {
+    "min_interval": 1.0,    # en az 1 sn arka arkaya mesaj
+    "max_per_minute": 20,   # dakikada en fazla 20 mesaj
+}
+
+async def _check_rate_limit(state: ConnectionState) -> str | None:
+    """Return error message if rate limit exceeded, else None."""
+    now = _time.monotonic()
+    if state.msg_count == 0:
+        state.last_msg_time = now
+        state.msg_count = 1
+        return None
+    dt = now - state.last_msg_time
+    state.msg_count += 1
+    # Sliding window: son 60 sn'de max_per_minute'ı aşma
+    if state.msg_count > RATE_LIMIT["max_per_minute"] and dt < 60:
+        return f"Rate limit: en fazla {RATE_LIMIT['max_per_minute']} mesaj/dakika. Lütfen biraz bekleyin."
+    if dt < RATE_LIMIT["min_interval"]:
+        return "Çok hızlı mesaj gönderiyorsun — lütfen 1 sn bekleyin."
+    if dt > 60:
+        state.msg_count = 1  # pencere sıfırla
+    state.last_msg_time = now
+    return None
 
 
 async def _tool_step_callback(ws: WebSocket, state: ConnectionState, step_type: str, name: str, data: dict):
@@ -162,12 +192,26 @@ async def websocket_chat(ws: WebSocket):
     state.session_id = session_manager.current_id or session_manager.create(title="Web Chat")
     session_manager.current_id = state.session_id
 
+    # Restore context from the session DB on reconnect (memory across restarts)
+    _saved = session_manager.load(state.session_id)
+    if _saved and _saved.get("messages"):
+        loop.context.messages = [dict(m) for m in _saved["messages"]]
+        loop.turn = max(1, sum(1 for m in _saved["messages"] if m.get("role") == "user"))
+        loop._skills_injected = False
+
     await ws.send_json({"type": "session", "session_id": state.session_id, "title": "Web Session"})
 
     try:
         while True:
             data = await ws.receive_text()
             msg = json.loads(data)
+
+            # ── Rate limit guard (except session mgmt commands) ──
+            if msg.get("type") in (None, "query", "user"):
+                rl_err = await _check_rate_limit(state)
+                if rl_err:
+                    await ws.send_json({"type": "error", "content": rl_err})
+                    continue
 
             # ── Session management commands ──
             if msg.get("type") == "switch_session":
@@ -176,11 +220,17 @@ async def websocket_chat(ws: WebSocket):
                 if session:
                     session_manager.current_id = sid
                     state.session_id = sid
+                    # Restore context from saved session — memory across sessions
+                    saved_msgs = session.get("messages", [])
+                    if saved_msgs:
+                        loop.context.messages = [dict(m) for m in saved_msgs]
+                        loop.turn = max(1, sum(1 for m in saved_msgs if m.get("role") == "user"))
+                        loop._skills_injected = False
                     await ws.send_json({
                         "type": "session_loaded",
                         "session_id": sid,
                         "title": session.get("title", "Web Session"),
-                        "messages": session.get("messages", []),
+                        "messages": saved_msgs,
                     })
                 continue
 
@@ -188,6 +238,10 @@ async def websocket_chat(ws: WebSocket):
                 sid = session_manager.create(title="Web Session")
                 session_manager.current_id = sid
                 state.session_id = sid
+                # Fresh context for the new session
+                loop.context.messages = []
+                loop.turn = 0
+                loop._skills_injected = False
                 await ws.send_json({
                     "type": "session_loaded",
                     "session_id": sid,
