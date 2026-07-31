@@ -560,10 +560,28 @@ msgInput.addEventListener('keydown', e => {
 applySettingsToUI();
 connectWS(); loadStatus(); msgInput.focus();
 
+// ── Auth token (optional) ──
+// Sunucuda DORINA_DASHBOARD_TOKEN tanımlıysa istemci token ister.
+const AUTH_KEY = 'dorina_dashboard_token';
+let authToken = localStorage.getItem(AUTH_KEY) || '';
+function getAuthToken() {
+  if (authToken) return authToken;
+  const t = prompt('Bu dashboard korumalı. Erişim token\'ını girin (boş = iptal):');
+  if (t) { authToken = t.trim(); localStorage.setItem(AUTH_KEY, authToken); }
+  return authToken;
+}
+function authHeaders() {
+  const h = {};
+  if (authToken) h['X-Dashboard-Token'] = authToken;
+  return h;
+}
+
 // ── WebSocket ──
 function connectWS() {
   const p = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${p}://${location.host}/ws/chat`);
+  let url = `${p}://${location.host}/ws/chat`;
+  if (authToken) url += `?token=${encodeURIComponent(authToken)}`;
+  ws = new WebSocket(url);
 
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
@@ -893,8 +911,8 @@ function renderSessions(sessions) {
 }
 
 function loadSessions() {
-  fetch('/api/sessions?limit=50')
-    .then(r => r.json())
+  fetch('/api/sessions?limit=50', { headers: authHeaders() })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(d => renderSessions(d.sessions))
     .catch(() => setTimeout(loadSessions, 5000));
 }
@@ -917,16 +935,16 @@ function deleteSession(id) {
 
 function searchSessions(q) {
   if (!q.trim()) { renderSessions(allSessions); return; }
-  fetch(`/api/sessions/search/${encodeURIComponent(q)}`)
-    .then(r => r.json())
+  fetch(`/api/sessions/search/${encodeURIComponent(q)}`, { headers: authHeaders() })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(d => renderSessions(d.results))
     .catch(() => {});
 }
 
 // ── Status ──
 function loadStatus() {
-  fetch('/api/status')
-    .then(r => r.json())
+  fetch('/api/status', { headers: authHeaders() })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(d => {
       document.getElementById('sVersion').textContent = 'v' + d.version;
       document.getElementById('sModel').textContent = d.model || '-';

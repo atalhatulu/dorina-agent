@@ -178,7 +178,8 @@ class TestMCPClient:
         fut = asyncio.get_event_loop().create_future()
         fut.set_result(json.dumps({"jsonrpc": "2.0", "id": "1", "result": {"ok": True}}))
 
-        with patch.object(asyncio, "get_event_loop") as mock_loop:
+        # Code uses get_running_loop() — patch that, not the deprecated get_event_loop
+        with patch.object(asyncio, "get_running_loop") as mock_loop:
             mock_loop_instance = MagicMock()
             mock_loop_instance.create_future.return_value = fut
             mock_loop.return_value = mock_loop_instance

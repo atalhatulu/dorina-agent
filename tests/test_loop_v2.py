@@ -82,7 +82,8 @@ class TestBasicResponse:
 
         result = await loop.process("merhaba")
 
-        assert "How can I help" in result or "Hello" in result
+        # Greeting is Turkish (soul language) — no LLM call
+        assert "Merhaba" in result or "Nasıl yardımcı olabilirim" in result
         loop.reasoning.think.assert_not_called()
 
     @pytest.mark.asyncio

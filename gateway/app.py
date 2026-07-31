@@ -13,7 +13,7 @@ from typing import Optional
 _proj_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_proj_root))
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Query, Depends
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -21,6 +21,7 @@ import uvicorn
 from core.logger import log
 from core.constants import NAME, VERSION
 from session.manager import manager as session_manager
+from gateway.auth import verify_token, is_auth_enabled
 
 # Register all tools at startup
 import tools.builtin  # noqa: F401
@@ -30,6 +31,17 @@ app = FastAPI(title=f"{NAME} Dashboard", version=VERSION)
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+# ── Auth helpers ────────────────────────────────────────
+
+async def _check_auth(request: Request):
+    """REST dependency: 401 if auth enabled and token missing/invalid."""
+    if not is_auth_enabled():
+        return
+    token = request.headers.get("X-Dashboard-Token", "")
+    if not verify_token(token):
+        raise HTTPException(401, "Unauthorized — X-Dashboard-Token header gerekli")
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -63,7 +75,7 @@ async def index():
 
 # ── REST API ─────────────────────────────────────────────
 
-@app.get("/api/status")
+@app.get("/api/status", dependencies=[Depends(_check_auth)])
 async def api_status():
     from core.config import settings
     sessions = session_manager.list_sessions(limit=100)
@@ -78,19 +90,19 @@ async def api_status():
     }
 
 
-@app.get("/api/sessions")
+@app.get("/api/sessions", dependencies=[Depends(_check_auth)])
 async def api_sessions(limit: int = 50):
     sessions = session_manager.list_sessions(limit=limit)
     return {"sessions": sessions}
 
 
-@app.post("/api/sessions")
+@app.post("/api/sessions", dependencies=[Depends(_check_auth)])
 async def api_create_session():
     sid = session_manager.create(title="Web Session")
     return {"session_id": sid, "title": "Web Session"}
 
 
-@app.get("/api/sessions/{session_id}")
+@app.get("/api/sessions/{session_id}", dependencies=[Depends(_check_auth)])
 async def api_get_session(session_id: str):
     session = session_manager.load(session_id)
     if not session:
@@ -98,7 +110,7 @@ async def api_get_session(session_id: str):
     return session
 
 
-@app.delete("/api/sessions/{session_id}")
+@app.delete("/api/sessions/{session_id}", dependencies=[Depends(_check_auth)])
 async def api_delete_session(session_id: str):
     ok = session_manager.delete(session_id)
     if not ok:
@@ -106,7 +118,7 @@ async def api_delete_session(session_id: str):
     return {"ok": True}
 
 
-@app.post("/api/sessions/{session_id}/rename")
+@app.post("/api/sessions/{session_id}/rename", dependencies=[Depends(_check_auth)])
 async def api_rename_session(session_id: str, data: dict):
     title = data.get("title", "")
     if not title:
@@ -115,7 +127,7 @@ async def api_rename_session(session_id: str, data: dict):
     return {"ok": True}
 
 
-@app.get("/api/sessions/search/{query}")
+@app.get("/api/sessions/search/{query}", dependencies=[Depends(_check_auth)])
 async def api_search_sessions(query: str):
     results = session_manager.search(query)
     return {"results": results}
@@ -183,8 +195,13 @@ async def _tool_step_callback(ws: WebSocket, state: ConnectionState, step_type: 
 
 
 @app.websocket("/ws/chat")
-async def websocket_chat(ws: WebSocket):
+async def websocket_chat(ws: WebSocket, token: str = Query("")):
     await ws.accept()
+    # Auth check: token query param must match (if auth enabled)
+    if not verify_token(token):
+        await ws.send_json({"type": "error", "content": "Unauthorized — geçersiz token"})
+        await ws.close(code=4401)
+        return
     from orchestrator.experimental_loop import loop_v2 as loop
     from ui.status_bar import status
 
