@@ -97,104 +97,156 @@ graph TB
 dorina-agent/                          # Project root
 ├── core/                              # Foundation layer
 │   ├── config.py                      # YAML config loader
+│   ├── constants.py                   # Global constants (incl. cache, skill thresholds)
 │   ├── event_bus.py                   # Pub/sub event system
-│   ├── constants.py                    # Global constants
-│   └── logger.py                      # Structured logging
+│   ├── logger.py                      # Structured logging (RotatingFileHandler)
+│   ├── bootstrap.py                   # Startup bootstrap
+│   ├── mode_manager.py                # Speed/godmode/auto modes
+│   ├── tokenizer.py                   # Token counting
+│   ├── model_utils.py                 # Provider/model string builders
+│   ├── error_classifier.py            # API error classification
+│   ├── error_db.py                    # Error pattern DB (SQLite)
+│   ├── utils.py / version_manager.py  # Helpers & version tracking
 │
 ├── orchestrator/                      # Agent brain
-│   ├── agent_loop.py                  # Main think-execute loop
-│   ├── state_machine.py               # State machine (LangGraph-inspired)
-│   ├── reasoning.py                   # LLM communication via litellm
+│   ├── experimental_loop.py           # AgentLoopV2 — main think-execute loop
+│   │                                  # (state machine, tool limit, greeting,
+│   │                                  #  reflexion → episodic memory)
+│   ├── reasoning.py                   # LLM communication + prompt caching
 │   ├── context.py                     # Conversation context manager
-│   ├── compressor.py                  # Context compression at 75% fill
-│   ├── planner.py                     # Task planning & decomposition
-│   └── plan_tools.py                  # Tool-based planning
-│
+│   ├── compressor.py                  # Context compression (every 4 turns)
+│   ├── checkpoint.py                  # Durable checkpoints (auto + manual)
+│   ├── goal_manager.py                # Goal tracking
+│   ├── greeting.py                    # Identity/intro handling (no LLM cost)
+│   ├── titler.py                      # Session title generation
+│   ├── repair.py / cleaner.py         # Message repair & cleanup
+│   │
 ├── tools/                             # Tool system
 │   ├── registry.py                    # Tool registration & lookup
 │   ├── executor.py                    # Tool execution engine
+│   ├── toolset.py                     # Smart tool selection (_classify_query)
+│   ├── security.py                    # Destructive/injection/DoS guards
+│   ├── delegate.py                    # Task delegation tools
 │   ├── builtin/
 │   │   ├── basic.py                   # Core tools (read/write/search files)
-│   │   ├── advanced.py                # Utility tools (calc, hash, uuid...)
-│   │   ├── modules.py                 # Web & knowledge tools
-│   │   ├── terminal_pro.py            # 19 terminal/system tools
-│   │   └── terminal_utils.py          # 15 terminal utility tools
-│   ├── mcp/client.py                  # MCP (Model Context Protocol)
-│   ├── delegate.py                    # Task delegation tools
-│   ├── tool_test.py                   # Tool testing framework
-│   └── tool_verify.py                 # Tool verification & caching
+│   │   ├── terminal.py                # Terminal + batch_python (with guards)
+│   │   ├── file_tools.py              # File operations
+│   │   ├── web_tools.py               # Web search & fetch (sanitized)
+│   │   ├── git_tools.py               # Git operations
+│   │   ├── memory_tools.py            # Memory read/write
+│   │   ├── goal_tools.py              # Goal management
+│   │   ├── cron_tools.py              # Cron scheduling
+│   │   ├── bg_task_tool.py            # Background tasks
+│   │   ├── clarify_tool.py            # Clarification questions
+│   │   └── graphify_tools.py          # Knowledge graph
+│   ├── mcp/
+│   │   ├── client.py                  # MCP client (Model Context Protocol)
+│   │   └── tool.py                    # MCP server definitions from config
 │
 ├── providers/                         # LLM provider system
 │   ├── router.py                      # Provider router with fallback chain
-│   └── keys.py                        # Encrypted API key storage
+│   ├── direct_deepseek.py             # Direct HTTP DeepSeek/OmniRoute calls
+│   ├── llm.py                         # litellm streaming interface
+│   └── keys.py                        # API key storage
 │
 ├── agents/                            # Multi-agent system
-│   ├── task_tools.py                  # Task creation & management
-│   └── ...                            # Agent definitions
+│   └── crew.py                        # Agent crew definitions
+│
+├── bg_tools/                          # Background tools
+│   └── task_manager.py                # Async task management
+│
+├── browser/                           # Browser automation
+│   └── client.py                      # Browser client
+│
+├── commands/                          # Slash commands
+│   ├── config_commands.py             # /config
+│   ├── debug_commands.py              # /debug
+│   ├── goal_commands.py               # /goal
+│   ├── session_commands.py            # /sessions, /switch
+│   ├── system_commands.py             # /system
+│   └── tool_commands.py               # /tools
 │
 ├── session/                           # Session management
-│   ├── manager.py                     # SQLAlchemy-based CRUD
-│   └── export.py                      # Export to JSON/MD/HTML
+│   ├── manager.py                     # SQLAlchemy-based CRUD (persistent memory)
+│   └── exporter.py                    # Export to JSON/MD/HTML
 │
-├── memory/                            # Memory system
-│   ├── semantic.py                    # ChromaDB vector memory
-│   ├── episodic.py                    # Episode recording
-│   ├── procedural.py                  # Procedural skill memory
-│   └── auto_extract.py                # Auto-extraction from conversations
+├── memory/                            # Memory system (4-tier)
+│   ├── semantic.py                    # ChromaDB vector memory (RAG)
+│   ├── episodic.py                    # Episode recording (SQLite)
+│   ├── procedural.py                  # Procedural skill memory (.md skills)
+│   └── working.py                     # Working memory (JSON)
 │
 ├── history/                           # File history
-│   └── file_history.py                # Snapshot/restore/diff engine
+│   ├── file_history.py                # Snapshot/restore/diff engine
+│   └── tools.py                       # History tools
 │
 ├── evolution/                         # Self-evolution
-│   ├── self_check.py                  # Pattern learning, code audit, auto-fix
-│   └── tools.py                       # self_check, self_learn tools
+│   └── self_check.py                  # Pattern learning, code audit, auto-fix
 │
 ├── knowledge/                         # Knowledge & search
-│   ├── rag_engine.py                  # RAG with ChromaDB
-│   ├── web_scrape.py                  # Web scraping
-│   └── deep_research.py               # Multi-step research
+│   ├── rag_engine.py                  # RAG with ChromaDB (injection-sanitized)
+│   ├── web_scrape.py                  # Web scraping (injection-sanitized)
+│   ├── web_search.py                  # Web search
+│   ├── deep_research.py               # Multi-step research
+│   └── research_prompts.py            # Research prompt templates
 │
 ├── security/                          # Security layer
-│   ├── approval.py                    # Smart approval mode
-│   ├── sandbox.py                     # Docker sandbox integration
-│   └── auth.py                        # Auth & redaction
+│   ├── approval.py                    # Smart approval mode (HITL)
+│   └── sandbox.py                     # Docker sandbox integration
+│
+├── sandbox/                           # Sandbox backends
+│   ├── docker.py                      # Docker sandbox (network none, read-only)
+│   └── interface.py                   # Sandbox interface
+│
+├── search/                            # Search engine
+│   └── engine.py                      # Search abstraction
 │
 ├── skills/                            # Skill system
-│   ├── manager.py                     # Skill lifecycle
-│   └── store/                         # Skill definitions
+│   ├── manager.py                     # Skill lifecycle + smart selection
+│   ├── _agents/                       # Agent-based skills (reviewer, auditor...)
+│   ├── _references/                   # Reference checklists
+│   └── learned/                       # Self-evolved skills
 │
 ├── soul/                              # Personality system
-│   ├── personality.py                 # System prompt builder
-│   └── soul.md                        # Personality definition file
+│   ├── personality.py                 # System prompt builder (short/long)
+│   └── preferences.py                 # User preferences
 │
 ├── ui/                                # Terminal UI
 │   ├── repl.py                        # Prompt-toolkit REPL
+│   ├── fullscreen_repl.py             # Fullscreen mode
 │   ├── display.py                     # Rich terminal output
-│   ├── status_bar.py                  # Live status bar
+│   ├── status_bar.py                  # Live status bar + token tracking
 │   ├── banner.py                      # Startup banner
 │   ├── setup_wizard.py                # First-run /setup wizard
 │   └── provider_selector.py           # Provider selection menu
 │
-├── gateway/                           # REST API
-│   └── ...                            # FastAPI endpoints
+├── gateway/                           # Web dashboard
+│   ├── app.py                         # FastAPI + WebSocket (rate-limited)
+│   └── static/index.html              # Dashboard UI (thinking panel, tool toggles)
+│
+├── vision/                            # Vision support
+│   └── analyzer.py                    # Image analysis
 │
 ├── export/                            # Export formats
-│   ├── formats.py                     # JSON, Markdown, HTML export
-│   └── ...                            
+│   └── formats.py                     # JSON, Markdown, HTML export
 │
-├── monitoring/                        # Observability
-│   └── metrics.py                     # Token & cost tracking
+├── cron/                              # Cron scheduling
+│   └── scheduler.py                   # Cron scheduler
 │
-├── browser/                           # Playwright browser
-│   └── client.py                      # Browser automation
+├── hooks/                             # Lifecycle hooks
+│   └── lifecycle.py                   # Hook system
 │
-├── tests/                             # Test suite (88+ tests)
+├── tests/                             # Test suite (353+ tests)
+│   ├── core/ orchestrator/ tools/ session/ security/ gateway/ mcp/
+│   ├── bg_tools/ tests/ ...           # Module-mirrored test structure
+│   └── run_all_tests.py               # Test runner
 │
-├── config.yaml                        # Agent configuration
-├── main.py                            # Entry point
-├── start-dorina.sh                    # One-click launcher
-├── soul.md                            # Personality definition
-└── .env.local                         # API keys (gitignored)
+├── _archive/                          # Archived files (debug artifacts, stale skills)
+├── Dockerfile / docker-compose*.yml   # Container deployment
+├── start-dorina.sh                    # Startup script
+└── config.yaml / .env                 # Configuration (never committed)
+```
+└── (yapı yukarıda — proje kökü, config, deployment dosyaları)
 ```
 
 ---
@@ -203,7 +255,7 @@ dorina-agent/                          # Project root
 
 ### Agent Loop
 
-The `AgentLoop` in `orchestrator/agent_loop.py` is the core execution engine.
+The `AgentLoopV2` in `orchestrator/experimental_loop.py` is the core execution engine.
 For every user input, it runs a **persistent task loop**:
 
 ```mermaid
@@ -405,7 +457,6 @@ sequenceDiagram
 | `evolution` | ~2 | self_check, self_learn |
 | `agent` | ~3 | task_create, task_list, task_status |
 | `testing` | ~2 | tool_test, tool_test_all |
-| `planner` | ~1 | run_workflow |
 | **Total** | **66+** | |
 
 ### Tool Executor
@@ -695,101 +746,27 @@ stats = researcher.get_stats()
 
 ## Workflow Engine
 
-The Workflow Engine (`workflows/`) provides **DAG-based workflow execution** inspired by LangGraph's StateGraph and CrewAI Flow patterns.
+## Task Planning & Goals
 
-### Architecture
-
-```mermaid
-graph TD
-    subgraph Workflows
-        GRAPH[WorkflowGraph<br/>graph.py]
-        NODES[Node Types<br/>nodes.py]
-        ENGINE[WorkflowEngine<br/>engine.py]
-        RUNNER[WorkflowRunner<br/>runner.py]
-    end
-    
-    GRAPH -->|nodes + edges| ENGINE
-    NODES -->|instances| ENGINE
-    ENGINE -->|execute| RUNNER
-    
-    subgraph Checkpoints
-        CKPT[Checkpoint Files<br/>data/workflow_checkpoints/*.json]
-    end
-    
-    ENGINE -->|save/load| CKPT
-```
-
-### Node Types
-
-| Node | Class | Description |
-|------|-------|-------------|
-| **Input** | `InputNode` | Entry point — passes input data into the workflow |
-| **Output** | `OutputNode` | Exit point — collects and formats final output |
-| **LLM** | `LLMNode` | Sends a prompt to the language model |
-| **Tool** | `ToolNode` | Executes a registered tool (web_search, read_file, etc.) |
-| **Code** | `CodeNode` | Runs inline Python code with sandboxed execution |
-| **Condition** | `ConditionNode` | Evaluates an expression and routes execution |
-| **Loop** | `LoopNode` | Repeats a subgraph of nodes until condition met |
-| **Terminal** | `TerminalNode` | Executes a shell command |
-| **Sleep** | `SleepNode` | Pauses execution for a given duration |
-
-### Graph Definition
-
-```python
-from workflows.graph import WorkflowGraph
-
-graph = WorkflowGraph()
-graph.add_node("input", "Input", {"description": "User query"})
-graph.add_node("llm1", "LLM", {
-    "prompt": "Analyze this: {input}",
-    "system_prompt": "You are a research assistant.",
-    "temperature": 0.7,
-})
-graph.add_node("tool1", "Tool", {
-    "tool": "web_search",
-    "params": {"query": "{input}"}
-})
-graph.add_node("condition1", "Condition", {
-    "condition": "len(input) > 100"
-})
-graph.add_node("llm2", "LLM", {
-    "prompt": "Summarize: {input}"
-})
-graph.add_node("output", "Output", {})
-
-# Define edges
-graph.add_edge("input", "llm1")
-graph.add_edge("llm1", "tool1")
-graph.add_edge("tool1", "condition1")
-graph.add_edge("condition1", "llm2", condition="true")   # If long text
-graph.add_edge("condition1", "output", condition="false")  # If short text
-graph.add_edge("llm2", "output")
-```
+The workflow engine (`workflows/`) was removed in cleanup (224382d) — task
+planning now lives in `orchestrator/goal_manager.py` (goal tracking) and the
+`task_*` tools (`tools/builtin/goal_tools.py`). The agent loop plans
+incrementally per user input via the ReAct-style think → act cycle in
+`experimental_loop.py`.
 
 ### Checkpoint System
 
-The engine supports **save/restore checkpoints** for workflow execution:
+`orchestrator/checkpoint.py` provides durable checkpoints for conversation
+state — auto-checkpoints every N turns plus manual snapshots via command:
 
 ```python
-from workflows.engine import WorkflowEngine
+from orchestrator.checkpoint import checkpoint_manager
 
-engine = WorkflowEngine()
-
-# Execute and auto-save checkpoints
-state = await engine.run(graph, input_data="Hello")
-
-# List checkpoints
-checkpoints = engine.get_checkpoints()
-
-# Resume from checkpoint
-state = await engine.resume("execution-id-here")
+# Auto-saved during runs; resume from a checkpoint
+state = checkpoint_manager.load("execution-id-here")
 ```
 
-### Integration
-
-- **`workflows/runner.py`**: Provides backward-compatible `WorkflowRunner` with both simple step-based and DAG-based execution
-- **`tools/builtin/modules.py`**: The `run_workflow` tool uses `WorkflowRunner.execute()` for step-based workflows
-- The engine auto-creates checkpoints in `data/workflow_checkpoints/` after each node completion
+Checkpoint files live in `data/workflow_checkpoints/`.
 
 ---
 
