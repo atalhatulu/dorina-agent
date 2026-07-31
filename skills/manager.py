@@ -183,9 +183,10 @@ created_at: {datetime.now(timezone.utc).isoformat()}
             return []
 
         scored.sort(key=lambda x: -x[0])
-        # Only load the top 3 most relevant skills to keep prompt small
+        # Only load the top N most relevant skills to keep prompt small
+        from core.constants import SKILL_MAX_LOAD
         applicable = []
-        for score, skill in scored[:3]:
+        for score, skill in scored[:SKILL_MAX_LOAD]:
             content = self.procedural.get_skill(skill.get("name", ""))
             if isinstance(content, dict):
                 content = content.get("content", "") or str(content)

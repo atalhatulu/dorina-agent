@@ -138,6 +138,9 @@ SKILL_TRIGGER_KEYWORDS = {
 # Which skills auto-load at session start
 SKILL_AUTO_LOAD_THRESHOLD = 1  # How many keyword matches trigger auto-loading
 
+# Max skills injected into the prompt per query (token control)
+SKILL_MAX_LOAD = 3
+
 # ── P0-06: Prompt Caching ──────────────────────────────────────
 # Cache TTL (seconds)
 CACHE_TTL = 3600  # 1 saat

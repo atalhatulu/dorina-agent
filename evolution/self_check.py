@@ -323,6 +323,7 @@ When {tool_name} tool needs to be called.
             "suggestions": 0,
             "skills_learned": len(self.learned_patterns),
             "total_skills": len(list(self.skill_dir.glob("*.md"))),
+            "skills_archived": 0,
         }
         
         # Scan for bugs
@@ -339,6 +340,16 @@ When {tool_name} tool needs to be called.
         # Improvement suggestions
         suggestions = self.suggest_improvements()
         result["suggestions"] = len(suggestions)
+
+        # Groom stale skills — archive old/unused skills to cut prompt tokens
+        try:
+            from skills.manager import skills as _skills_mgr
+            archived = _skills_mgr.archive_stale_skills(days=90, max_active=10)
+            result["skills_archived"] = len(archived)
+            if archived:
+                log.info("Skill grooming: %d archived: %s", len(archived), archived)
+        except (ImportError, AttributeError, OSError):
+            pass
         
         log.info(f"✅ Self-check complete: {result}")
         return result
