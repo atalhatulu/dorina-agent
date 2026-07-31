@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Create config
+        run: |
+          mkdir -p ~/.dorina
+          cp config.yaml.example ~/.dorina/config.yaml 2>/dev/null || cp config.yaml ~/.dorina/config.yaml
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -q --timeout=60 2>&1 | tee test_output.log
+        env:
+          DEEPSEEK_API_KEY: "test-key-not-used"
+          DORINA_API_BASE: "http://localhost:9999/v1"
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: test_output.log
