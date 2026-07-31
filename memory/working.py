@@ -66,5 +66,43 @@ class WorkingMemory(BaseMemory):
         return self.messages
 
     def _trim(self):
+        """Group-aware trim: never leave orphaned tool messages behind.
+
+        An assistant message with tool_calls and its matching tool results
+        must be removed together — models reject orphaned tool messages.
+        """
         while len(self.messages) > self.max_messages:
+            if not self.messages:
+                break
+
+            head = self.messages[0]
+
+            # Case A: head is an assistant(tool_calls) message — drop it
+            # together with its consecutive tool results.
+            if head.get("role") == "assistant" and head.get("tool_calls"):
+                n_calls = len(head.get("tool_calls") or [])
+                drop = 1 + n_calls  # assistant + its tool results
+                # Some models return fewer tool msgs than calls — clamp.
+                drop = min(drop, len(self.messages))
+                del self.messages[:drop]
+                continue
+
+            # Case B: head is a tool message with no preceding anchor —
+            # drop the tool run together with the assistant that started it.
+            if head.get("role") == "tool":
+                drop_count = 1
+                for m in self.messages[1:]:
+                    if m.get("role") == "tool":
+                        drop_count += 1
+                    else:
+                        break
+                # Find the assistant(tool_calls) that started this group.
+                for i in range(1, len(self.messages)):
+                    if self.messages[i].get("role") == "assistant" and self.messages[i].get("tool_calls"):
+                        del self.messages[i:i + drop_count]
+                        break
+                else:
+                    del self.messages[:drop_count]
+                continue
+
             self.messages.pop(0)

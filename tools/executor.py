@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import asyncio
 import traceback
+import concurrent.futures
 from tools.registry import registry, ToolDef
 from core.logger import log
 from core.event_bus import bus
@@ -12,6 +13,10 @@ from core.error_classifier import sanitize_tool_error, classify_api_error, Failo
 from hooks.lifecycle import pipeline
 from security.approval import approval as _approval
 from tools.toolset import get_active_toolsets
+
+# Shared pool for sync-context async tool execution — creating a new
+# ThreadPoolExecutor per call was a serious overhead under heavy tool usage.
+_SYNC_TOOL_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="tool-exec")
 
 
 class ToolError(Exception):
@@ -38,8 +43,8 @@ def _validate_required_params(tool: ToolDef, arguments: dict) -> list[str]:
             missing.append(p)
         elif arguments[p] is None:
             missing.append(p)
-        elif isinstance(arguments[p], str) and arguments[p].strip() == "":
-            missing.append(p)
+        # Empty string is a VALID value (e.g. write_file(content="") to clear a
+        # file) — only treat as missing when the key is absent or None.
     return missing
 
 
@@ -260,10 +265,8 @@ class ToolExecutor:
                 if _ins.iscoroutinefunction(tool.handler):
                     try:
                         loop = _aio.get_running_loop()
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                            fut = pool.submit(_aio.run, tool.handler(**resolved_args))
-                            result = fut.result(timeout=timeout)
+                        fut = _SYNC_TOOL_POOL.submit(_aio.run, tool.handler(**resolved_args))
+                        result = fut.result(timeout=timeout)
                     except RuntimeError:
                         result = _aio.run(tool.handler(**resolved_args))
                 else:
@@ -272,10 +275,8 @@ class ToolExecutor:
                         try:
                             try:
                                 loop = _aio.get_running_loop()
-                                import concurrent.futures
-                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                                    fut = pool.submit(_aio.run, result)
-                                    result = fut.result(timeout=timeout)
+                                fut = _SYNC_TOOL_POOL.submit(_aio.run, result)
+                                result = fut.result(timeout=timeout)
                             except RuntimeError:
                                 result = _aio.run(result)
                         except TypeError:

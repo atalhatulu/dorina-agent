@@ -13,6 +13,7 @@ from core.logger import log
 
 import inspect
 import asyncio
+import threading
 
 
 class EventBus:
@@ -20,6 +21,9 @@ class EventBus:
 
     def __init__(self):
         self._subscribers: dict[str, list[tuple[str, Any]]] = defaultdict(list)
+        # Thread safety: publish/subscribe/unsubscribe can be called from
+        # worker threads (e.g. ThreadPoolExecutor in tools/executor.py).
+        self._lock = threading.Lock()
 
     def subscribe(self, event: str, callback: Callable, subscriber_id: str | None = None) -> str:
         """Subscribe to an event. Returns an ID to unsubscribe with."""
@@ -31,19 +35,23 @@ class EventBus:
                 ref = callback
         except TypeError:
             ref = callback
-        self._subscribers[event].append((sid, ref))
+        with self._lock:
+            self._subscribers[event].append((sid, ref))
         return sid
 
     def unsubscribe(self, event: str, subscriber_id: str):
         """Unsubscribe from an event."""
-        self._subscribers[event] = [
-            (sid, ref) for sid, ref in self._subscribers[event] if sid != subscriber_id
-        ]
+        with self._lock:
+            self._subscribers[event] = [
+                (sid, ref) for sid, ref in self._subscribers[event] if sid != subscriber_id
+            ]
 
     def publish(self, event: str, **data: Any):
         """Fire an event. Notify all subscribers."""
         dead = []
-        for sid, ref in list(self._subscribers.get(event, [])):
+        with self._lock:
+            subs = list(self._subscribers.get(event, []))
+        for sid, ref in subs:
             if isinstance(ref, (weakref.WeakMethod, weakref.ref)):
                 callback = ref()
                 if callback is None:
@@ -64,9 +72,10 @@ class EventBus:
                 log.error(f"Event handler error [{sid}]: {e}")
 
         if dead:
-            self._subscribers[event] = [
-                (s, r) for s, r in self._subscribers[event] if (s, r) not in dead
-            ]
+            with self._lock:
+                self._subscribers[event] = [
+                    (s, r) for s, r in self._subscribers[event] if (s, r) not in dead
+                ]
 
     def clear(self):
         """Clear all subscriptions."""

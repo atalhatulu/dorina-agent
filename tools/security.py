@@ -80,7 +80,8 @@ def is_blocked_path(path: str) -> bool:
     for blocked in BLOCKED_PATHS:
         if blocked == "/root" and (p == home or str(p).startswith(str(home))):
             continue
-        if str(p).startswith(blocked):
+        # Directory-boundary aware match: "/root" must not match "/root_workspace"
+        if str(p) == blocked or str(p).startswith(blocked + "/"):
             return True
     return False
 
@@ -165,7 +166,8 @@ def redact_secrets(text: str) -> str:
     """Mask API key-like patterns in text."""
     patterns = [
         (r'sk-or-v1-[a-zA-Z0-9]{10,}', 'sk-or-v1-****'),
-        (r'sk-[a-zA-Z0-9]{20,}', 'sk-****'),
+        # Underscore/hyphen included — modern keys often contain them
+        (r'sk-[a-zA-Z0-9_-]{20,}', 'sk-****'),
         (r'ghp_[a-zA-Z0-9]{36}', 'ghp_****'),
         (r'AKIA[0-9A-Z]{16}', 'AKIA****'),
         (r'AIza[0-9A-Za-z\-_]{35}', 'AIza****'),
