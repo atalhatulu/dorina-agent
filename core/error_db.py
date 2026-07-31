@@ -13,6 +13,8 @@ import traceback
 _DB_PATH = DORINA_HOME / "data" / "error_log.db"
 _conn = None
 _db_ok = False
+import threading
+_db_lock = threading.Lock()  # SQLite is not thread-safe — serialize all writes
 
 
 def _get_conn():
@@ -20,37 +22,45 @@ def _get_conn():
     global _conn, _db_ok
     if _conn is not None:
         return _conn
-    try:
-        import sqlite3
-        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
-        _conn.execute("""
-            CREATE TABLE IF NOT EXISTS error_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                source TEXT,
-                error_type TEXT,
-                error_msg TEXT,
-                traceback TEXT,
-                context TEXT
-            )
-        """)
-        _conn.execute("""
-            CREATE TABLE IF NOT EXISTS error_patterns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pattern_key TEXT UNIQUE,
-                count INTEGER DEFAULT 1,
-                first_seen TEXT,
-                last_seen TEXT,
-                last_error_msg TEXT,
-                last_source TEXT
-            )
-        """)
-        _conn.commit()
-        _db_ok = True
-    except Exception:
-        _conn = None
-        _db_ok = False
+    with _db_lock:
+        if _conn is not None:
+            return _conn
+        try:
+            import sqlite3
+            _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
+            _conn.execute("""
+                CREATE TABLE IF NOT EXISTS error_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT,
+                    source TEXT,
+                    error_type TEXT,
+                    error_msg TEXT,
+                    traceback TEXT,
+                    context TEXT
+                )
+            """)
+            _conn.execute("""
+                CREATE TABLE IF NOT EXISTS error_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern_key TEXT UNIQUE,
+                    count INTEGER DEFAULT 1,
+                    first_seen TEXT,
+                    last_seen TEXT,
+                    last_error_msg TEXT,
+                    last_source TEXT
+                )
+            """)
+            _conn.commit()
+            _db_ok = True
+        except Exception as e:
+            _conn = None
+            _db_ok = False
+            try:
+                from core.logger import log as _log_db
+                _log_db.warning("error_db init failed: %s", e)
+            except Exception:
+                pass
     return _conn
 
 
@@ -82,14 +92,15 @@ def _log(source: str, error_type: str, error_msg: str, context: str = ""):
         return
     try:
         conn = _get_conn()
-        conn.execute(
-            "INSERT INTO error_log (timestamp, source, error_type, error_msg, traceback, context) VALUES (?, ?, ?, ?, ?, ?)",
-            (datetime.now(timezone.utc).isoformat(), source, error_type, str(error_msg)[:500],
-             traceback.format_exc()[:2000], str(context)[:500])
-        )
-        conn.commit()
-    except Exception:
-        pass
+        with _db_lock:
+            conn.execute(
+                "INSERT INTO error_log (timestamp, source, error_type, error_msg, traceback, context) VALUES (?, ?, ?, ?, ?, ?)",
+                (datetime.now(timezone.utc).isoformat(), source, error_type, str(error_msg)[:500],
+                 traceback.format_exc()[:2000], str(context)[:500])
+            )
+            conn.commit()
+    except Exception as e:
+        log.warning("error_db write failed: %s", e)
 
 
 def log_tool_error(tool_name: str, error: Exception | None = None,
@@ -123,24 +134,27 @@ def log_error_pattern(source: str, error_type: str, error_msg: str = "") -> str:
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn = _get_conn()
-        cursor = conn.execute(
-            "SELECT id, count FROM error_patterns WHERE pattern_key = ?",
-            (pattern_key,),
-        )
-        row = cursor.fetchone()
-        if row:
-            conn.execute(
-                "UPDATE error_patterns SET count = count + 1, last_seen = ?, last_error_msg = ?, last_source = ? WHERE pattern_key = ?",
-                (now, str(error_msg)[:300], str(source)[:100], pattern_key),
+        if conn is None:
+            return pattern_key
+        with _db_lock:
+            cursor = conn.execute(
+                "SELECT id, count FROM error_patterns WHERE pattern_key = ?",
+                (pattern_key,),
             )
-        else:
-            conn.execute(
-                "INSERT INTO error_patterns (pattern_key, count, first_seen, last_seen, last_error_msg, last_source) VALUES (?, 1, ?, ?, ?, ?)",
-                (pattern_key, now, now, str(error_msg)[:300], str(source)[:100]),
-            )
-        conn.commit()
-    except Exception:
-        pass
+            row = cursor.fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE error_patterns SET count = count + 1, last_seen = ?, last_error_msg = ?, last_source = ? WHERE pattern_key = ?",
+                    (now, str(error_msg)[:300], str(source)[:100], pattern_key),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO error_patterns (pattern_key, count, first_seen, last_seen, last_error_msg, last_source) VALUES (?, 1, ?, ?, ?, ?)",
+                    (pattern_key, now, now, str(error_msg)[:300], str(source)[:100]),
+                )
+            conn.commit()
+    except Exception as e:
+        log.warning("error_pattern write failed: %s", e)
 
     return pattern_key
 

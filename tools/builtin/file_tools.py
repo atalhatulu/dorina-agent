@@ -231,8 +231,9 @@ def write_file_tool(path: str, content: str, overwrite: bool = True) -> str:
     # Resolve symlinks and relative parts
     try:
         p = p.resolve()
-    except Exception:
-        pass
+    except Exception as e:
+        from core.logger import log as _log_f
+        _log_f.debug("path resolve failed for %s: %s", p, e)
 
     # Path traversal protection
     try:

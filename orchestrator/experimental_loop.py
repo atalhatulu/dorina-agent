@@ -207,8 +207,8 @@ class AgentLoopV2:
                         await self._on_step("reasoning", "thinking", {"content": reasoning})
                     else:
                         self._on_step("reasoning", "thinking", {"content": reasoning})
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("reasoning stream callback failed: %s", e)
 
             # Status: token kullanimi
             self._update_status(response)
@@ -742,6 +742,9 @@ class AgentLoopV2:
         _status.set_status("idle")
         self.turn = max(0, self.turn - 1)
 
+        # Kullanici mesajini context'e kaydet — hafiza testlerinde gorunmeli
+        self.context.add_user_message(user_input)
+
         text = (user_input or "").lower().strip().rstrip(".!?,")
 
         # Kimlik sorusu: "sen kimsin", "adin ne", "who are you" etc.
@@ -759,20 +762,22 @@ class AgentLoopV2:
             self.context.add_assistant_message(yanit)
             return yanit
 
-        selam_sozu = "Hi" if "hi" in text or "hey" in text else "Hello"
+        # Türkçe selam cevabı — varsa adı da yakala
         words = set(text.split())
         ad = ""
         skip_words = {
             "merhaba", "selam", "hey", "hi", "hello", "naber",
             "nasilsin", "nasılsın", "gunaydin", "günaydın",
             "iyi geceler", "kolay gelsin", "ne haber", "dorina",
+            "ben", "bende", "iyiyim", "senden", "sen",
         }
         for w in words:
             if w not in skip_words:
                 ad = w
                 break
 
-        yanit = f"{selam_sozu}{' ' + ad.title() if ad else ''}! How can I help you?"
+        selam = "Selam" if "selam" in text or "hey" in text else "Merhaba"
+        yanit = f"{selam}{' ' + ad.title() if ad else ''}! Nasıl yardımcı olabilirim? 😊"
         self.context.add_assistant_message(yanit)
         return yanit
 
@@ -831,7 +836,20 @@ class AgentLoopV2:
         _MIN_SAVE = 5
         if len(messages) < _MIN_SAVE:
             return
-        asyncio.ensure_future(self._do_save(messages, summary, quick))
+        # Fire-and-forget with exception safety — avoid "Task destroyed" warnings
+        try:
+            _task = asyncio.create_task(self._do_save(messages, summary, quick))
+            _task.add_done_callback(
+                lambda t: t.exception() and log.warning(
+                    "session save failed: %s", t.exception()
+                )
+            )
+        except RuntimeError:
+            # No running event loop — save synchronously
+            try:
+                session_manager.save(messages, summary=summary)
+            except Exception as e:
+                log.warning("session save (sync fallback) failed: %s", e)
 
     async def _do_save(self, messages: list[dict], summary: str = "", quick: bool = False):
         try:

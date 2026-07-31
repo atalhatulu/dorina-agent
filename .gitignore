@@ -12,6 +12,7 @@
 !README.md
 !app.py
 !config.yaml.example
+!.env.example
 !docker-compose.prod.yml
 !docker-compose.yml
 !install.ps1
@@ -41,25 +42,56 @@ venv/
 # Environment
 .env
 *.env
+*.env.*
+!.env.example
 config.yaml
+config.prod.yaml
+config.local.yaml
+# ─── SIZINTI KORUMASI (alt klasörler dahil) ───
+# Kök whitelist (!/*/) tüm klasörleri açar — bu desenler her derinlikte çalışır
+**/.env*
+!.env.example
+**/secrets/
+**/keys/
+**/credentials*
+**/id_rsa*
+**/*.pem
+**/*.p12
+**/*.key
+**/*.p8
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.dump
+**/*.tar.gz.gpg
+**/session_*
+**/checkpoints/
+**/learned/
+**/snapshots/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*.code-workspace
 
 # OS
 .DS_Store
 Thumbs.db
+.desktop.ini
 
-# Project data
+# Project data (runtime — asla repo'ya girmez)
 data/
+sessions/
 export/session_*
 .backup/
+*.bak
+*.backup
 
 # Logs
 *.log
+logs/
 
 # Tests
 .pytest_cache/
@@ -70,11 +102,12 @@ htmlcov/
 
 # Docker
 docker-compose.override.yml
+docker-compose.local.yml
 
 # Archives / backups
-*.bak
-*.backup
 .env.local
+.env.production
+.env.development
 
 # Claude Code local settings
 .claude/
@@ -83,4 +116,3 @@ docker-compose.override.yml
 graphify-out/
 .graphify_*.json
 chunk_*.json
-.backup/
