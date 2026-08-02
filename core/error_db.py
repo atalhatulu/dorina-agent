@@ -51,6 +51,24 @@ def _get_conn():
                     last_source TEXT
                 )
             """)
+            # ── Migration: eski DB'lerde kolon farkları — ALTER ile düzelt ──
+            # (CREATE TABLE IF NOT EXISTS mevcut tabloya kolon eklemez)
+            try:
+                _cols = {r[1] for r in _conn.execute("PRAGMA table_info(error_log)")}
+                if "source" not in _cols:
+                    _conn.execute("ALTER TABLE error_log ADD COLUMN source TEXT")
+                # Eski şemada error_msg yerine message vardı — rename et
+                if "error_msg" not in _cols and "message" in _cols:
+                    _conn.execute("ALTER TABLE error_log RENAME COLUMN message TO error_msg")
+                elif "error_msg" not in _cols:
+                    _conn.execute("ALTER TABLE error_log ADD COLUMN error_msg TEXT")
+                _conn.commit()
+            except Exception as _mig_err:
+                try:
+                    from core.logger import log as _log_db
+                    _log_db.warning("error_log migration failed: %s", _mig_err)
+                except Exception:
+                    pass
             _conn.commit()
             _db_ok = True
         except Exception as e:

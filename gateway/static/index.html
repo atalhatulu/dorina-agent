@@ -558,10 +558,10 @@ msgInput.addEventListener('keydown', e => {
   else if (e.key === 'Enter' && e.ctrlKey && !uiSettings.enterSend) { e.preventDefault(); sendMsg(); }
 });
 applySettingsToUI();
-connectWS(); loadStatus(); msgInput.focus();
-
 // ── Auth token (optional) ──
 // Sunucuda DORINA_DASHBOARD_TOKEN tanımlıysa istemci token ister.
+// NOT: authToken, loadStatus()/connectWS() çağrılmadan ÖNCE tanımlanmalı —
+// aksi halde TDZ (temporal dead zone) hatası script'i erken öldürür.
 const AUTH_KEY = 'dorina_dashboard_token';
 let authToken = localStorage.getItem(AUTH_KEY) || '';
 function getAuthToken() {
@@ -575,6 +575,7 @@ function authHeaders() {
   if (authToken) h['X-Dashboard-Token'] = authToken;
   return h;
 }
+connectWS(); loadStatus(); msgInput.focus();
 
 // ── WebSocket ──
 function connectWS() {

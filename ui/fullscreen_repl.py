@@ -28,6 +28,13 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.layout import Layout, HSplit, Window, FormattedTextControl, BufferControl
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.history import FileHistory
+import re
+
+class SafeFileHistory(FileHistory):
+    def append_string(self, string: str) -> None:
+        if re.search(r'(?i)(şifre|parola|token|sudo)', string):
+            return
+        super().append_string(string)
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.formatted_text.base import to_formatted_text
@@ -75,7 +82,7 @@ class FullScreenREPL:
 
         self._input_buffer = Buffer(
             completer=DorinaCompleter(self._build_nested_completer()),
-            history=FileHistory(str(HISTORY_FILE)),
+            history=SafeFileHistory(str(HISTORY_FILE)),
             auto_suggest=AutoSuggestFromHistory(),
         )
         self.application = self._create_application()

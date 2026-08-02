@@ -11,6 +11,15 @@ from core.constants import DORINA_HOME
 BASE_DIR = DORINA_HOME / "sessions"
 MAX_SESSIONS = 500  # En fazla 500 session sakla
 
+def _redact_export(text: str) -> str:
+    from tools.security import redact_secrets
+    import re
+    if not text:
+        return text
+    text = redact_secrets(text)
+    text = re.sub(r'(?i)(şifrem|parolam|sudo)\s*[:=]?\s*\d+', r'\1 ****', text)
+    return text
+
 
 def _ensure_dir(session_id: str) -> Path:
     """Tarihe gore klasor olustur: ~/.dorina/sessions/YYYY/MM/DD/"""
@@ -96,7 +105,7 @@ def export_session(session_id: str, messages: list[dict] = None,
             
             if role == "user":
                 md_lines.append("### 👤 Prompt")
-                md_lines.append(content or "")
+                md_lines.append(_redact_export(content) or "")
                 md_lines.append("")
             elif role == "assistant":
                 if tool_calls:
@@ -104,17 +113,17 @@ def export_session(session_id: str, messages: list[dict] = None,
                     for tc in tool_calls:
                         fn = tc.get("function", {})
                         n = fn.get("name", "?")
-                        a = str(fn.get("arguments", ""))[:80]
+                        a = _redact_export(str(fn.get("arguments", "")))[:80]
                         names.append(f"{n}(...)")
                     md_lines.append(f"### 🤖 Dorina — {', '.join(names)}")
                     md_lines.append("")
                 elif content:
                     md_lines.append("### 🤖 Dorina")
-                    md_lines.append(content.strip())
+                    md_lines.append(_redact_export(content).strip())
                     md_lines.append("")
             elif role == "tool":
                 name = msg.get("name", "?")
-                result = str(msg.get("content", ""))[:80]
+                result = _redact_export(str(msg.get("content", "")))[:80]
                 md_lines.append(f"  *{name}:* {result}")
     else:
         md_lines.append("(mesaj yok)")
