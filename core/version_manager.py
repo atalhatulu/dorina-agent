@@ -1,14 +1,12 @@
 """
-Version Manager — reads, bumps, and persists the project version.
+Version Manager — reads and persists the project version.
 
 Usage:
     from core.version_manager import VersionManager
 
     v = VersionManager()
-    print(v.current)        # "0.1.0"
-    v.bump_patch()          # "0.1.1"
-    v.bump_minor()          # "0.2.0"
-    v.bump_major()          # "1.0.0"
+    print(v.current)        # "1.0.0"
+    v.current = "1.1.0"     # set + persist to core/version.txt
 
 Auto-saves to disk (core/version.txt).
 """
@@ -30,7 +28,7 @@ class VersionError(Exception):
 
 
 class VersionManager:
-    """Reads, bumps, and persists the project version from/to a file."""
+    """Reads and persists the project version from/to a file."""
 
     def __init__(self, filepath: str | Path | None = None):
         self._file = Path(filepath) if filepath else VERSION_FILE
@@ -70,40 +68,6 @@ class VersionManager:
         self._version_str = value
         self._save()
 
-    # ── Bump ─────────────────────────────────────────────────
-
-    def bump_patch(self) -> str:
-        """Bump patch version: 0.1.0 → 0.1.1"""
-        m = SEMVER_RE.match(self._version_str)
-        if not m:
-            raise VersionError(f"Could not parse current version: {self._version_str}")
-        major, minor, patch, suffix = m.group(1), m.group(2), m.group(3), m.group(4) or ""
-        new = f"{major}.{minor}.{int(patch) + 1}{suffix}"
-        self._version_str = new
-        self._save()
-        return self._version_str
-
-    def bump_minor(self) -> str:
-        """Bump minor version, reset patch: 0.1.0 → 0.2.0"""
-        m = SEMVER_RE.match(self._version_str)
-        if not m:
-            raise VersionError(f"Could not parse current version: {self._version_str}")
-        major, minor, _, suffix = m.group(1), m.group(2), m.group(3), m.group(4) or ""
-        new = f"{major}.{int(minor) + 1}.0{suffix}"
-        self._version_str = new
-        self._save()
-        return self._version_str
-
-    def bump_major(self) -> str:
-        """Bump major version, reset minor and patch: 0.1.0 → 1.0.0"""
-        m = SEMVER_RE.match(self._version_str)
-        if not m:
-            raise VersionError(f"Could not parse current version: {self._version_str}")
-        major, _, _, suffix = m.group(1), m.group(2), m.group(3), m.group(4) or ""
-        new = f"{int(major) + 1}.0.0{suffix}"
-        self._version_str = new
-        self._save()
-        return self._version_str
 
     # ── String representation ────────────────────────────────
 
