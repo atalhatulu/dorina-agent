@@ -96,6 +96,49 @@ async def api_sessions(limit: int = 50):
     return {"sessions": sessions}
 
 
+@app.get("/api/providers", dependencies=[Depends(_check_auth)])
+async def api_providers():
+    """List all providers with models, key status, and current selection."""
+    from providers.keys import keys as key_mgr
+    from core.config import settings
+    providers = []
+    for pid, name in key_mgr.list_providers():
+        info = key_mgr.get_provider_info(pid) or {}
+        providers.append({
+            "id": pid,
+            "name": name,
+            "models": key_mgr.get_models(pid) or [],
+            "needs_key": bool(info.get("needs_key", True)),
+            "has_key": key_mgr.has_key(pid),
+        })
+    return {
+        "providers": providers,
+        "current": {
+            "provider": settings.model.provider,
+            "model": settings.model.default,
+        },
+    }
+
+
+@app.post("/api/setup", dependencies=[Depends(_check_auth)])
+async def api_setup(data: dict):
+    """Set provider + model (optionally an API key). Persists to config.yaml + providers.json."""
+    from providers.keys import keys as key_mgr
+    from core.config import settings
+    provider = (data.get("provider") or "").strip()
+    model = (data.get("model") or "").strip()
+    api_key = (data.get("api_key") or "").strip()
+    if not provider:
+        raise HTTPException(400, "provider gerekli")
+    info = key_mgr.get_provider_info(provider)
+    if info is None:
+        raise HTTPException(404, f"Bilinmeyen sağlayıcı: {provider}")
+    if api_key and info.get("needs_key", True):
+        key_mgr.save_key(provider, api_key)
+    key_mgr.switch_to(provider, model or None)
+    return {"ok": True, "provider": provider, "model": settings.model.default}
+
+
 @app.post("/api/sessions", dependencies=[Depends(_check_auth)])
 async def api_create_session():
     sid = session_manager.create(title="Web Session")

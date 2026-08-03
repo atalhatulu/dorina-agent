@@ -441,6 +441,35 @@
     </div>
     <div class="modal-body">
 
+      <style>
+        .cfg-select, .cfg-input { width: 100%; background:#16161e; color:#ddd; border:1px solid #2a2a35; border-radius:6px; padding:6px 8px; font-size:13px; font-family:var(--mono, monospace); }
+        .cfg-select:focus, .cfg-input:focus { outline:none; border-color:#d4622a; }
+        .cfg-btn { background:#d4622a; color:#fff; border:none; border-radius:6px; padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+        .cfg-btn:hover { filter:brightness(1.1); }
+        .cfg-btn:disabled { opacity:.5; cursor:default; }
+        .cfg-status { font-size:12px; color:#8f8f9a; font-family:var(--mono, monospace); }
+      </style>
+
+      <div class="set-section">
+        <div class="ss-label">Sağlayıcı &amp; Model</div>
+        <div class="set-row">
+          <span class="sr-label">Sağlayıcı</span>
+          <select class="cfg-select" id="cfgProvider" onchange="onProviderChange()" style="max-width:220px;"></select>
+        </div>
+        <div class="set-row">
+          <span class="sr-label">Model</span>
+          <select class="cfg-select" id="cfgModel" style="max-width:220px;"></select>
+        </div>
+        <div class="set-row" id="cfgKeyRow">
+          <span class="sr-label">API anahtarı</span>
+          <input type="password" class="cfg-input" id="cfgKey" autocomplete="off" style="max-width:220px;">
+        </div>
+        <div class="set-row" style="margin-top:6px;">
+          <button class="cfg-btn" id="cfgApplyBtn" onclick="applySetup()">Kaydet &amp; Uygula</button>
+          <span class="cfg-status" id="cfgStatus"></span>
+        </div>
+      </div>
+
       <div class="set-section">
         <div class="ss-label">Model &amp; Durum</div>
         <div class="set-row">
@@ -457,7 +486,7 @@
         </div>
         <div class="set-row" style="margin-top:4px;">
           <div>
-            <div class="sr-desc">Model/sağlayıcı değişimi backend tarafında <code style="font-family:var(--mono)">/provider</code> komutuyla yapılır — bu panel salt-okunur durum gösterir.</div>
+            <div class="sr-desc">Aktif durum (sağlayıcı/model seçimi yukarıdaki panelden yapılır).</div>
           </div>
         </div>
       </div>
@@ -540,6 +569,7 @@ function toggleSetting(el, key) {
 function openSettings() {
   document.getElementById('setSessionCount').textContent = allSessions.length;
   document.getElementById('settingsOverlay').classList.add('open');
+  loadProviders();
 }
 function closeSettings() { document.getElementById('settingsOverlay').classList.remove('open'); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSettings(); });
@@ -940,6 +970,91 @@ function searchSessions(q) {
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(d => renderSessions(d.results))
     .catch(() => {});
+}
+
+// ── Provider & Model setup ──
+let cfgProviders = [];
+let cfgCurrentModel = '';
+let cfgCurrentProvider = '';
+function loadProviders() {
+  fetch('/api/providers', { headers: authHeaders() })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(d => {
+      cfgProviders = d.providers || [];
+      cfgCurrentModel = (d.current && d.current.model) || '';
+      cfgCurrentProvider = (d.current && d.current.provider) || '';
+      const sel = document.getElementById('cfgProvider');
+      if (!sel) return;
+      sel.innerHTML = '';
+      for (const p of cfgProviders) {
+        const o = document.createElement('option');
+        o.value = p.id;
+        o.textContent = p.name + (p.has_key ? ' ✓' : '');
+        sel.appendChild(o);
+      }
+      sel.value = cfgProviders.some(p => p.id === cfgCurrentProvider) ? cfgCurrentProvider : (cfgProviders[0] ? cfgProviders[0].id : '');
+      onProviderChange();
+    })
+    .catch(() => {});
+}
+function onProviderChange() {
+  const sel = document.getElementById('cfgProvider');
+  const mdl = document.getElementById('cfgModel');
+  const keyRow = document.getElementById('cfgKeyRow');
+  const keyInp = document.getElementById('cfgKey');
+  const p = cfgProviders.find(x => x.id === sel.value);
+  if (!p || !mdl) return;
+  mdl.innerHTML = '';
+  // Mevcut model full string ise (ozel prefix, orn. oc/...) onu koru
+  const curBare = cfgCurrentModel.split('/').pop();
+  const isCurProvider = sel.value === cfgCurrentProvider;
+  const curFits = isCurProvider && (p.models || []).some(m => m === curBare);
+  if (curFits && cfgCurrentModel.indexOf('/') >= 0) {
+    const o = document.createElement('option');
+    o.value = cfgCurrentModel;
+    o.textContent = cfgCurrentModel + ' (mevcut)';
+    mdl.appendChild(o);
+  }
+  for (const m of (p.models || [])) {
+    const o = document.createElement('option');
+    o.value = m;
+    o.textContent = m;
+    mdl.appendChild(o);
+  }
+  if (curFits && cfgCurrentModel.indexOf('/') >= 0) mdl.value = cfgCurrentModel;
+  if (keyRow) {
+    keyRow.style.display = p.needs_key ? '' : 'none';
+    if (keyInp) {
+      keyInp.placeholder = p.needs_key
+        ? (p.has_key ? 'Anahtar mevcut — değiştirmek için yaz' : 'API anahtarı girin')
+        : '';
+      keyInp.value = '';
+    }
+  }
+}
+function applySetup() {
+  const btn = document.getElementById('cfgApplyBtn');
+  const st = document.getElementById('cfgStatus');
+  if (!btn || !st) return;
+  btn.disabled = true;
+  st.textContent = 'kaydediliyor…';
+  const body = {
+    provider: document.getElementById('cfgProvider').value,
+    model: document.getElementById('cfgModel').value,
+    api_key: document.getElementById('cfgKey').value,
+  };
+  fetch('/api/setup', {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+    body: JSON.stringify(body),
+  })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(d => {
+      st.textContent = '✓ ' + d.model;
+      loadStatus();
+      setTimeout(() => { st.textContent = ''; btn.disabled = false; }, 2500);
+    })
+    .catch(err => { st.textContent = 'hata: ' + err; btn.disabled = false; });
 }
 
 // ── Status ──

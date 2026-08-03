@@ -376,7 +376,7 @@ python -m gateway.app
 # Dashboard → http://localhost:5792
 ```
 
-Local only (127.0.0.1), no cloud.
+Local only (127.0.0.1), no cloud. Ayarlar modalından **sağlayıcı + model seçimi ve API anahtarı girişi** web üzerinden yapılabilir (config.yaml + providers.json'a kalıcı yazılır).
 
 ---
 
