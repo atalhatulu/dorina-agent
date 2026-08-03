@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Dorina Agent — tek komut kurulum
-# Usage: curl -fsSL https://raw.githubusercontent.com/atalhatulu/dorina-agent/main/scripts/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/atalhatulu/dorina-agent/main/install.sh | bash
 
 REPO="https://github.com/atalhatulu/dorina-agent"
 INSTALL_DIR="${DORINA_DIR:-$HOME/.dorina}"
@@ -85,7 +85,7 @@ echo ""
 echo "==> Dorina Agent kuruldu! 🚀"
 echo ""
 echo "  Kullanmak icin: dorina"
-echo "  API key eklemek icin: $INSTALL_DIR/keys.json"
+echo "  API key eklemek icin: $INSTALL_DIR/providers.json"
 echo "  Config: $INSTALL_DIR/config.yaml"
 echo ""
 echo "  Ilk calistirmada profil wizardi acilir."

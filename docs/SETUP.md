@@ -1,7 +1,7 @@
 # Dorina Agent Setup Guide
 
-> **Version:** 2.0.0  
-> **Python:** 3.10+ required (3.14 recommended)  
+> **Version:** 1.0.0
+> **Python:** 3.10+ required (3.14 recommended)
 > **OS:** Linux (primary), macOS, WSL
 
 ---
@@ -15,6 +15,7 @@
 - [First Run](#first-run)
 - [Usage](#usage)
 - [Commands](#commands)
+- [Web Dashboard](#web-dashboard)
 - [Advanced Setup](#advanced-setup)
 - [Troubleshooting](#troubleshooting)
 
@@ -41,13 +42,6 @@
 | **Local LLM** | Ollama | `curl -fsSL https://ollama.com/install.sh \| sh` |
 | **Vector search** | ChromaDB | Installed automatically with dependencies |
 
-### Check your Python version
-
-```bash
-python3 --version
-# Should be Python 3.10.x or higher
-```
-
 ---
 
 ## Quick Install
@@ -68,11 +62,21 @@ chmod +x start-dorina.sh
 
 The `start-dorina.sh` script does everything automatically:
 1. Creates a Python virtual environment (`.venv/`)
-2. Installs core dependencies via pip
+2. Installs dependencies via pip (`pip install .`)
 3. Installs the `dorina` command to `~/.local/bin/dorina`
 4. Launches the agent
 
-### Option 2: Manual Install
+### Option 2: Curl one-liner
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/atalhatulu/dorina-agent/main/install.sh | bash
+```
+
+Installs to `~/.dorina/` (override with `DORINA_DIR`), creates the venv,
+adds the `dorina` command to your PATH, and copies the config template.
+Then just run `dorina`.
+
+### Option 3: Manual Install
 
 ```bash
 # 1. Clone
@@ -90,24 +94,19 @@ pip install -e .
 python main.py
 ```
 
-### Option 3: Desktop Shortcut
-
-Double-click `dorina-agent.desktop` on your desktop (auto-created during setup).
-
 ---
 
 ## API Keys
 
-Dorina Agent requires API keys for LLM access. At minimum, you need a
-**DeepSeek** API key.
+Dorina stores all provider metadata, API keys, and model lists in a single
+file: **`~/.dorina/providers.json`**. The `/setup` wizard fills this file for
+you. A project-root `.env` file is an optional override for development.
 
 ### Quick key setup
 
-Copy the example env file and fill in your keys:
-
 ```bash
-cp .env.example .env.local
-# Edit .env.local with your API keys
+cp .env.example .env
+# Edit .env with your API keys (only needed if you don't use /setup)
 ```
 
 ### Where to get keys
@@ -122,38 +121,51 @@ cp .env.example .env.local
 | **Google/Gemini** | Free tier | https://aistudio.google.com/ |
 | **Ollama** | Free (local) | No key required — `ollama pull llama3` |
 
-### .env.local format
+### .env format
 
 ```bash
-# Primary: DeepSeek (recommended — free tier available)
-DEEPSEEK_API_KEY=sk-your-deepseek-key-here
+# Required: at least one provider key
+DEEPSEEK_API_KEY=sk-...
+OPENROUTER_API_KEY=sk-...
+GROQ_API_KEY=gsk-...
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
 
-# Backup: Groq (free, very fast)
-GROQ_API_KEY=gsk_your-groq-key
+# Optional: HuggingFace token (for model download)
+HF_TOKEN=
 
-# Backup: OpenRouter (200+ models)
-OPENROUTER_API_KEY=sk-or-your-key-here
-
-# Local: Ollama (no key needed)
-OLLAMA_HOST=http://localhost:11434
-
-# Email (optional — for send_email tool)
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-EMAIL_ADDR=your@email.com
-EMAIL_PASS=your-app-password
+# MCP: GitHub integration (fine-grained PAT, Contents: read-only, Issues/PRs: write)
+# https://github.com/settings/tokens?type=beta
+GITHUB_TOKEN=
 ```
 
-> **Security note:** `.env.local` is in `.gitignore` and will not be committed.
+> **Security note:** `.env` is in `.gitignore` and will not be committed.
 > Keep your API keys private and never share them.
 
 ---
 
 ## Configuration
 
-### config.yaml
+### Where is the config?
 
-All agent settings are in `config.yaml` at the project root. Key sections:
+The **single source of truth** is `~/.dorina/config.yaml` (DORINA_HOME).
+The project-root `config.yaml.example` is just a template: on first run,
+`ensure_dorina_home()` copies it to `~/.dorina/config.yaml` if it doesn't
+exist yet.
+
+All user data lives under `~/.dorina/`:
+
+| Path | Purpose |
+|------|---------|
+| `~/.dorina/config.yaml` | Model, tools, security, UI settings (single source of truth) |
+| `~/.dorina/providers.json` | API keys + provider metadata |
+| `~/.dorina/setup.json` | Setup wizard output |
+| `~/.dorina/data/sessions.db` | Session database |
+| `~/.dorina/sessions/` | Exported sessions (md/archive) |
+| `~/.dorina/skills/` | Learned skills |
+| `~/.dorina/SOUL.md` | Personality file |
+
+### Key sections of config.yaml
 
 ```yaml
 # ─── Model Configuration ───
@@ -169,16 +181,8 @@ model:
 # ─── Session Configuration ───
 session:
   auto_save: true                        # Auto-save after every exchange
-  max_sessions: 100                      # Max stored sessions
-  storage: sqlite                        # Storage backend
-
-# ─── Memory Configuration ───
-memory:
-  enabled: true
-  vector_store: chroma
-  embedding_model: BAAI/bge-small-en-v1.5
-  max_working_messages: 20
-  auto_extract: true                     # Auto-extract knowledge
+  max_sessions: 100
+  storage: sqlite
 
 # ─── Security Configuration ───
 security:
@@ -195,35 +199,32 @@ security:
 
 # ─── UI Configuration ───
 terminal:
-  markdown: true                         # Enable markdown rendering
-  status_bar: true                       # Show live status bar
-  theme: dark                            # UI theme
+  markdown: true
+  status_bar: true
+  theme: dark
 
 # ─── Soul / Personality ───
 soul:
-  file: soul.md                          # Personality file path
+  file: soul.md
   language: tr                           # Language (tr or en)
-
-# ─── Skills ───
-skills:
-  auto_detect: true
-  enabled: true
-  store_dir: ~/.dorina/skills
 
 # ─── Tools ───
 tools:
   approval_mode: smart
   mcp_enabled: true
-  sandbox: docker
+  sandbox: docker                        # none | docker
 ```
 
 ### Key settings to customize
 
-1. **Model**: Change `model.default` to your preferred model
+1. **Model**: Change `model.default` in `~/.dorina/config.yaml`
 2. **Fallbacks**: Add/remove providers in `model.fallback_providers`
 3. **Language**: Set `soul.language` to `tr` or `en`
-4. **Auto-save**: Toggle `session.auto_save` based on preference
+4. **Auto-save**: Toggle `session.auto_save`
 5. **Security**: Customize `always_allow` and `ask_always` lists
+
+> Model/provider değişikliği `~/.dorina/config.yaml` üzerinden yapılır,
+> proje kökündeki `config.yaml` DEĞİL.
 
 ---
 
@@ -245,7 +246,7 @@ Step 1: Select Provider
   Available: deepseek, groq, openrouter, ollama, ...
 
 Step 2: Enter API Key
-  (securely stored in ~/.dorina/)
+  (securely stored in ~/.dorina/providers.json)
 
 Step 3: Select Model
   (varies by provider)
@@ -260,15 +261,15 @@ The wizard will:
 2. Ask for your API key (entered securely, not echoed)
 3. Let you pick a model from the available options
 4. Configure language and UI preferences
-5. Save settings to `~/.dorina/setup.json` and update `config.yaml`
+5. Save settings to `~/.dorina/setup.json` and update `~/.dorina/config.yaml`
 
 ### Manual setup
 
 If you prefer, you can configure everything manually before running:
 
 ```bash
-# 1. Edit config.yaml with your model preferences
-# 2. Create .env.local with your API keys
+# 1. Edit ~/.dorina/config.yaml with your model preferences
+# 2. Create .env with your API keys
 # 3. Run
 python main.py
 ```
@@ -291,6 +292,8 @@ Type `/setup` at any time to re-run the setup wizard.
 ./start-dorina.sh
 # or
 python main.py
+# or (global command)
+dorina
 ```
 
 This starts the interactive REPL. Type your questions, requests, or commands
@@ -314,7 +317,7 @@ python main.py --new
 
 ```bash
 python main.py --version
-# Output: dorina-agent v2.0.0
+# Output: dorina-agent v1.0.0
 ```
 
 ---
@@ -337,6 +340,14 @@ python main.py --version
 | `/ara <query>` | Search sessions (Turkish: "ara") |
 | `/skills` | List learned skills |
 | `/personality` | Show current personality (soul.md) |
+| `/godmode` | Unlimited mode — no refusals |
+| `/audit` | Audit mode |
+| `/speed` | Fast mode (6 tools, 10 turns, short prompt) |
+| `/temp` | No-save mode |
+| `/budget N` | Set token budget |
+| `/session prune [N]` | Clean old messages |
+| `/session archive [gun]` | Archive old sessions |
+| `/session size` | Show session size |
 | `/verify` | Verify all tools |
 | `/verify <name>` | Verify a specific tool |
 | `/export json` | Export session as JSON |
@@ -352,6 +363,20 @@ python main.py --version
 | `-q "query"` / `--query "query"` | Single query mode |
 | `--new` | Start a new session |
 | `--version` | Show version and exit |
+
+---
+
+## Web Dashboard
+
+Dorina has a local web dashboard (session management, tool steps, token/cost,
+thinking panel):
+
+```bash
+python -m gateway.app
+# Dashboard → http://localhost:5792
+```
+
+Local only (127.0.0.1), no cloud.
 
 ---
 
@@ -403,7 +428,7 @@ dorina --version          # Version info
 For safe code execution, Dorina can run tools inside a Docker container:
 
 ```yaml
-# config.yaml
+# ~/.dorina/config.yaml
 tools:
   sandbox: docker
 ```
@@ -417,9 +442,15 @@ MCP integration allows Dorina to connect to MCP servers for additional
 capabilities:
 
 ```yaml
-# config.yaml
+# ~/.dorina/config.yaml
 tools:
   mcp_enabled: true
+  mcp_servers:
+    - name: github
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+      env:
+        GITHUB_TOKEN: $GITHUB_TOKEN
 ```
 
 MCP tools are auto-discovered and registered on startup.
@@ -428,7 +459,7 @@ MCP tools are auto-discovered and registered on startup.
 
 ## Troubleshooting
 
-### "Python 3.14 not found"
+### "Python 3.10 not found"
 
 Dorina requires Python 3.10+. If you have an older version:
 
@@ -456,10 +487,10 @@ Or let `start-dorina.sh` handle it.
 
 ### "API key not found" / "Provider error"
 
-1. Check that `.env.local` exists and has valid keys
-2. Ensure the provider name in `config.yaml` matches your key
-3. Run `/setup` to configure keys interactively
-4. Check your API key balance/status on the provider website
+1. Check that `~/.dorina/providers.json` exists and has valid keys
+   (or run `/setup` to fill it interactively)
+2. Ensure the provider name in `~/.dorina/config.yaml` matches your key
+3. Check your API key balance/status on the provider website
 
 ### "Playwright browser not found"
 
@@ -473,7 +504,7 @@ python3 -m playwright install chromium
 Either install Docker or disable the sandbox:
 
 ```yaml
-# config.yaml
+# ~/.dorina/config.yaml
 tools:
   sandbox: none   # Disable Docker sandbox
 ```
@@ -492,7 +523,7 @@ ollama pull llama3  # Pull a model
 If you get SQLite locking errors:
 
 ```bash
-rm data/sessions.db   # Reset session database
+rm ~/.dorina/data/sessions.db   # Reset session database
 # Warning: This deletes all saved sessions
 ```
 
@@ -504,9 +535,6 @@ rm -rf .venv/
 
 # Remove setup configuration
 rm -rf ~/.dorina/
-
-# Remove session database
-rm -f data/sessions.db
 
 # Reinstall and reconfigure
 ./start-dorina.sh

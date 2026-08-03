@@ -4,10 +4,10 @@
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-232%20passed-brightgreen)
-![Lines](https://img.shields.io/badge/code-20K%20lines-blue)
+![Tests](https://img.shields.io/badge/tests-351%20collected-brightgreen)
+![Lines](https://img.shields.io/badge/code-24K%20lines-blue)
 
-> ~20K satir, her satir calisiyor. Gelecek planlari icin `FUTURE.md`'ye bak.
+> ~24K satir, her satir calisiyor. Gelecek planlari icin `FUTURE.md`'ye bak.
 
 ## Features
 
@@ -29,14 +29,23 @@
 ## Quick Start
 
 ```bash
+# Tek komutlu kurulum (venv + bağımlılıklar + `dorina` komutu)
+curl -fsSL https://raw.githubusercontent.com/atalhatulu/dorina-agent/main/install.sh | bash
+dorina
+```
+
+Veya repodan çalıştır:
+
+```bash
 git clone https://github.com/atalhatulu/dorina-agent.git
 cd dorina-agent
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-# API key'i ~/.dorina/providers.json'a ekle
-python main.py
+chmod +x start-dorina.sh
+./start-dorina.sh        # venv otomatik kurulur ve agent açılır
 ```
+
+İlk çalıştırmada `/setup` sihirbazı API key'ini `~/.dorina/providers.json`'a
+kaydeder. Tüm ayarlar `~/.dorina/config.yaml`'da (tek kaynak), session verisi
+`~/.dorina/data/sessions.db`'de tutulur — proje kökü temiz kalır.
 
 ## Commands
 
@@ -77,8 +86,8 @@ dorina-agent/
 ├── knowledge/         # Web search, deep research
 ├── memory/            # Semantic, episodic, procedural memory
 ├── skills/            # Skill management
-├── tests/             # 232 tests
-└── FUTURE.md          # Ideas for next versions (NOT in codebase)
+├── tests/             # ~351 tests
+└── FUTURE.md          # Ideas for next versions (bekleyen fikirler)
 ```
 
 ## Tests
@@ -86,7 +95,7 @@ dorina-agent/
 ```bash
 source .venv/bin/activate
 pytest tests/ -q --tb=short
-# 232 passed
+# ~351 collected
 ```
 
 ## Key Design Decisions

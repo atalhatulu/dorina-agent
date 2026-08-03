@@ -8,6 +8,7 @@
 !.gitignore
 !CONTRIBUTING.md
 !Dockerfile
+!FUTURE.md
 !LICENSE
 !README.md
 !app.py
