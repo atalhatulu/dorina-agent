@@ -86,11 +86,7 @@ class TestEpisodicMemory:
     def test_save_and_load_session(self):
         from memory.episodic import EpisodicMemory
         em = EpisodicMemory()
-        em.save_session("test123", "Test Session",
-                        [{"role": "user", "content": "selam"}], "özet")
-        session = em.load_session("test123")
-        assert session is not None
-        assert session["title"] == "Test Session"
-        assert len(session["messages"]) == 1
-        em.delete_session("test123")
-        assert em.load_session("test123") is None
+        em.save_memory("test_key", "test_value", "test")
+        assert em.get_memory("test_key") == "test_value"
+        assert em.delete("test_key") is True
+        assert em.get_memory("test_key") is None

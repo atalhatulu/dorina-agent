@@ -1,8 +1,6 @@
-"""Episodic memory — store session history in SQLite."""
+"""Episodic memory — store reflection/lesson memories in SQLite."""
 
-import json
 import sqlite3
-import warnings
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -14,7 +12,7 @@ DB_PATH = DEFAULT_DATA_DIR / "episodic.db"
 
 
 class EpisodicMemory(BaseMemory):
-    """Stores past sessions."""
+    """Stores past lessons (reflexion) and key-value memories."""
 
     memory_type = "episodic"
 
@@ -25,16 +23,6 @@ class EpisodicMemory(BaseMemory):
         self._init_db()
 
     def _init_db(self):
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                title TEXT,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP,
-                messages TEXT,
-                summary TEXT
-            )
-        """)
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,50 +67,7 @@ class EpisodicMemory(BaseMemory):
         cur = self.conn.execute("SELECT COUNT(*) FROM memories")
         return cur.fetchone()[0]
 
-    # ── Original EpisodicMemory API ────────────────────────────
-
-    def save_session(self, session_id: str, title: str, messages: list[dict], summary: str = ""):
-        warnings.warn(
-            "EpisodicMemory.save_session is deprecated — use session/manager.py instead",
-            DeprecationWarning, stacklevel=2,
-        )
-        now = datetime.now(timezone.utc).isoformat()
-        self.conn.execute(
-            """INSERT OR REPLACE INTO sessions 
-               (id, title, created_at, updated_at, messages, summary)
-               VALUES (?, ?, COALESCE((SELECT created_at FROM sessions WHERE id=?), ?), ?, ?, ?)""",
-            (session_id, title, session_id, now, now, json.dumps(messages, ensure_ascii=False), summary)
-        )
-        self.conn.commit()
-
-    def load_session(self, session_id: str) -> Optional[dict]:
-        warnings.warn(
-            "EpisodicMemory.load_session is deprecated — use session/manager.py instead",
-            DeprecationWarning, stacklevel=2,
-        )
-        cur = self.conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,))
-        row = cur.fetchone()
-        if row:
-            return {
-                "id": row[0],
-                "title": row[1],
-                "created_at": row[2],
-                "updated_at": row[3],
-                "messages": json.loads(row[4]),
-                "summary": row[5],
-            }
-        return None
-
-    def list_sessions(self, limit: int = 20) -> list[dict]:
-        warnings.warn(
-            "EpisodicMemory.list_sessions is deprecated — use session/manager.py instead",
-            DeprecationWarning, stacklevel=2,
-        )
-        cur = self.conn.execute(
-            "SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?",
-            (limit,)
-        )
-        return [{"id": r[0], "title": r[1], "created_at": r[2], "updated_at": r[3]} for r in cur.fetchall()]
+    # ── Core API ────────────────────────────────────────────────
 
     def save_memory(self, key: str, content: str, category: str = "general"):
         now = datetime.now(timezone.utc).isoformat()
@@ -144,11 +89,3 @@ class EpisodicMemory(BaseMemory):
             (f"%{query}%",)
         )
         return [{"key": r[0], "content": r[1], "category": r[2]} for r in cur.fetchall()]
-
-    def delete_session(self, session_id: str):
-        warnings.warn(
-            "EpisodicMemory.delete_session is deprecated — use session/manager.py instead",
-            DeprecationWarning, stacklevel=2,
-        )
-        self.conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
-        self.conn.commit()
