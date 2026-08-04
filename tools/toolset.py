@@ -66,45 +66,8 @@ def get_active_toolsets() -> frozenset[str]:
 
 def _classify_query(user_input: str) -> str:
     """Classify query into: 'read', 'chat', 'code', 'general'."""
-    if not user_input or not user_input.strip():
-        return "general"
-    text = user_input.lower().strip()
-
-    # Read-only info queries — only need WEB
-    read_patterns = [
-        "hava durumu", "weather", "haber", "news", "nedir", "ne demek",
-        "nasil", "how to", "what is", "who is", "where", "when",
-        "saat", "time", "tarih", "date", "fiyat", "price", "kac",
-        "indir", "download", "oku", "read",
-        "internet", "web", "online", "sitede", "sayfasinda",
-    ]
-    if any(p in text for p in read_patterns) and len(text.split()) <= 6:
-        return "read"
-
-    # Code tasks — need file + terminal (check BEFORE chat — 'dosya ara' is not a greeting)
-    code_patterns = ["kod", "code", "yaz", "write", "olustur", "create",
-                     "build", "compile", "refactor", "duzelt", "fix",
-                     "debug", "hata", "error", "bug", "test", "patch",
-                     "fonksiyon", "function", "class", "import",
-                     "dosya", "kac tane", "say", "liste", "list",
-                     "tara", "goster", "bul", "ara", "grep", "klasor",
-                     "dizin", "python", "py dosyas"]
-    if any(p in text for p in code_patterns):
-        return "code"
-
-    # Chat/greeting — minimal tools
-    chat_patterns = ["merhaba", "selam", "hey", "nasilsin", "naber",
-                     "tesekkur", "thanks", "gorusuruz", "bye", "hello"]
-    if text in chat_patterns or (
-        len(text.split()) <= 3 and not any(c in text for c in "./\\")
-    ):
-        return "chat"
-    # Also: if starts with a greeting word and has no tool-like patterns
-    first_word = text.split()[0] if text.split() else ""
-    if first_word in {"merhaba", "selam", "hey", "hello", "hi", "selamun aleykum"}:
-        return "chat"
-
-    return "general"
+    from tools.query_classifier import classify
+    return classify(user_input)
 
 
 def get_active_schemas(user_input: str = "") -> list[dict]:
