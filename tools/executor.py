@@ -249,47 +249,58 @@ class ToolExecutor:
             from tools.toolset import ACTIVE_TOOLSETS
             ACTIVE_TOOLSETS.add(tool.toolset)
 
-        try:
-            if tool.is_async:
-                import asyncio
-                try:
-                    loop = asyncio.get_running_loop()
-                    fut = asyncio.run_coroutine_threadsafe(tool.handler(**resolved_args), loop)
-                    result = fut.result(timeout=timeout)
-                except RuntimeError:
-                    # No running event loop
-                    result = asyncio.run(tool.handler(**resolved_args))
-            else:
-                import asyncio as _aio
-                import inspect as _ins
-                if _ins.iscoroutinefunction(tool.handler):
+        for attempt in (1, 2):
+            try:
+                if tool.is_async:
+                    import asyncio
                     try:
-                        loop = _aio.get_running_loop()
-                        fut = _SYNC_TOOL_POOL.submit(_aio.run, tool.handler(**resolved_args))
+                        loop = asyncio.get_running_loop()
+                        fut = asyncio.run_coroutine_threadsafe(tool.handler(**resolved_args), loop)
                         result = fut.result(timeout=timeout)
                     except RuntimeError:
-                        result = _aio.run(tool.handler(**resolved_args))
+                        # No running event loop
+                        result = asyncio.run(tool.handler(**resolved_args))
                 else:
-                    result = tool.handler(**resolved_args)
-                    if type(result).__name__ == "coroutine":
+                    import asyncio as _aio
+                    import inspect as _ins
+                    if _ins.iscoroutinefunction(tool.handler):
                         try:
+                            loop = _aio.get_running_loop()
+                            fut = _SYNC_TOOL_POOL.submit(_aio.run, tool.handler(**resolved_args))
+                            result = fut.result(timeout=timeout)
+                        except RuntimeError:
+                            result = _aio.run(tool.handler(**resolved_args))
+                    else:
+                        result = tool.handler(**resolved_args)
+                        if type(result).__name__ == "coroutine":
                             try:
-                                loop = _aio.get_running_loop()
-                                fut = _SYNC_TOOL_POOL.submit(_aio.run, result)
-                                result = fut.result(timeout=timeout)
-                            except RuntimeError:
-                                result = _aio.run(result)
-                        except TypeError:
-                            return json.dumps({"error": f"Async tool '{tool_name}' returned coroutine"})
+                                try:
+                                    loop = _aio.get_running_loop()
+                                    fut = _SYNC_TOOL_POOL.submit(_aio.run, result)
+                                    result = fut.result(timeout=timeout)
+                                except RuntimeError:
+                                    result = _aio.run(result)
+                            except TypeError:
+                                return json.dumps({"error": f"Async tool '{tool_name}' returned coroutine"})
 
-            if not isinstance(result, str):
-                result = json.dumps(result, ensure_ascii=False)
-            return self._finish(tool_name, resolved_args, result)
+                if not isinstance(result, str):
+                    result = json.dumps(result, ensure_ascii=False)
+                return self._finish(tool_name, resolved_args, result)
 
-        except ToolError:
-            raise
-        except Exception as e:
-            return self._handle_error(tool_name, e)
+            except ImportError as e:
+                if attempt == 2:
+                    return self._handle_error(tool_name, e)
+                from tools.dependency_heal import missing_module, pip_name, install
+                mod = missing_module(e)
+                if mod:
+                    pkg = pip_name(mod)
+                    if install(pkg):
+                        continue
+                return self._handle_error(tool_name, e)
+            except ToolError:
+                raise
+            except Exception as e:
+                return self._handle_error(tool_name, e)
 
     def execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30) -> str:
         """Call a tool with string JSON arguments. Parses first, then delegates to execute()."""
@@ -343,22 +354,33 @@ class ToolExecutor:
         if err:
             return err
 
-        try:
-            if tool.is_async:
-                result = await tool.handler(**resolved_args)
-            else:
-                result = await asyncio.to_thread(tool.handler, **resolved_args)
-                if type(result).__name__ == "coroutine":
-                    result = await result
+        for attempt in (1, 2):
+            try:
+                if tool.is_async:
+                    result = await tool.handler(**resolved_args)
+                else:
+                    result = await asyncio.to_thread(tool.handler, **resolved_args)
+                    if type(result).__name__ == "coroutine":
+                        result = await result
 
-            if not isinstance(result, str):
-                result = json.dumps(result, ensure_ascii=False)
-            return self._finish(tool_name, resolved_args, result)
+                if not isinstance(result, str):
+                    result = json.dumps(result, ensure_ascii=False)
+                return self._finish(tool_name, resolved_args, result)
 
-        except ToolError:
-            raise
-        except Exception as e:
-            return self._handle_error(tool_name, e)
+            except ImportError as e:
+                if attempt == 2:
+                    return self._handle_error(tool_name, e)
+                from tools.dependency_heal import missing_module, pip_name, install
+                mod = missing_module(e)
+                if mod:
+                    pkg = pip_name(mod)
+                    if install(pkg):
+                        continue
+                return self._handle_error(tool_name, e)
+            except ToolError:
+                raise
+            except Exception as e:
+                return self._handle_error(tool_name, e)
 
     async def async_execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30) -> str:
         """Call a tool asynchronously with string JSON arguments. Parses first, then delegates to async_execute()."""

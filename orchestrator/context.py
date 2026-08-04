@@ -3,6 +3,37 @@
 from core.constants import MAX_WORKING_MESSAGES
 from core.tokenizer import count_tokens, count_messages_tokens
 
+TOOL_RESULT_FULL_JSON = 800
+TOOL_RESULT_PREVIEW = 4000
+TOOL_RESULT_TRUNCATE = 1500
+
+def _decide_result_policy(tool_name: str, result: str) -> tuple[str, int]:
+    """(policy, limit). policy: full|preview|truncate"""
+    if tool_name == "read_file":
+        return "full", 0
+        
+    try:
+        if result.startswith("{"):
+            import json as _j
+            parsed = _j.loads(result)
+            if "error" not in parsed and len(result) <= TOOL_RESULT_FULL_JSON:
+                return "full", 0
+    except Exception:
+        pass
+        
+    lower_res = result.lower()
+    has_error = "error" in lower_res or "hata" in lower_res or "traceback" in lower_res
+    
+    if tool_name in ("web_search", "web_fetch", "knowledge"):
+        return "preview", TOOL_RESULT_PREVIEW
+        
+    if tool_name == "terminal":
+        if has_error:
+            return "preview", TOOL_RESULT_PREVIEW
+        return "truncate", TOOL_RESULT_TRUNCATE
+        
+    return "truncate", TOOL_RESULT_TRUNCATE
+
 
 class Context:
     """Conversation context. Holds messages, manages token limits."""
@@ -24,29 +55,34 @@ class Context:
 
     def add_tool_result(self, tool_name: str, result: str, tool_call_id: str = ""):
         """Add a tool result (with tool_call_id). Provenance format."""
-        # read_file results are not truncated — LLM should see the full file
-        if tool_name == "read_file":
-            content = f"[{tool_name}] → {result}"
-        elif result.startswith("{"):
+        policy, limit = _decide_result_policy(tool_name, result)
+        
+        has_error_marker = False
+        if result.startswith("{"):
             try:
                 import json as _j
                 parsed = _j.loads(result)
                 if "error" in parsed:
-                    content = f"[{tool_name}] → ✗ {str(parsed['error'])[:200]}"
-                else:
-                    content = f"[{tool_name}] → {result}"
-            except _j.JSONDecodeError:
-                content = f"[{tool_name}] → {result}"
+                    has_error_marker = True
+            except Exception:
+                pass
         elif result.startswith("✗") or "error" in result[:50].lower():
-            content = f"[{tool_name}] → ✗ {result[:200]}"
-        else:
-            content = f"[{tool_name}] → {result}"
-
-        # Truncate large tool results (token saving) — read_file excluded
-        _MAX_TOOL_RESULT = 1500
-        if tool_name != "read_file" and len(content) > _MAX_TOOL_RESULT:
-            preview = content[:1500]
-            content = f"{preview}\n... (truncated, {len(result)} bytes total. use read_file to see full content)"
+            has_error_marker = True
+            
+        marker = "✗ " if has_error_marker else ""
+        content = f"[{tool_name}] → {marker}{result}"
+        
+        if policy == "full":
+            pass
+        elif policy == "preview":
+            if len(content) > limit:
+                half = limit // 2
+                preview = content[:half] + "\n...\n" + content[-half:]
+                content = f"{preview}\n... (truncated, {len(result)} bytes total. use {tool_name} for full)"
+        elif policy == "truncate":
+            if len(content) > limit:
+                preview = content[:limit]
+                content = f"{preview}\n... (truncated, {len(result)} bytes total. use {tool_name} for full)"
         
         msg = {
             "role": "tool",
