@@ -370,6 +370,19 @@ class AgentLoopV2:
         except (ImportError, OSError, ValueError):
             pass
 
+        # 4. Multi-session cross-reference
+        try:
+            from session.cross_reference import find_related_sessions
+            related = find_related_sessions(user_input, limit=2)
+            if related:
+                cr_blocks = []
+                for s in related:
+                    cr_blocks.append(f"- Session '{s['title']}' ({s['date']}): {s['summary']}")
+                sections.append("### Relevant Past Sessions\n" + "\n".join(cr_blocks))
+                log.info("Cross-reference injected: %s sessions", len(related))
+        except Exception as e:
+            log.debug(f"Cross-reference failed: {e}")
+
         # Kisa prompt mu? Akilli siniflandirma
         from tools.toolset import _classify_query
         qtype = _classify_query(user_input)
