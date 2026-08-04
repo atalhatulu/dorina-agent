@@ -22,6 +22,12 @@
 - **Otomatik regression benchmark** — her PR'da kritik akışların (başlatma,
   /setup, tool seçimi) hız testi.
 
+### Para Kazanma (Monetization) & Otonom Hedefler
+- **Bug Bounty Otomasyonu & Otonom Sızma Testi** — Açık kaynak projeleri veya yasal hedefleri (ör: OWASP Juice Shop) tarayarak zafiyet (XSS, SQLi, IDOR) bulma ve PoC (Proof of Concept) üretme.
+- **Playwright (Browser Otomasyonu) Aracı** — SPA'lar (Single Page Applications) üzerinde çalışabilmek, DOM manipülasyonu, form doldurma ve intercept üzerinden gizli API endpointlerini yakalamak için. (Bug Bounty'nin temel şartı).
+- **GitHub App / SaaS Entegrasyonu** — Dorina'nın dış webhook'ları dinleyerek açılan PR'larda Code Review, güvenlik denetimi veya otonom bug-fix atmasını sağlamak.
+- **Otonom Freelancer Modu** — Upwork / GitHub Bounties gibi platformlarda issue bulup kendi kendine klonla-çöz-PR at döngüsünü işletmesi.
+
 ## Taşıma kuralı
 
 Bir fikir koda alınacaksa:

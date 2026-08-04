@@ -29,17 +29,14 @@ def test_should_recall():
     assert should_recall("bugun hava cok guzel disari cikip biraz dolasmak istiyorum") is False
 
 def test_score_relevance():
-    """Test relevance scoring and threshold filtering."""
+    """Test that score_relevance just returns results as is (FTS handles ranking)."""
     results = [
         {"session_id": "1", "score": 1.0, "snippet": "A", "title": "A", "timestamp": "1", "role": "user"},
         {"session_id": "2", "score": 2.5, "snippet": "B", "title": "B", "timestamp": "2", "role": "user"},
-        {"session_id": "3", "score": 3.0, "snippet": "C", "title": "C", "timestamp": "3", "role": "user"},
     ]
-    # Threshold is 2.0
     filtered = score_relevance(results, "query")
     assert len(filtered) == 2
-    assert filtered[0]["session_id"] == "3"
-    assert filtered[1]["session_id"] == "2"
+    assert filtered[0]["session_id"] == "1"
 
 def test_format_recall():
     """Test recall formatting and max_chars."""

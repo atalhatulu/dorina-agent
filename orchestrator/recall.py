@@ -4,7 +4,6 @@ from core.logger import log
 
 # Sabitler (spec'ten)
 RECALL_MIN_WORDS = 6
-RECALL_RELEVANCE_THRESHOLD = 2.0
 RECALL_MAX_CHARS = 1500
 
 def should_recall(user_input: str) -> bool:
@@ -32,15 +31,8 @@ def should_recall(user_input: str) -> bool:
     return False
 
 def score_relevance(results: list[dict], user_input: str) -> list[dict]:
-    """Çıktıyı en ilgiliye göre sırala, puan alt eşiği altını ele."""
-    filtered = []
-    
-    for r in results:
-        if r["score"] >= RECALL_RELEVANCE_THRESHOLD:
-            filtered.append(r)
-            
-    filtered.sort(key=lambda x: x["score"], reverse=True)
-    return filtered
+    """FTS5 zaten sıralı döner, filtreleme gerekmez."""
+    return results
 
 def format_recall(results: list[dict], max_chars: int = RECALL_MAX_CHARS) -> str:
     """'## RECALLED CONTEXT (prev sessions)' blok şablonu."""

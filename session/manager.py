@@ -168,24 +168,46 @@ with engine.connect() as _conn:
     except OperationalError:
         pass
         
+    def fold_turkish(text: str) -> str:
+        """Turkish lowercase and ASCII folding for FTS index."""
+        if not text:
+            return ""
+        mapping = {
+            'ç': 'c', 'Ç': 'c',
+            'ğ': 'g', 'Ğ': 'g',
+            'ı': 'i', 'I': 'i', 'İ': 'i', 'i̇': 'i',
+            'ö': 'o', 'Ö': 'o',
+            'ş': 's', 'Ş': 's',
+            'ü': 'u', 'Ü': 'u',
+        }
+        text = text.lower()
+        for k, v in mapping.items():
+            text = text.replace(k, v)
+        return text
+
     # Auto-migrate FTS: if a session is in `sessions` but not in `session_fts`, we migrate it.
     try:
-        # Detect unmigrated sessions
-        rows = _conn.execute(_text(
-            "SELECT id, messages FROM sessions WHERE id NOT IN (SELECT session_id FROM session_fts)"
-        )).fetchall()
-        for row in rows:
-            sid, msgs_enc = row[0], row[1]
-            if not msgs_enc or msgs_enc == "[]": continue
-            try:
-                dec = _decrypt(msgs_enc)
-                msgs = json.loads(dec)
-                text_content = " ".join(m.get("content", "") for m in msgs if m.get("content") and isinstance(m.get("content"), str))
-                if text_content.strip():
-                    _conn.execute(_text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"), {"sid": sid, "content": text_content})
-            except Exception as e:
-                log.debug(f"FTS migration skipped for {sid}: {e}")
-        _conn.commit()
+        # Hızlı kontrol: Eğer sayılar eşitse hiç tarama
+        s_count = _conn.execute(_text("SELECT COUNT(*) FROM sessions")).scalar() or 0
+        f_count = _conn.execute(_text("SELECT COUNT(*) FROM session_fts")).scalar() or 0
+        if s_count > f_count:
+            # Detect unmigrated sessions
+            rows = _conn.execute(_text(
+                "SELECT id, messages FROM sessions WHERE id NOT IN (SELECT session_id FROM session_fts)"
+            )).fetchall()
+            for row in rows:
+                sid, msgs_enc = row[0], row[1]
+                if not msgs_enc or msgs_enc == "[]": continue
+                try:
+                    dec = _decrypt(msgs_enc)
+                    msgs = json.loads(dec)
+                    text_content = " ".join(m.get("content", "") for m in msgs if m.get("content") and isinstance(m.get("content"), str))
+                    if text_content.strip():
+                        folded_content = fold_turkish(text_content)
+                        _conn.execute(_text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"), {"sid": sid, "content": folded_content})
+                except Exception as e:
+                    log.debug(f"FTS migration skipped for {sid}: {e}")
+            _conn.commit()
     except Exception as e:
         log.error(f"FTS migration failed: {e}")
 # -------------------------
@@ -278,9 +300,16 @@ class SessionManager:
                 text_content = " ".join(m.get("content", "") for m in messages if m.get("content") and isinstance(m.get("content"), str))
                 self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": self.current_id})
                 if text_content.strip():
+                    # fold_turkish import/redeclare if needed, but it's defined globally above? No, it's inside the migration block context.
+                    # Let's define it globally or as a static method. Wait, I'll just write the mapping here.
+                    mapping = {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'i̇': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u'}
+                    folded = text_content.lower()
+                    for k, v in mapping.items():
+                        folded = folded.replace(k, v)
+                        
                     self.db.execute(
                         _text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"),
-                        {"sid": self.current_id, "content": text_content}
+                        {"sid": self.current_id, "content": folded}
                     )
                 self.db.commit()
             except Exception as e:
@@ -369,7 +398,14 @@ class SessionManager:
         if not words:
             return []
 
-        fts_query = " OR ".join('"' + w.replace('"', '') + '"' for w in words)
+        mapping = {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'i̇': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u'}
+        folded_words = []
+        for w in words:
+            fw = w.lower()
+            for k, v in mapping.items(): fw = fw.replace(k, v)
+            folded_words.append('"' + fw.replace('"', '') + '"')
+            
+        fts_query = " OR ".join(folded_words)
         
         self._original_current_id = self.current_id
         final_results = []
@@ -610,6 +646,11 @@ class SessionManager:
                 ArchiveSession.merge(s)
                 ArchiveSession.commit()
                 self.db.query(SessionModel).filter_by(id=s.id).delete()
+                
+                # FTS cleanup
+                from sqlalchemy import text as _text
+                self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": s.id})
+                
                 self.db.commit()
                 count += 1
             except (OperationalError, IntegrityError) as exc:
