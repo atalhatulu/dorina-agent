@@ -6,8 +6,9 @@
 
 ## Adaylar (öncelik yok — hepsi fikir)
 
-- **Bellman-Ford / transformcisi context pruning** — token bütçesi aşıldığında
-  en düşük değerli mesajları akıllıca budama (mevcut sıralı silmenin yerine).
+- **~~Bellman-Ford / transformcisi context pruning~~** — ✅ KODDA: value-based pruning
+  (`orchestrator/value_scorer.py` + Tier 1 `_compress_fast`), turn değer puanlamasıyla
+  `docs/TASKS_VALUE_PRUNING.md`.
 - **Multi-session cross-referans** — eski session'dan ilgili bilgiyi otomatik
   çekip bağlam bilinciyle kullanma.
 - **Plugin sistemi** — üçüncü taraf tool/provider paketi yükleme.

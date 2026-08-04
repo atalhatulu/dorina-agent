@@ -135,33 +135,53 @@ class ContextCompressor:
     # ────────────────────────────────────────────────────────────────
 
     def _compress_fast(self, messages: list[dict]) -> list[dict]:
-        """Fast path: remove oldest turns, keep system + latest KEEP_LATEST_TURNS."""
+        """Fast path: value-based pruning."""
+        from orchestrator.value_scorer import score_turn, ELEME_ESIGI, MAX_TOKENS_OLD
+        
         turns = self._split_into_turns(messages)
         if len(turns) < 3:
             return messages
 
-        # Keep the latest KEEP_LATEST_TURNS turns intact
         keep_count = min(KEEP_LATEST_TURNS, len(turns) - 1)
         keep_turns = turns[-keep_count:]
-        compress_turns = turns[:-keep_count]
+        old_turns = turns[:-keep_count]
 
-        # System messages remain protected (split_into_turns separates them)
-        system_turns = [t for t in compress_turns if t[0].get("role") == "system"]
-        if system_turns:
-            # System message goes first
-            result = system_turns + keep_turns
-        else:
-            result = keep_turns
+        system_turns = [t for t in old_turns if t and t[0].get("role") == "system"]
+        other_old_turns = [t for t in old_turns if not (t and t[0].get("role") == "system")]
 
-        # Flatten
+        # Değer bazlı puanlama
+        scored_turns = [(score_turn(t), t) for t in other_old_turns]
+        
+        # En düşük puanlıdan (ilk atılacaklar) en yükseğe doğru sırala
+        scored_turns.sort(key=lambda x: x[0])
+        
+        # 1. Eleme eşiği altındakileri at (token sınırından bağımsız)
+        retained = [st for st in scored_turns if st[0] >= ELEME_ESIGI]
+        
+        # 2. Toplam token sayısı MAX_TOKENS_OLD'u aşarsa en değersizleri atmaya devam et
+        while retained:
+            total_old_tokens = sum(count_messages_tokens(t) for _, t in retained)
+            if total_old_tokens <= MAX_TOKENS_OLD:
+                break
+            retained.pop(0)
+            
+        # Kalanları orijinal sırasına diz
+        retained_ids = {id(t) for _, t in retained}
+        ordered_old_turns = [t for t in other_old_turns if id(t) in retained_ids]
+
+        result = system_turns + ordered_old_turns + keep_turns
+
         flat = []
         for t in result:
             flat.extend(t)
 
+        if not flat and messages:
+            return messages
+
         self._last_turns_len = len(turns)
         self.compression_count += 1
         log.info(
-            f"Context compressed (Tier 1): {len(compress_turns)} old turns removed, "
+            f"Context compressed (Tier 1): kept {len(ordered_old_turns)} high-value old turns, "
             f"kept last {keep_count} ({len(messages)} msgs → {len(flat)} msgs)"
         )
         return flat
