@@ -64,7 +64,13 @@ class TestGetSessionSize:
         assert info["exists"] is True
         assert info["message_count"] == 5
         assert info["bytes_raw"] > 10
-        assert info["bytes_encrypted"] > info["bytes_raw"]  # encrypted is larger
+        # Şifreleme varsayılan kapalı → encrypted == raw (base64 şişmesi yok).
+        # Açıksa encrypted > raw olur. İkisini de doğrula:
+        from session.manager import _is_encryption_enabled
+        if _is_encryption_enabled():
+            assert info["bytes_encrypted"] > info["bytes_raw"]
+        else:
+            assert info["bytes_encrypted"] == info["bytes_raw"]
 
     def test_size_updates_after_save(self, fresh_manager):
         sid = fresh_manager.create()
@@ -240,3 +246,43 @@ class TestIntegration:
 
         info_b = fresh_manager.get_session_size(sid_b)
         assert info_b["message_count"] == 5  # unchanged
+
+
+# ── Tests: FTS recall (session_fts) ──────────────────────────────
+
+class TestFTSRecall:
+    """search_content (FTS5) roundtrip: save → search → delete/prune."""
+
+    def test_save_then_search_finds_content(self, fresh_manager):
+        mgr = fresh_manager
+        sid = mgr.create()
+        mgr.save([
+            {"role": "user", "content": "prometheus kurulumu 9100 portunda tamamlandi"},
+            {"role": "assistant", "content": "config /etc/prometheus/prometheus.yml"},
+        ], title="prom kurulum")
+        mgr.create()  # current_id başka session'a geçsin (recall aktif session'ı atlar)
+        res = mgr.search_content("prometheus kurulumu", limit=5)
+        assert any(r["session_id"] == sid for r in res), "FTS kaydedilen session'ı bulamadı"
+
+    def test_delete_removes_from_fts(self, fresh_manager):
+        mgr = fresh_manager
+        sid = mgr.create()
+        mgr.save([{"role": "user", "content": "benzersiz konu xyz123 detay"}], title="t")
+        mgr.create()
+        assert mgr.search_content("benzersiz xyz123", limit=5)
+        mgr.delete(sid)
+        assert mgr.search_content("benzersiz xyz123", limit=5) == [], "delete sonrası FTS orphan kaldı"
+
+    def test_prune_refreshes_fts(self, fresh_manager):
+        mgr = fresh_manager
+        sid = mgr.create()
+        mgr.save([
+            {"role": "user", "content": "eski bilgi kaldirilacak 777"},
+            {"role": "user", "content": "yeni bilgi kalacak 888"},
+        ], title="t")
+        mgr.create()
+        mgr.prune_session(sid, keep_last=1)  # 'eski bilgi...' budanır
+        res_old = mgr.search_content("kaldirilacak", limit=5)
+        assert not any(r["session_id"] == sid for r in res_old), "prune sonrası FTS stale kaldı"
+        res_new = mgr.search_content("kalacak", limit=5)
+        assert any(r["session_id"] == sid for r in res_new)

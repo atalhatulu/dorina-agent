@@ -71,8 +71,19 @@ def _get_fernet():
     return _fernet_instance
 
 
+def _is_encryption_enabled():
+    try:
+        from core.config import settings
+        if hasattr(settings, "session") and hasattr(settings.session, "encryption"):
+            return settings.session.encryption
+        return False
+    except ImportError:
+        return False
+
 def _encrypt(text: str) -> str:
-    """Encrypt plaintext → base64 string. Returns text as-is if Fernet unavailable."""
+    """Encrypt plaintext → base64 string. Returns text as-is if Fernet unavailable or disabled."""
+    if not _is_encryption_enabled():
+        return text
     f = _get_fernet()
     if f is None:
         return text
@@ -149,6 +160,34 @@ with engine.connect() as _conn:
             _conn.commit()
         except OperationalError:
             pass
+            
+    # Initialize FTS5
+    try:
+        _conn.execute(_text("CREATE VIRTUAL TABLE IF NOT EXISTS session_fts USING fts5(session_id UNINDEXED, content, tokenize='unicode61')"))
+        _conn.commit()
+    except OperationalError:
+        pass
+        
+    # Auto-migrate FTS: if a session is in `sessions` but not in `session_fts`, we migrate it.
+    try:
+        # Detect unmigrated sessions
+        rows = _conn.execute(_text(
+            "SELECT id, messages FROM sessions WHERE id NOT IN (SELECT session_id FROM session_fts)"
+        )).fetchall()
+        for row in rows:
+            sid, msgs_enc = row[0], row[1]
+            if not msgs_enc or msgs_enc == "[]": continue
+            try:
+                dec = _decrypt(msgs_enc)
+                msgs = json.loads(dec)
+                text_content = " ".join(m.get("content", "") for m in msgs if m.get("content") and isinstance(m.get("content"), str))
+                if text_content.strip():
+                    _conn.execute(_text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"), {"sid": sid, "content": text_content})
+            except Exception as e:
+                log.debug(f"FTS migration skipped for {sid}: {e}")
+        _conn.commit()
+    except Exception as e:
+        log.error(f"FTS migration failed: {e}")
 # -------------------------
 
 class SessionManager:
@@ -232,6 +271,21 @@ class SessionManager:
             if tags is not None:
                 session.tags = _encrypt(json.dumps(tags, ensure_ascii=False))
             self.db.commit()
+            
+            # FTS Update
+            try:
+                from sqlalchemy import text as _text
+                text_content = " ".join(m.get("content", "") for m in messages if m.get("content") and isinstance(m.get("content"), str))
+                self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": self.current_id})
+                if text_content.strip():
+                    self.db.execute(
+                        _text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"),
+                        {"sid": self.current_id, "content": text_content}
+                    )
+                self.db.commit()
+            except Exception as e:
+                log.error(f"FTS update failed: {e}")
+                self.db.rollback()
 
     def load(self, session_id: str) -> Optional[dict]:
         """Load a session."""
@@ -305,102 +359,62 @@ class SessionManager:
         ]
 
     def search_content(self, query: str, limit: int = 5, max_sessions: int = 20) -> list[dict]:
-        """Mesaj gövdesi içeriğinde ara. Title/summary yeterli değilse aç."""
+        """Mesaj gövdesi içeriğinde ara. FTS5 kullanır."""
+        from sqlalchemy import text as _text
         import re
-        words = re.findall(r'\b\w{4,}\b', query.lower())
+        
+        # Sadece harf ve rakam olan kelimeleri al (noktalama MATCH syntax hatasi verir)
+        clean_query = re.sub(r'[^\w\s]', ' ', query)
+        words = [w for w in clean_query.split() if len(w) >= 4]
         if not words:
             return []
 
-        # En son N session'ı çek
-        sessions = (
-            self.db.query(SessionModel)
-            .order_by(SessionModel.updated_at.desc())
-            .limit(max_sessions)
-            .all()
-        )
-
-        # load() overrides current_id, so we must save and restore it
-        self._original_current_id = self.current_id
-
-        results = []
-        for s in sessions:
-            if s.id == self.current_id:
-                continue
-
-            # Load to decrypt messages
-            loaded = self.load(s.id)
-            if not loaded or not loaded.get("messages"):
-                continue
-
-            for msg in loaded["messages"]:
-                content = msg.get("content", "")
-                if not content or not isinstance(content, str):
-                    continue
-
-                content_lower = content.lower()
-                matches = [w for w in words if w in content_lower]
-                if not matches:
-                    continue
-
-                # Skor hesaplama
-                score = 0
-                title_summary = f"{s.title or ''} {s.summary or ''}".lower()
-                
-                # Başlık / özet eşleşmesi bonusu
-                if any(w in title_summary for w in matches):
-                    score += 1.5
-                    if s.title and any(w in s.title.lower() for w in matches):
-                        score += 0.5
-                
-                # Mesaj tipi
-                role = msg.get("role", "assistant")
-                if role == "user":
-                    score += 1.0
-                elif role == "assistant":
-                    score += 0.5
-                elif role == "tool":
-                    score -= 0.2
-                    
-                # İçerik eşleşme sayısı bonusu
-                score += (len(matches) * 0.5)
-
-                if score > 0:
-                    # Snippet (ilgili kelimenin etrafı)
-                    first_match = matches[0]
-                    idx = content_lower.find(first_match)
-                    start = max(0, idx - 80)
-                    end = min(len(content), idx + 120)
-                    snippet = content[start:end].replace('\n', ' ').strip()
-                    if start > 0: snippet = "..." + snippet
-                    if end < len(content): snippet = snippet + "..."
-
-                    results.append({
-                        "session_id": s.id,
-                        "title": s.title or "Untitled",
-                        "timestamp": s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else "Unknown",
-                        "snippet": snippet,
-                        "score": score,
-                        "role": role,
-                        "content": content
-                    })
-
-        # Skora göre sırala ve limitle
-        results.sort(key=lambda x: x["score"], reverse=True)
+        fts_query = " OR ".join('"' + w.replace('"', '') + '"' for w in words)
         
-        # Sadece benzersiz session_id + snippet kombinasyonlarını dön (aynı mesajı tekrar ekleme)
-        seen = set()
+        self._original_current_id = self.current_id
         final_results = []
-        for r in results:
-            key = (r["session_id"], r["snippet"][:50])
-            if key not in seen:
-                seen.add(key)
-                final_results.append(r)
-                if len(final_results) >= limit:
-                    break
-                    
-        # current_id'yi geri yükle çünkü load() çağrısı bozmuş olabilir
-        if getattr(self, "_original_current_id", None):
-            self.current_id = self._original_current_id
+        seen = set()
+
+        try:
+            # FTS5 search
+            sql = """
+                SELECT f.session_id, snippet(session_fts, -1, '...', '...', '...', 20) as snip, s.title, s.created_at
+                FROM session_fts f
+                JOIN sessions s ON f.session_id = s.id
+                WHERE f.content MATCH :q
+                ORDER BY rank
+                LIMIT :lim
+            """
+            rows = self.db.execute(_text(sql), {"q": fts_query, "lim": limit * 2}).fetchall()
+            
+            for row in rows:
+                sid, snip, title, created_at = row
+                if sid == self.current_id: continue
+                
+                key = (sid, snip[:50])
+                if key not in seen:
+                    seen.add(key)
+                    # Raw SQL'de SQLAlchemy tip dönüşümü yok: created_at str ya da datetime gelebilir
+                    if isinstance(created_at, datetime):
+                        ts = created_at.strftime("%Y-%m-%d %H:%M")
+                    elif created_at:
+                        ts = str(created_at)[:16]
+                    else:
+                        ts = "Unknown"
+                    # Snippet icinden noktalama kaldirma yuzunden rol bilemiyoruz, varsayilan user
+                    final_results.append({
+                        "session_id": sid,
+                        "title": title or "Untitled",
+                        "timestamp": ts,
+                        "snippet": snip.replace("\n", " "),
+                        "score": 5.0,  # FTS handles ranking, give baseline score
+                        "role": "user",
+                        "content": snip
+                    })
+                    if len(final_results) >= limit:
+                        break
+        except Exception as e:
+            log.error(f"FTS search failed: {e}")
             
         return final_results
 
@@ -408,6 +422,13 @@ class SessionManager:
         """Delete a session. Returns True if a row was deleted."""
         result = self.db.query(SessionModel).filter_by(id=session_id).delete()
         self.db.commit()
+        # FTS satırını da temizle (orphan birikmesin)
+        try:
+            from sqlalchemy import text as _text
+            self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": session_id})
+            self.db.commit()
+        except Exception as e:
+            log.debug(f"FTS delete failed: {e}")
         if self.current_id == session_id:
             self.current_id = None
         return result > 0
@@ -653,6 +674,22 @@ class SessionManager:
         session.messages = _encrypt(json.dumps(messages, ensure_ascii=False))
         session.updated_at = datetime.utcnow()
         self.db.commit()
+        # FTS index'ini budanmış içerikle eşitle (stale recall olmasın)
+        try:
+            from sqlalchemy import text as _text
+            text_content = " ".join(
+                m.get("content", "") for m in messages
+                if m.get("content") and isinstance(m.get("content"), str)
+            )
+            self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": session_id})
+            if text_content.strip():
+                self.db.execute(
+                    _text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"),
+                    {"sid": session_id, "content": text_content},
+                )
+            self.db.commit()
+        except Exception as e:
+            log.debug(f"FTS prune sync failed: {e}")
         log.info(f"Pruned {removed} message(s) from session {session_id}")
         return removed
 
