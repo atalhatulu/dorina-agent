@@ -34,7 +34,7 @@ def register_commands() -> dict[str, CommandHandler]:
     """Build the prefix → handler mapping for all slash commands."""
     from commands.session_commands import (
         cmd_new, cmd_temp, cmd_save, cmd_load, cmd_sessions,
-        cmd_remove, cmd_clean, cmd_ara, cmd_export, cmd_session,
+        cmd_remove, cmd_clean, cmd_ara, cmd_export, cmd_session, cmd_recall,
     )
     from commands.system_commands import (
         cmd_exit, cmd_quit, cmd_q, cmd_help, cmd_clear, cmd_status, cmd_setup,
@@ -72,6 +72,7 @@ def register_commands() -> dict[str, CommandHandler]:
         "/tools": cmd_tools,
         "/tasks": cmd_tasks,
         "/session": cmd_session,
+        "/recall": cmd_recall,
         "/verify": cmd_verify,
         "/status": cmd_status,
         "/setup": cmd_setup,

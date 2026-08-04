@@ -304,6 +304,106 @@ class SessionManager:
             for s in sessions
         ]
 
+    def search_content(self, query: str, limit: int = 5, max_sessions: int = 20) -> list[dict]:
+        """Mesaj gövdesi içeriğinde ara. Title/summary yeterli değilse aç."""
+        import re
+        words = re.findall(r'\b\w{4,}\b', query.lower())
+        if not words:
+            return []
+
+        # En son N session'ı çek
+        sessions = (
+            self.db.query(SessionModel)
+            .order_by(SessionModel.updated_at.desc())
+            .limit(max_sessions)
+            .all()
+        )
+
+        # load() overrides current_id, so we must save and restore it
+        self._original_current_id = self.current_id
+
+        results = []
+        for s in sessions:
+            if s.id == self.current_id:
+                continue
+
+            # Load to decrypt messages
+            loaded = self.load(s.id)
+            if not loaded or not loaded.get("messages"):
+                continue
+
+            for msg in loaded["messages"]:
+                content = msg.get("content", "")
+                if not content or not isinstance(content, str):
+                    continue
+
+                content_lower = content.lower()
+                matches = [w for w in words if w in content_lower]
+                if not matches:
+                    continue
+
+                # Skor hesaplama
+                score = 0
+                title_summary = f"{s.title or ''} {s.summary or ''}".lower()
+                
+                # Başlık / özet eşleşmesi bonusu
+                if any(w in title_summary for w in matches):
+                    score += 1.5
+                    if s.title and any(w in s.title.lower() for w in matches):
+                        score += 0.5
+                
+                # Mesaj tipi
+                role = msg.get("role", "assistant")
+                if role == "user":
+                    score += 1.0
+                elif role == "assistant":
+                    score += 0.5
+                elif role == "tool":
+                    score -= 0.2
+                    
+                # İçerik eşleşme sayısı bonusu
+                score += (len(matches) * 0.5)
+
+                if score > 0:
+                    # Snippet (ilgili kelimenin etrafı)
+                    first_match = matches[0]
+                    idx = content_lower.find(first_match)
+                    start = max(0, idx - 80)
+                    end = min(len(content), idx + 120)
+                    snippet = content[start:end].replace('\n', ' ').strip()
+                    if start > 0: snippet = "..." + snippet
+                    if end < len(content): snippet = snippet + "..."
+
+                    results.append({
+                        "session_id": s.id,
+                        "title": s.title or "Untitled",
+                        "timestamp": s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else "Unknown",
+                        "snippet": snippet,
+                        "score": score,
+                        "role": role,
+                        "content": content
+                    })
+
+        # Skora göre sırala ve limitle
+        results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Sadece benzersiz session_id + snippet kombinasyonlarını dön (aynı mesajı tekrar ekleme)
+        seen = set()
+        final_results = []
+        for r in results:
+            key = (r["session_id"], r["snippet"][:50])
+            if key not in seen:
+                seen.add(key)
+                final_results.append(r)
+                if len(final_results) >= limit:
+                    break
+                    
+        # current_id'yi geri yükle çünkü load() çağrısı bozmuş olabilir
+        if getattr(self, "_original_current_id", None):
+            self.current_id = self._original_current_id
+            
+        return final_results
+
     def delete(self, session_id: str) -> bool:
         """Delete a session. Returns True if a row was deleted."""
         result = self.db.query(SessionModel).filter_by(id=session_id).delete()

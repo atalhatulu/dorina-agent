@@ -389,3 +389,26 @@ async def cmd_session(app: "DorinaApp", cmd: str) -> None:
 
     else:
         print_error(f"Unknown session subcommand: {sub}")
+
+async def cmd_recall(app: "DorinaApp", cmd: str) -> None:
+    """Manually trigger context recall across past session messages::
+    
+        /recall <query>
+    """
+    from ui.display import console, print_error
+    from session.manager import manager
+    from orchestrator.recall import score_relevance, format_recall
+    
+    query = cmd[7:].strip()
+    if not query:
+        print_error("Usage: /recall <query>")
+        return
+        
+    res = manager.search_content(query, max_sessions=20)
+    rel = score_relevance(res, query)
+    block = format_recall(rel)
+    
+    if block:
+        console.print(f"\n{block}\n")
+    else:
+        console.print("\n[dim]No relevant past context found.[/dim]\n")

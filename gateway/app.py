@@ -28,6 +28,9 @@ import tools.builtin  # noqa: F401
 
 app = FastAPI(title=f"{NAME} Dashboard", version=VERSION)
 
+from gateway.a2a import a2a_router
+app.include_router(a2a_router)
+
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
