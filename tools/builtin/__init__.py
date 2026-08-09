@@ -2,6 +2,7 @@
 from tools.builtin import basic
 from tools.builtin import bg_task_tool
 from tools.builtin import clarify_tool
+from tools.builtin import crew_tools
 from tools.builtin import cron_tools
 from tools.builtin import file_tools
 from tools.builtin import git_tools
