@@ -28,12 +28,21 @@ class TaskManager:
         self._tasks: dict[str, BackgroundTask] = {}
         self._pending_notifications: list[str] = []
 
+    def _notify_task(self, task_id: str, status: str, **data):
+        """Push a task lifecycle event to the runtime registry (Web UI mirror)."""
+        try:
+            from gateway.runtime import task_event
+            task_event(task_id, status, **data)
+        except Exception:  # noqa: BLE001 — runtime bridge must never break the task
+            pass
+
     def start(self, coro: Coroutine, name: str, process: Optional[asyncio.subprocess.Process] = None) -> str:
         """Start a coroutine in the background and return its task ID."""
         task_id = uuid.uuid4().hex[:8]
         task = BackgroundTask(id=task_id, name=name, _process=process)
         task._original_coro = coro  # Store in case we cancel before starting
         self._tasks[task_id] = task
+        self._notify_task(task_id, "started", name=name)
 
         async def _run():
             task._original_coro = None  # We're running it, no longer need fallback close
@@ -43,6 +52,7 @@ class TaskManager:
                     task.status = "done"
                     task.result = str(result or "Completed")
                     task.finished_at = time.time()
+                    self._notify_task(task_id, "done", name=name, result=str(result or "")[:200])
                     self._pending_notifications.append(
                         f"✓ [{name}] completed ({task.elapsed}): {task.result[:80]}"
                     )
@@ -56,6 +66,7 @@ class TaskManager:
                     task.status = "failed"
                     task.error = str(e)
                     task.finished_at = time.time()
+                    self._notify_task(task_id, "failed", name=name, error=str(e)[:200])
                     self._pending_notifications.append(
                         f"✗ [{name}] failed: {str(e)[:80]}"
                     )
@@ -99,6 +110,7 @@ class TaskManager:
         
         task.status = "cancelled"
         task.finished_at = time.time()
+        self._notify_task(task_id, "cancelled", name=task.name)
         self._pending_notifications.append(f"⚠ [{task.name}] iptal edildi.")
         if task._process:
             try:

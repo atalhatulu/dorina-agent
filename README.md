@@ -11,6 +11,7 @@
 
 ## Features
 
+- **Agent Workspace Web UI** — tarayıcıdan "operator console": canlı Agent Activity, Execution Trace, Runtime durumu, worker/task/fork canlı akışı (`/ws/events`)
 - **Aktif Toolset Sistemi** — goreve gore 7-16 tool, kategorilerle yonet (tools_enable)
 - **MCP Client (Model Context Protocol)** — harici MCP sunucularina baglan, tool'larini kullan
 - **State Machine** — 9 durumlu deterministic agent loop
@@ -78,6 +79,11 @@ dorina-agent/
 │   ├── security.py    # is_destructive(), hardline block
 │   └── executor.py    # Hook pipeline (approval, metrics)
 ├── ui/                # Terminal UI (prompt_toolkit + Rich)
+├── gateway/           # FastAPI web dashboard (Agent Workspace) — REST + WebSocket
+│   ├── app.py         # API endpoints (/api/runtime, /api/tasks, /api/channels, ...)
+│   ├── runtime.py     # Live runtime registry + event-bus → WebSocket bridge
+│   ├── a2a.py         # A2A (agent-to-agent) protokol router
+│   └── static/        # Frontend (index.html — Agent Workspace UI)
 ├── commands/          # Slash commands (/godmode, /speed, ...)
 ├── session/           # Sifreli SQLite session manager
 ├── security/          # Approval, auth
@@ -89,6 +95,36 @@ dorina-agent/
 ├── tests/             # ~351 tests
 └── FUTURE.md          # Ideas for next versions (bekleyen fikirler)
 ```
+
+## Web UI (Agent Workspace)
+
+Web dashboard'ı başlat:
+
+```bash
+cd dorina-agent
+env -u PYTHONPATH .venv/bin/python -m gateway.app
+# → http://localhost:5792
+```
+
+> `env -u PYTHONPATH` kritik: proje venv'i dış bir PYTHONPATH ile kirletilirse import hataları ortaya çıkar. Dashboard CLI agent'tan *ayrı* bir process'tir.
+
+**API** (auth kapalıysa token gerekmez):
+
+| Endpoint | Açıklama |
+|----------|----------|
+| `GET /` | Web UI |
+| `GET /api/runtime` | Canlı runtime (workers, tool_trace, tasks, forks, status) |
+| `GET /api/tasks` | Arka plan görevleri |
+| `GET /api/automations` | Cron / zamanlanmış görevler |
+| `GET /api/channels` | Kanal bağlantı durumu (Web/Telegram/A2A) |
+| `GET /api/artifacts` | Task çıktıları |
+| `GET /api/sessions` | Session listesi |
+| `GET /api/providers` | Sağlayıcı + modeller |
+| `POST /api/setup` | Sağlayıcı/model/anahtar güncelle |
+| `WS /ws/chat` | Chat protokolü |
+| `WS /ws/events` | Canlı activity akışı (snapshot + worker/task/tool event'leri) |
+
+UI, `gateway/runtime.py`'nin event-bus → WebSocket köprüsü üzerinden **canlı** Agent Activity, Execution Trace ve Runtime durumunu çizer.
 
 ## Tests
 

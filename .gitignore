@@ -35,10 +35,15 @@ __pycache__/
 dist/
 build/
 *.egg
+pip-wheel-metadata/
+*.pth
+*.pyo
 
 # Virtual environment
 .venv/
 venv/
+env/
+.conda/
 
 # Environment
 .env
@@ -48,6 +53,12 @@ venv/
 config.yaml
 config.prod.yaml
 config.local.yaml
+config.dev.yaml
+*.db*
+*.sqlite3-*
+*.sqlite-*
+*.sqlite3-wal
+*.sqlite3-shm
 # ─── SIZINTI KORUMASI (alt klasörler dahil) ───
 # Kök whitelist (!/*/) tüm klasörleri açar — bu desenler her derinlikte çalışır
 **/.env*

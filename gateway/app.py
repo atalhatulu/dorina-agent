@@ -28,6 +28,10 @@ import tools.builtin  # noqa: F401
 
 app = FastAPI(title=f"{NAME} Dashboard", version=VERSION)
 
+# Wire the runtime registry to the event bus (tool/task/worker telemetry)
+import gateway.runtime as runtime  # noqa: E402
+runtime.install_bus_hooks()
+
 from gateway.a2a import a2a_router
 app.include_router(a2a_router)
 
@@ -90,6 +94,66 @@ async def api_status():
         "provider": settings.model.provider,
         "sessions": {"total": len(sessions)},
         "modes": _get_modes(),
+        "runtime": runtime.snapshot(),
+        "active_session": active_sid,
+    }
+
+
+@app.get("/api/runtime", dependencies=[Depends(_check_auth)])
+async def api_runtime():
+    """Full Agent Workspace runtime state (workers, tasks, tool trace, routes)."""
+    from core.config import settings
+    runtime.set_session(getattr(session_manager, "current_id", None) or "")
+    snap = runtime.snapshot()
+    snap["configured"] = {
+        "model": settings.model.default,
+        "provider": settings.model.provider,
+    }
+    return snap
+
+
+@app.get("/api/tasks", dependencies=[Depends(_check_auth)])
+async def api_tasks():
+    """Background tasks with their lifecycle state."""
+    from bg_tools.task_manager import task_manager
+    tasks = []
+    for t in task_manager.list_tasks():
+        tasks.append({
+            "id": t.id, "name": t.name, "status": t.status,
+            "started_at": t.started_at, "finished_at": t.finished_at,
+            "elapsed": t.elapsed, "error": t.error or "",
+        })
+    return {"tasks": tasks}
+
+
+@app.get("/api/automations", dependencies=[Depends(_check_auth)])
+async def api_automations():
+    """Cron / scheduled automations with next/last run state."""
+    from cron.scheduler import cron
+    from gateway import runtime as rt
+    jobs = []
+    for j in cron.list_jobs():
+        jobs.append({
+            "id": j.id, "name": j.name, "schedule": j.schedule,
+            "mode": j.mode, "enabled": j.enabled, "run_count": j.run_count,
+            "last_run": j.last_run, "next_run": j.next_run, "prompt": (j.prompt or "")[:80],
+        })
+    state = rt.bound_state()
+    return {"automations": jobs, "workers": state.get("workers", [])}
+
+
+@app.get("/api/channels", dependencies=[Depends(_check_auth)])
+async def api_channels():
+    """Channel connectivity snapshot (Telegram/API/Web)."""
+    from gateway import runtime as rt
+    state = rt.bound_state()
+    connected = bool(state.get("tool_trace"))
+    return {
+        "channels": [
+            {"name": "Web UI", "status": "connected", "detail": f"{rt.app_name()} dashboard"},
+            {"name": "Telegram", "status": rt.telegram_status(), "detail": ""},
+            {"name": "API (A2A)", "status": "connected", "detail": "/a2a"},
+        ]
     }
 
 
@@ -97,6 +161,27 @@ async def api_status():
 async def api_sessions(limit: int = 50):
     sessions = session_manager.list_sessions(limit=limit)
     return {"sessions": sessions}
+
+
+@app.get("/api/artifacts", dependencies=[Depends(_check_auth)])
+async def api_artifacts():
+    """Artifacts produced by agent tasks.
+
+    Backed by the runtime's fork/task recorders for now; a real artifact
+    filesystem watcher can be added later without changing the response shape.
+    """
+    from gateway import runtime as rt
+    state = rt.bound_state()
+    artifacts = []
+    for task in state.get("tasks", []):
+        if task.get("result"):
+            artifacts.append({
+                "name": task.get("name") or task.get("id") or "task",
+                "type": "task-output",
+                "size": len(str(task.get("result"))),
+                "id": task.get("id"),
+            })
+    return {"artifacts": artifacts}
 
 
 @app.get("/api/providers", dependencies=[Depends(_check_auth)])
@@ -416,6 +501,36 @@ def _extract_tool_calls(messages: list[dict]) -> list[dict]:
 
 
 # ── Entry ────────────────────────────────────────────────
+
+# ── Runtime Events WebSocket (separate from /ws/chat) ────────────────
+
+@app.websocket("/ws/events")
+async def websocket_events(ws: WebSocket, token: str = Query("")):
+    """Live Agent Workspace events (workers, tasks, tool trace, runtime).
+
+    Independent of any session: broadcasts runtime-wide orchestration state.
+    """
+    await ws.accept()
+    if not verify_token(token):
+        await ws.send_json({"type": "error", "content": "Unauthorized — geçersiz token"})
+        await ws.close(code=4401)
+        return
+    runtime.subscribe(ws)
+    try:
+        while True:
+            # Client may send ping/keepalive; we ignore non-commands.
+            try:
+                data = await ws.receive_text()
+                msg = json.loads(data) if data else {}
+                if msg.get("type") == "ping":
+                    await ws.send_json({"type": "pong"})
+            except Exception:
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        runtime.unsubscribe(ws)
+
 
 def main():
     port = 5792

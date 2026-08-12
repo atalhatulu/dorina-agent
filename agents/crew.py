@@ -89,6 +89,8 @@ class AgentCrew:
     async def run_member(self, member: dict, task: str) -> dict:
         """Run a single crew member as a real SubAgent. Returns result dict."""
         role = member.get("role", "worker")
+        from gateway.runtime import worker_event
+        worker_event(role, "started", task=task[:120])
         agent = SubAgent(
             goal=self._role_goal(member, task),
             context=f"Crew role: {role}",
@@ -96,6 +98,12 @@ class AgentCrew:
         )
         log.info(f"[crew:{role}] launching SubAgent ({agent.id})")
         result = await agent.run()
+        worker_event(
+            role,
+            "completed" if agent.status != "error" else "failed",
+            turns=agent.turn_count,
+            error=(agent.error or "")[:200],
+        )
         return {
             "role": role,
             "status": agent.status,
@@ -170,14 +178,18 @@ class AgentCrew:
         }
         self._forks[fork_id] = fork
 
+        from gateway.runtime import fork_event
+        fork_event(fork_id, "started", goal=goal[:120], tools=len(toolsets))
         log.info(f"Fork subagent [{fork_id}] ({agent.id}): {goal[:60]}")
         try:
             result = await agent.run()
             fork.update(
                 {"status": agent.status, "result": result or "", "turns": agent.turn_count}
             )
+            fork_event(fork_id, agent.status, turns=agent.turn_count)
         except Exception as e:  # noqa: BLE001 — stabilize the record for the caller
             fork.update({"status": "error", "error": str(e)})
+            fork_event(fork_id, "error", error=str(e)[:200])
             result = f'{{"error": "{e}"}}'
 
         return json.dumps(
