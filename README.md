@@ -5,9 +5,9 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Tests](https://img.shields.io/badge/tests-351%20collected-brightgreen)
-![Lines](https://img.shields.io/badge/code-24K%20lines-blue)
+![Lines](https://img.shields.io/badge/code-26K%20lines-blue)
 
-> ~24K satir, her satir calisiyor. Gelecek planlari icin `FUTURE.md`'ye bak.
+> ~26K satir, her satir calisiyor. Gelecek planlari icin `FUTURE.md`'ye bak.
 
 ## Features
 
