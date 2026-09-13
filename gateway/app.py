@@ -68,6 +68,12 @@ def _get_modes() -> list[str]:
 
 # ── HTML ─────────────────────────────────────────────────
 
+@app.get("/api/auth/status")
+async def api_auth_status():
+    """Auth durumu — frontend, token korumalı olup olmadığını öğrenir."""
+    return {"auth_enabled": is_auth_enabled()}
+
+
 @app.get("/")
 async def index():
     html = (static_dir / "index.html").read_text(encoding="utf-8")
@@ -85,6 +91,7 @@ async def index():
 @app.get("/api/status", dependencies=[Depends(_check_auth)])
 async def api_status():
     from core.config import settings
+    from gateway.sysmon import monitor
     sessions = session_manager.list_sessions(limit=100)
     active_sid = getattr(session_manager, "current_id", None) or ""
     return {
@@ -96,6 +103,7 @@ async def api_status():
         "modes": _get_modes(),
         "runtime": runtime.snapshot(),
         "active_session": active_sid,
+        "system": monitor.snapshot(),
     }
 
 

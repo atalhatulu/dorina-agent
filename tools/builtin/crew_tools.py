@@ -59,7 +59,7 @@ def crew_run_tool(task: str, roles: list[str] | None = None, parallel: bool = Tr
         crew_inst = AgentCrew()
         role_list = roles or ["planner", "researcher", "writer", "reviewer"]
         for r in role_list:
-            crew_inst.add_agent(r, "")
+            crew_inst.add_agent(r, task)
         if parallel:
             return asyncio.run(crew_inst.run_crew_parallel(task))
         return asyncio.run(crew_inst.run_crew(task))

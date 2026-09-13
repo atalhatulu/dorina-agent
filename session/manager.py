@@ -234,13 +234,10 @@ class SessionManager:
         log.info(f"New session: {session_id}")
         return session_id
 
-    _last_messages_hash: str = ""
-    _save_debounce_count: int = 0
-
     def save(self, messages: list[dict], summary: str = "", title: str = "",
              tool_calls_data: list[dict] = None,
              token_total: int = 0, cost: int = 0, tags: list[str] = None):
-        """Save current session (only if changed)."""
+        """Persist the current session, including repeated payloads and retries."""
         if not self.current_id:
             self.create(title=title)
         # Auto-preview from first user message
@@ -254,28 +251,8 @@ class SessionManager:
                 if m.get("role") == "user" and m.get("content"):
                     title = m["content"][:50]
                     break
-        # Skip if no changes (using debounce to prevent unnecessary repeats)
-        import hashlib
-        hash_payload = json.dumps({
-            "messages": messages,
-            "summary": summary,
-            "title": title,
-            "tool_calls": tool_calls_data,
-            "token_total": token_total,
-            "cost": cost,
-            "tags": tags,
-        }, sort_keys=True, default=str)
-        new_hash = hashlib.md5(hash_payload.encode("utf-8")).hexdigest()
-        if new_hash == self._last_messages_hash:
-            self._save_debounce_count += 1
-            if self._save_debounce_count >= 5:
-                # Force save every 5th identical call to be safe
-                self._save_debounce_count = 0
-            else:
-                return
-        else:
-            self._save_debounce_count = 0
-        self._last_messages_hash = new_hash
+        # Do not deduplicate against global last-save state: the active session
+        # may have changed, or a previous transaction may have failed.
         
         session = self.db.query(SessionModel).filter_by(id=self.current_id).first()
         if session:

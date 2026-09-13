@@ -11,7 +11,7 @@ Farklar (eski AgentLoop'a gore):
   - Session save background task
   - 3 tool/turn sert limit
   - Read paralel, write sirali
-  - LRU read_file cache (20)
+  - Fresh read_file results (no cross-request file cache)
   - Self-reflection: 3+ ayni hata → strategy change
   - Context compression token esiginde
 """
@@ -22,8 +22,6 @@ import asyncio
 import hashlib
 import json
 import inspect
-from collections import OrderedDict
-from pathlib import Path
 
 from core.logger import log
 from core.constants import MAX_TURNS
@@ -66,29 +64,6 @@ try:
         _display = _NullUI()
 except ImportError:
     _display = _NullUI()
-
-# ── Proaktif read_file cache ──────────────────────────────────────
-_FILE_CACHE: OrderedDict[str, str] = OrderedDict()
-_FILE_CACHE_MAX = 100
-
-def _cache_get(path: str) -> str | None:
-    resolved = str(Path(path).resolve())
-    if resolved not in _FILE_CACHE:
-        return None
-    _FILE_CACHE.move_to_end(resolved)
-    return _FILE_CACHE[resolved]
-
-def _cache_set(path: str, content: str):
-    resolved = str(Path(path).resolve())
-    _FILE_CACHE[resolved] = content
-    _FILE_CACHE.move_to_end(resolved)
-    while len(_FILE_CACHE) > _FILE_CACHE_MAX:
-        _FILE_CACHE.popitem(last=False)
-
-def _cache_invalidate(paths: list[str]):
-    for p in paths:
-        key = str(Path(p).resolve())
-        _FILE_CACHE.pop(key, None)
 
 # ── Read-only tool set (paralel calisabilir) ──────────────────────
 _READ_TOOLS = frozenset({
@@ -155,6 +130,7 @@ class AgentLoopV2:
 
         self.turn += 1
         self._loop_iterations = 0
+        self._consecutive_llm_errors = 0
         self._turn_term_calls = 0
         self._turn_tool_calls = 0
         self._consolidation_sent = False
@@ -212,6 +188,19 @@ class AgentLoopV2:
 
             # Status: token kullanimi
             self._update_status(response)
+
+            # Every reasoning attempt consumes one outer-loop iteration.
+            if response.get("finish_reason") == "error":
+                error_message = "LLM failed after 3 consecutive errors. Change provider or try again."
+                self.context.add_assistant_message(error_message)
+                self._schedule_save(error_message)
+                return error_message
+            if response.get("finish_reason") == "retry":
+                if self._loop_iterations < _max_iter:
+                    delay = min(0.5 * (2 ** (self._consecutive_llm_errors - 1)), 30)
+                    _display.print_info(f"LLM hatasi, {delay:g}s sonra yeniden deneniyor...")
+                    await asyncio.sleep(delay)
+                continue
 
             # Budget asimi → force Tier 2 compression + retry
             if response.get("_budget_breached"):
@@ -317,7 +306,10 @@ class AgentLoopV2:
 
         log.warning("AgentLoopV2: iteration budget exhausted (%d)", _max_iter)
         _display.print_error("Maksimum islem butcesi doldu.")
-        return "Maximum iterations reached."
+        exhausted_message = "Maximum iterations reached."
+        self.context.add_assistant_message(exhausted_message)
+        self._schedule_save(exhausted_message)
+        return exhausted_message
 
     # ────────────────────────────────────────────────────────────────
     # SYSTEM PROMPT HAZIRLIGI (ilk tur)
@@ -405,7 +397,7 @@ class AgentLoopV2:
     # ────────────────────────────────────────────────────────────────
 
     async def _think(self, tool_schemas: list[dict]) -> dict:
-        """LLM cagrisi. Hata durumunda cooldown + retry."""
+        """One reasoning attempt; the outer loop owns retries and their budget."""
         _status.set_status("thinking")
 
         msgs = self.context.get_messages()
@@ -430,19 +422,7 @@ class AgentLoopV2:
             )
             return {"content": "", "tool_calls": [], "finish_reason": "error"}
 
-        # Cooldown: 0.5s → 1s → 2s → 4s → 8s → 16s → 30s
-        delay = min(0.5 * (2 ** (self._consecutive_llm_errors - 1)), 30)
-        _display.print_info(
-            f"LLM hatasi, {delay:.0f}s bekleniyor... "
-            f"(ardisik: {self._consecutive_llm_errors})"
-        )
-        await asyncio.sleep(delay)
-
-        # Retry mesaji ekle ve recursive dene
-        self.context.add_user_message(
-            "Bir onceki LLM cagrisi hata verdi. Tekrar dene."
-        )
-        return await self._think(tool_schemas)
+        return {"content": "", "tool_calls": [], "finish_reason": "retry"}
 
     # ────────────────────────────────────────────────────────────────
     # ACT: TOOL EXECUTION
@@ -468,6 +448,13 @@ class AgentLoopV2:
 
     async def _execute_tools(self, tool_calls: list[dict]):
         """Tool'lari calistir. Read paralel, write sirali."""
+        def reject_calls(reason: str):
+            for call in tool_calls:
+                name = call.get("function", {}).get("name", "unknown")
+                self.context.add_tool_result(
+                    name, json.dumps({"error": reason, "executed": False}), call.get("id", "")
+                )
+
         # ── Consolidation check: birden cok terminal → tek kapsamli komut ──
         _term_calls = []
         _info_indicators = ("cat ", "free ", "lsblk", "df ", "uname ", "lscpu", "lspci", "lsusb",
@@ -487,6 +474,7 @@ class AgentLoopV2:
                     pass
 
         if len(_term_calls) >= 3:
+            reject_calls("Commands require consolidation; no tools were executed.")
             # Inject reflection: suggest consolidation
             _combined = "; ".join(_term_calls)
             self.context.add_user_message(
@@ -495,9 +483,7 @@ class AgentLoopV2:
                 f"Hepsi sistem bilgisi sorguluyor — `inxi -Fz` veya `neofetch` tek seferde yeter."
             )
             _display.print_warning(f"{len(_term_calls)} info command(s) → consolidation recommended")
-            # Don't execute — let model retry with consolidated command
-            # (The loop will call _think again without incrementing iteration count)
-            self._loop_iterations -= 1  # don't consume iteration budget
+            # A rejected batch still consumes the model attempt's budget.
             return
 
         # Turn-level guards — consolidate redundant calls, hard limit tool calls
@@ -516,37 +502,36 @@ class AgentLoopV2:
 
         # Hard limit: 5 total tool calls per turn
         if _total_all >= 5:
+            reject_calls("Tool limit reached; no tools were executed.")
             _display.print_warning(f"Turn would have {_total_all} tool calls → forcing final response")
             self.context.add_user_message(
                 "⚠️ Araç limitine ulaşıldı (5). Yeni araç çağırma."
                 " Sahip olduğun bilgilerle EN FAZLA 3 CÜMLE ile doğrudan cevap ver."
                 " Ne denediğini, hangi kaynağa gittiğini anlatma — sadece sonucu söyle."
             )
-            self._loop_iterations -= 1
             return
 
         # 3+ terminal calls → consolidate (only once per turn)
         if _total_term >= 3 and not self._consolidation_sent:
+            reject_calls("Commands require consolidation; no tools were executed.")
             self._consolidation_sent = True
             self.context.add_user_message(
                 "⚠️ Bu iş için çok fazla terminal komutu kullanıyorsun. "
                 "Kalan tüm bilgiyi TEK bir kapsamlı komutla al ve bitir."
             )
             _display.print_warning(f"Turn has {_total_term} terminal calls → consolidate")
-            self._loop_iterations -= 1
             return
 
         # No guard triggered — update counters and proceed
         self._turn_term_calls = _total_term
         self._turn_tool_calls = _total_all
 
-        # Repetition guard: ayni dosyayi ayni turda 2. kez okuma
+        # Repetition guard for duplicate searches/listings in one batch.
         seen_in_turn: set = set()
         # Terminal command repetition guard: hash-based
         _term_hashes: set = set()
         
         REPETITION_GUARD_TOOLS = {
-            "read_file": "path",
             "search_files": "pattern",
             "list_directory": "path",
             "web_search": "query",
@@ -607,15 +592,6 @@ class AgentLoopV2:
                 await self._on_step("tool_call", name, parsed_args)
 
             try:
-                # Cache: read_file kontrol
-                if name == "read_file" and parsed_args:
-                    read_path = parsed_args.get("path", "")
-                    cached = _cache_get(read_path)
-                    if cached is not None:
-                        self.context.add_tool_result(name, cached, tool_call_id)
-                        _display.print_tool_done(name, cached)
-                        return
-
                 TOOL_TIMEOUTS = {
                     "terminal": 3600 if modes.is_on("auto") else 30,
                     "web_search": 120 if modes.is_on("auto") else 15,
@@ -632,17 +608,6 @@ class AgentLoopV2:
                     )
                 except asyncio.TimeoutError:
                     result = f'{{"error": "Tool timeout ({timeout}s): {name}"}}'
-
-                # Cache store/update
-                if name == "read_file" and parsed_args:
-                    read_path = parsed_args.get("path", "")
-                    if read_path and "error" not in result[:20].lower():
-                        _cache_set(read_path, result)
-
-                if name in ("write_file", "patch") and parsed_args:
-                    target = parsed_args.get("path", parsed_args.get("target", ""))
-                    if target and "error" not in result[:20].lower():
-                        _cache_invalidate([target])
 
                 self.context.add_tool_result(name, result, tool_call_id)
 

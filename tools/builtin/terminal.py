@@ -81,7 +81,7 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
         sandbox_result = _run_in_sandbox(command, timeout=timeout)
         if sandbox_result is not None:
             return sandbox_result
-        # Sandbox unavailable — fall through to host execution
+        return json.dumps({"error": "Sandbox unavailable; host execution refused."})
 
     _shell = True
 
@@ -308,6 +308,8 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                 "shell": _shell,
                 "capture_output": True,
                 "text": True,
+                "cwd": cwd,
+                "env": _env,
                 "timeout": timeout,
             }
 
@@ -317,6 +319,13 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                 run_kwargs["input"] = pwd + "\n"
 
             result = await asyncio.to_thread(subprocess.run, command, **run_kwargs)
+            if result.returncode != 0:
+                return json.dumps({
+                    "error": f"Command exited with code {result.returncode}",
+                    "exit_code": result.returncode,
+                    "stdout": redact_secrets(result.stdout or "")[:50000],
+                    "stderr": redact_secrets(result.stderr or "")[:50000],
+                })
             output = result.stdout or result.stderr
             return _guard_warning + redact_secrets(output)[:50000]
     except subprocess.TimeoutExpired:
@@ -349,6 +358,7 @@ async def batch_python_tool(code: str, timeout: int = 30, sandbox: bool = None) 
         sandbox_result = _run_python_in_sandbox(code, timeout=timeout)
         if sandbox_result is not None:
             return sandbox_result
+        return json.dumps({"error": "Sandbox unavailable; host execution refused."})
 
     # ── High-risk Python guard (exec/eval/subprocess/os.system) ──
     # Normal imports (os, sys, re, json...) stay allowed — only arbitrary

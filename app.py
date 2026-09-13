@@ -9,7 +9,7 @@ from core.logger import log, console
 from core.constants import NAME, VERSION
 from session.manager import manager as session_manager
 from orchestrator.experimental_loop import loop_v2 as loop
-from ui.banner import show_banner
+from ui.banner import print_startup_banner
 from ui.display import print_info, print_error
 
 
@@ -22,19 +22,19 @@ class DorinaApp:
 
     async def startup(self):
         """Startup tasks: session init, banner display."""
-        show_banner()
         # Initialize or restore session
         if not session_manager.current_id:
             self.session_id = session_manager.create(title="CLI Session")
         else:
             self.session_id = session_manager.current_id
+        print_startup_banner(session_id=self.session_id)
 
     async def run_single_query(self, query: str):
         """Execute a single query and exit."""
         if not query:
             return
         log.info(f"Single query execution: {query}")
-        result = await loop.run(query)
+        result = await loop.process(query)
         if result and isinstance(result, str):
             print_info(result)
 
@@ -62,7 +62,7 @@ class DorinaApp:
                 if user_input.startswith("/"):
                     await self._dispatch_slash_command(user_input)
                 else:
-                    result = await loop.run(user_input)
+                    result = await loop.process(user_input)
                     if result and isinstance(result, str):
                         print_info(result)
 

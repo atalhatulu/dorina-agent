@@ -278,7 +278,7 @@ class ReasoningEngine:
                     repaired_msg = params.get("messages", [])
                     msg_only = [m for m in repaired_msg if m.get("role") != "system"]
                     original_messages[:] = msg_only
-                return self._parse_response(resp)
+                return resp if stream_callback else self._parse_response(resp)
             except (KeyError, json.JSONDecodeError, ImportError, OSError) as _repair_e:
                 log.error(f"Tool format repair also failed: {_repair_e}")
                 # Repair also failed → fall through to normal error flow
@@ -287,7 +287,6 @@ class ReasoningEngine:
         if classified.reason in [FailoverReason.RATE_LIMIT, FailoverReason.OVERLOADED,
                                   FailoverReason.SERVER_ERROR, FailoverReason.TIMEOUT,
                                   FailoverReason.MODEL_NOT_FOUND]:
-            import asyncio
             from ui import display as _display
             from providers.keys import keys as _km, ENV_MAP
 
@@ -325,15 +324,8 @@ class ReasoningEngine:
                         resp = await self._think_stream(llm, fb_params, stream_callback)
                     else:
                         resp = await llm.acompletion(**fb_params)
-                    # Persist successful fallback so next turn uses it
-                    log.info(f"Fallback succeeded: {fb_model_name} — persisting as active model")
-                    settings.model.provider = fb_provider
-                    settings.model.default = fb_model_name
-                    try:
-                        settings.save()
-                    except Exception:
-                        pass
-                    return self._parse_response(resp)
+                    log.info(f"Fallback succeeded for this request: {fb_model_name}")
+                    return resp if stream_callback else self._parse_response(resp)
                 except Exception as fb_e:
                     log.error(f"Fallback failed ({fb_model_name}): {fb_e}")
                     e = fb_e  # keep the last error
@@ -354,7 +346,7 @@ class ReasoningEngine:
             tc = m.get("tool_calls")
             tci = m.get("tool_call_id", "")
             log.error(f"  msg[-{len(last_msgs)-i}]: role={r} content={c} tc={bool(tc)} tcid={tci}")
-        raise
+        raise e
 
     async def _think_stream(self, llm, params: dict, callback: callable) -> dict:
         """Streaming LLM call — accumulate chunks, yield via callback."""

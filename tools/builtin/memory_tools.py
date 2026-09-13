@@ -5,6 +5,7 @@ from pathlib import Path
 
 from tools.registry import register_tool
 from core.constants import DORINA_HOME
+from memory.paths import validated_skill_path
 
 MEMORY_DIR = DORINA_HOME / "memories"
 
@@ -47,22 +48,18 @@ def _write(target: str, content: str):
     toolset="system",
 )
 def save_memory_tool(target: str, content: str, name: str | None = None) -> str:
-    _ensure()
+    if target not in ("user", "memory", "skill"):
+        return json.dumps({"error": "Invalid memory target"})
     
     if target == "skill":
-        _skill_name = name or content.split(":")[0].strip() or content.split()[0].strip()
-        _safe_name = _skill_name.replace(" ", "-").lower()[:40]
-        _skill_dir = MEMORY_DIR.parent / "skills" / _safe_name
-        
-        # Scan existing skills, update if similar name exists
+        _skill_name = name if name is not None else content.split(":")[0].strip()
         _skills_root = MEMORY_DIR.parent / "skills"
-        if not _skill_dir.exists() and _skills_root.exists():
-            _existing_skills = [d for d in _skills_root.iterdir() if d.is_dir()]
-            for _d in _existing_skills:
-                if _safe_name.startswith(_d.name[:10]) or _d.name.startswith(_safe_name[:10]):
-                    _skill_dir = _d
-                    _safe_name = _d.name
-                    break
+        try:
+            validated_skill_path(_skills_root, _skill_name)
+            _safe_name = _skill_name.strip().replace(" ", "-").lower()[:40]
+            _skill_dir = validated_skill_path(_skills_root, _safe_name)
+        except (ValueError, OSError, RuntimeError) as exc:
+            return json.dumps({"error": str(exc)})
         
         _skill_dir.mkdir(parents=True, exist_ok=True)
         _path = _skill_dir / "SKILL.md"
@@ -77,6 +74,7 @@ def save_memory_tool(target: str, content: str, name: str | None = None) -> str:
         _preview = content.strip()[:60]
         return json.dumps({"success": True, "message": f"Skill saved: {_safe_name}", "path": str(_path), "total": len(_existing)})
     
+    _ensure()
     path = MEMORY_DIR / f"{target.upper()}.md"
     
     existing = []
@@ -106,6 +104,8 @@ def save_memory_tool(target: str, content: str, name: str | None = None) -> str:
     toolset="system",
 )
 def read_memory_tool(target: str) -> str:
+    if target not in ("user", "memory", "skill"):
+        return json.dumps({"error": "Invalid memory target"})
     content = _read(target)
     if content:
         return json.dumps({"success": True, "target": target, "content": content, "lines": len(content.split("\n"))})

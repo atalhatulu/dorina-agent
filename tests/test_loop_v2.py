@@ -17,8 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 @pytest.fixture
 def fresh_loop():
     """Fresh AgentLoopV2 per test."""
-    from orchestrator.experimental_loop import AgentLoopV2, _FILE_CACHE
-    _FILE_CACHE.clear()
+    from orchestrator.experimental_loop import AgentLoopV2
     loop = AgentLoopV2()
     yield loop
 
@@ -227,7 +226,7 @@ class TestRateLimiting:
 
     @pytest.mark.asyncio
     async def test_rate_limit_cooldown_after_error(self, fresh_loop):
-        """LLM hatasinda cooldown + recursion yapilmali, sistem cokmemeli."""
+        """Provider failures stop after three bounded attempts."""
         loop = fresh_loop
 
         # Simulate an LLM error: every call raises RuntimeError
@@ -239,11 +238,8 @@ class TestRateLimiting:
 
         # After all retries exhausted, should get error-marker response
         assert isinstance(result, str)
-        # _think catches RuntimeError and retries recursively up to 3 times
-        # then returns {"content": "", "tool_calls": [], "finish_reason": "error"}
-        # which triggers empty-response retry in process()
-        # Eventually reaches MAX_LOOP_ITERATIONS
-        assert "Maximum" in result
+        assert "LLM failed" in result
+        assert mock_think.await_count == 3
 
 
 # ── Test: LRU cache ────────────────────────────────────────────────────────
@@ -270,8 +266,8 @@ class TestLRUCache:
         assert mock_think.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_read_file_cache(self, fresh_loop):
-        """read_file sonucu cache'lenmeli ve 2. okumada executor cagrilmamali."""
+    async def test_read_file_always_refreshes(self, fresh_loop):
+        """Each read_file call obtains fresh content from the executor."""
         loop = fresh_loop
 
         think_responses = [
@@ -311,8 +307,8 @@ class TestLRUCache:
             result = await loop.process("oku")
 
         assert result == "done"
-        # Executor should only be called once for the same file
-        assert executor_call_count == 1
+        # Each read must reach the executor so external edits remain visible.
+        assert executor_call_count == 2
 
 
 # ── Test: Error recovery ───────────────────────────────────────────────────

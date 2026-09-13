@@ -8,6 +8,7 @@ import yaml
 from core.logger import log
 from core.constants import DORINA_HOME
 from memory.base import BaseMemory
+from memory.paths import validated_skill_path
 
 
 class ProceduralMemory(BaseMemory):
@@ -95,9 +96,7 @@ class ProceduralMemory(BaseMemory):
         Raises:
             ValueError: name '../' veya '/' iceriyorsa.
         """
-        if not name or ".." in name or "/" in name or "\\" in name:
-            raise ValueError(f"Guvenlik: skill adi gecersiz: '{name}'")
-        return self.skills_dir / name
+        return validated_skill_path(self.skills_dir, name)
 
     def get_skill(self, name: str) -> Optional[dict]:
         """Get skill content."""

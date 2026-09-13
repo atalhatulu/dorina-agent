@@ -40,14 +40,11 @@ async def test_terminal_nonexistent_command():
 
 @pytest.mark.asyncio
 async def test_terminal_custom_cwd(tmp_path):
-    """cwd parameter is parsed and validated; non-PTY mode doesn't pass it to subprocess.run
-    but the tool at least validates the directory exists."""
+    """Non-PTY commands execute in the requested directory."""
     from tools.builtin.basic import terminal_tool
 
-    # Passing a valid cwd should not error (even if not applied in non-PTY mode)
-    result = await terminal_tool("echo ok", cwd=str(tmp_path), pty=False, background=False)
-    # Should return the output from echo
-    assert "ok" in result
+    result = await terminal_tool("pwd", cwd=str(tmp_path), pty=False, background=False, sandbox=False)
+    assert result.strip() == str(tmp_path)
 
 
 # ─── READ FILE TOOL TESTS ─────────────────────────────

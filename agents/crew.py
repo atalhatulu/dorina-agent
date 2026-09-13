@@ -79,7 +79,7 @@ class AgentCrew:
         focused = member.get("goal", "").strip()
         base = (
             f"As the '{role}' of a crew, complete this task: {task}"
-            if focused
+            if not focused
             else f"As the '{role}' of a crew, complete this task: {task}. Focus: {focused}"
         )
         return base
