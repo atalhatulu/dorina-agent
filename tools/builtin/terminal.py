@@ -298,7 +298,15 @@ async def terminal_tool(command: str, cwd: str = None, timeout: int = 60, pty: b
                 pass
 
             _os.close(master_fd)
+            proc.poll()
             full = "".join(output)
+            if proc.returncode is not None and proc.returncode != 0:
+                return json.dumps({
+                    "error": f"Command exited with code {proc.returncode}",
+                    "exit_code": proc.returncode,
+                    "stdout": redact_secrets(full)[:50000],
+                    "stderr": "",
+                })
             return _guard_warning + redact_secrets(full)[:50000]
         else:
             import soul.personality as _sp

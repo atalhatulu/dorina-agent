@@ -172,7 +172,16 @@ async def mcp_call_tool(tool_name: str, arguments: dict = None) -> str:
                 "available_tools": list(mcp_call_tool._tool_cache.keys()),
             })
 
-        result = await mcp_manager.call_tool(tool_name, arguments or {})
+        # Guvenlik onayi kontrolu (F07)
+        from security.approval import approval
+        args_payload = arguments or {}
+        if not approval.approve(f"mcp:{tool_name}", args_payload):
+            return json.dumps({
+                "error": f"MCP tool execution rejected: '{tool_name}'",
+                "permission_denied": True,
+            })
+
+        result = await mcp_manager.call_tool(tool_name, args_payload)
         return result
 
     except (asyncio.TimeoutError, ConnectionError, OSError) as e:

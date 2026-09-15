@@ -25,8 +25,11 @@ from orchestrator.repair import repair_message_sequence
 from core.error_classifier import classify_api_error
 from core.error_db import log_error_pattern
 
-# Sub-agents cannot spawn their own sub-agents — recursive delegation blocker
-BLOCKED_TOOLS = frozenset({"delegate_task", "delegate_batch", "mcp_call_tool"})
+# Sub-agents cannot spawn their own sub-agents or breakout via MCP/crew — recursive delegation blocker
+BLOCKED_TOOLS = frozenset({
+    "delegate_task", "delegate_batch", "crew_run",
+    "mcp_call", "mcp_list", "mcp_status", "mcp_call_tool",
+})
 
 
 class SubAgent:
@@ -59,6 +62,20 @@ class SubAgent:
             result = await self._async_run()
             self.status = "completed"
             self.result = result
+            if result == "Maximum number of turns reached.":
+                self.status = "exhausted"
+                self.error = "Maximum number of turns reached."
+            elif isinstance(result, str) and result.strip().startswith("{"):
+                try:
+                    parsed = json.loads(result)
+                    if isinstance(parsed, dict) and "error" in parsed:
+                        if parsed.get("error") == "subagent cancelled":
+                            self.status = "cancelled"
+                        else:
+                            self.status = "error"
+                        self.error = str(parsed["error"])
+                except (json.JSONDecodeError, ValueError):
+                    pass
             self._done.set()
             return result
         except Exception as e:
@@ -94,11 +111,13 @@ class SubAgent:
     # ── Main loop ────────────────────────────────────────────────
 
     async def _async_run(self) -> str:
-        # System prompt: NO soul injection, but clear tool use instruction
-        _tool_names = ", ".join(sorted(
+        # Tool selection — from the sub-agent's own toolset excluding blocked tools
+        effective_toolsets = set(self.toolset_names) if self.toolset_names else {"file", "web", "terminal"}
+        allowed_tools = {
             t.name for t in registry.list()
-            if t.toolset in (self.toolset_names or {"file", "web", "terminal"})
-        ))
+            if t.toolset in effective_toolsets and t.name not in BLOCKED_TOOLS
+        }
+        _tool_names = ", ".join(sorted(allowed_tools))
         system = f"Goal: {self.goal}"
         if self.context:
             system += f"\n\nContext: {self.context}"
@@ -112,10 +131,9 @@ class SubAgent:
 
         messages = [{"role": "system", "content": system}]
 
-        # Tool selection — from the sub-agent's own toolset
         tool_schemas = []
         for t in registry.list():
-            if t.toolset in (self.toolset_names or {"file", "web", "terminal"}):
+            if t.name in allowed_tools:
                 tool_schemas.append({
                     "type": "function",
                     "function": {
@@ -205,13 +223,26 @@ class SubAgent:
                 args_raw = fn.get("arguments", "{}")
                 tool_id = tc.get("id", f"call_{name}")
 
-                # Block recursive delegation
+                # Block recursive delegation or unauthorized tools
                 if name in BLOCKED_TOOLS:
                     messages.append({
                         "role": "tool",
                         "content": json.dumps({
                             "error": "blocked",
                             "reason": "recursive delegation blocked",
+                            "permission_denied": True,
+                        }),
+                        "name": name,
+                        "tool_call_id": tool_id,
+                    })
+                    continue
+
+                if name not in allowed_tools:
+                    messages.append({
+                        "role": "tool",
+                        "content": json.dumps({
+                            "error": f"Tool '{name}' is not permitted for this subagent",
+                            "permission_denied": True,
                         }),
                         "name": name,
                         "tool_call_id": tool_id,
@@ -231,10 +262,10 @@ class SubAgent:
                         })
                         continue
 
-                # Execute — narrowed exception
+                # Execute — narrowed exception with permission enforcement
                 try:
                     result = await executor.async_execute_json(
-                        name, args_raw
+                        name, args_raw, allowed_tools=allowed_tools
                     )
                 except (
                     ValueError,
@@ -322,10 +353,24 @@ class DelegateManager:
             self.active[agent.id] = agent
             agents.append(agent)
 
-        results = await asyncio.gather(
-            *[agent.run() for agent in agents],
-            return_exceptions=True,
-        )
+        try:
+            if timeout and timeout > 0:
+                results = await asyncio.wait_for(
+                    asyncio.gather(*[agent.run() for agent in agents], return_exceptions=True),
+                    timeout=timeout,
+                )
+            else:
+                results = await asyncio.gather(
+                    *[agent.run() for agent in agents], return_exceptions=True
+                )
+        except (asyncio.TimeoutError, TimeoutError):
+            log.warning("Batch delegation timed out after %ds", timeout)
+            for agent in agents:
+                if agent.status in ("pending", "running"):
+                    agent.status = "cancelled"
+                    agent.error = f"Batch delegation timed out ({timeout}s)"
+                    agent.result = json.dumps({"error": f"timed out ({timeout}s)"})
+            results = [agent.result for agent in agents]
 
         output = []
         for agent, result in zip(agents, results):

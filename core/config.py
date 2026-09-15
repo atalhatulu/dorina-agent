@@ -53,6 +53,7 @@ class SessionConfig(BaseSettings):
     storage: str = "sqlite"
     auto_save: bool = True
     max_sessions: int = 100
+    encryption: bool = False
 
 
 class SkillsConfig(BaseSettings):

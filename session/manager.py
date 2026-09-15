@@ -113,6 +113,23 @@ def _decrypt(ciphertext: str) -> str:
             return ciphertext  # It's plaintext!
         except (json.JSONDecodeError, ValueError, TypeError):
             raise ValueError("Session data encrypted with a key that is no longer available")
+
+
+def _decrypt_text(ciphertext: str | None) -> str:
+    """Decrypt base64 string → plaintext text field (e.g. summary, title).
+    Returns raw string if input is None, empty, or unencrypted plaintext.
+    """
+    if not ciphertext:
+        return ""
+    if not _is_encryption_enabled():
+        return ciphertext
+    f = _get_fernet()
+    if f is None:
+        return ciphertext
+    try:
+        return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return ciphertext
 # ────────────────────────────────────────────────────────────────
 
 # P2-13: Checkpoint import
@@ -185,29 +202,32 @@ with engine.connect() as _conn:
             text = text.replace(k, v)
         return text
 
-    # Auto-migrate FTS: if a session is in `sessions` but not in `session_fts`, we migrate it.
+    # Auto-migrate FTS: only when encryption is disabled to avoid leaking plaintext into FTS
     try:
-        # Hızlı kontrol: Eğer sayılar eşitse hiç tarama
-        s_count = _conn.execute(_text("SELECT COUNT(*) FROM sessions")).scalar() or 0
-        f_count = _conn.execute(_text("SELECT COUNT(*) FROM session_fts")).scalar() or 0
-        if s_count > f_count:
-            # Detect unmigrated sessions
-            rows = _conn.execute(_text(
-                "SELECT id, messages FROM sessions WHERE id NOT IN (SELECT session_id FROM session_fts)"
-            )).fetchall()
-            for row in rows:
-                sid, msgs_enc = row[0], row[1]
-                if not msgs_enc or msgs_enc == "[]": continue
-                try:
-                    dec = _decrypt(msgs_enc)
-                    msgs = json.loads(dec)
-                    text_content = " ".join(m.get("content", "") for m in msgs if m.get("content") and isinstance(m.get("content"), str))
-                    if text_content.strip():
-                        folded_content = fold_turkish(text_content)
-                        _conn.execute(_text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"), {"sid": sid, "content": folded_content})
-                except Exception as e:
-                    log.debug(f"FTS migration skipped for {sid}: {e}")
-            _conn.commit()
+        if _is_encryption_enabled():
+            log.debug("Session encryption enabled — skipping plaintext FTS migration")
+        else:
+            # Hızlı kontrol: Eğer sayılar eşitse hiç tarama
+            s_count = _conn.execute(_text("SELECT COUNT(*) FROM sessions")).scalar() or 0
+            f_count = _conn.execute(_text("SELECT COUNT(*) FROM session_fts")).scalar() or 0
+            if s_count > f_count:
+                # Detect unmigrated sessions
+                rows = _conn.execute(_text(
+                    "SELECT id, messages FROM sessions WHERE id NOT IN (SELECT session_id FROM session_fts)"
+                )).fetchall()
+                for row in rows:
+                    sid, msgs_enc = row[0], row[1]
+                    if not msgs_enc or msgs_enc == "[]": continue
+                    try:
+                        dec = _decrypt(msgs_enc)
+                        msgs = json.loads(dec)
+                        text_content = " ".join(m.get("content", "") for m in msgs if m.get("content") and isinstance(m.get("content"), str))
+                        if text_content.strip():
+                            folded_content = fold_turkish(text_content)
+                            _conn.execute(_text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"), {"sid": sid, "content": folded_content})
+                    except Exception as e:
+                        log.debug(f"FTS migration skipped for {sid}: {e}")
+                _conn.commit()
     except Exception as e:
         log.error(f"FTS migration failed: {e}")
 # -------------------------
@@ -224,7 +244,7 @@ class SessionManager:
         session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:6]
         session = SessionModel(
             id=session_id,
-            title=title,
+            title=_encrypt(title) if title else "Untitled",
             model=model,
             messages="[]",
         )
@@ -251,18 +271,20 @@ class SessionManager:
                 if m.get("role") == "user" and m.get("content"):
                     summary = m["content"][:100]
                     break
-        if not title:
-            for m in messages:
-                if m.get("role") == "user" and m.get("content"):
-                    title = m["content"][:50]
-                    break
-        # Do not deduplicate against global last-save state: the active session
-        # may have changed, or a previous transaction may have failed.
-        
+
         session = self.db.query(SessionModel).filter_by(id=target_id).first()
         if session:
             session.messages = _encrypt(json.dumps(messages, ensure_ascii=False))
-            session.summary = summary
+            session.summary = _encrypt(summary) if summary else ""
+            if title:
+                session.title = _encrypt(title)
+            else:
+                curr_title = _decrypt_text(session.title)
+                if not curr_title or curr_title == "Untitled":
+                    for m in messages:
+                        if m.get("role") == "user" and m.get("content"):
+                            session.title = _encrypt(m["content"][:50])
+                            break
             session.updated_at = datetime.utcnow()
             session.token_count = count_messages_tokens(messages)
             session.message_count = len([m for m in messages if m.get("role") == "user"])
@@ -276,23 +298,22 @@ class SessionManager:
                 session.tags = _encrypt(json.dumps(tags, ensure_ascii=False))
             self.db.commit()
             
-            # FTS Update
+            # FTS Update (only index plaintext when encryption is disabled)
             try:
                 from sqlalchemy import text as _text
-                text_content = " ".join(m.get("content", "") for m in messages if m.get("content") and isinstance(m.get("content"), str))
                 self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": target_id})
-                if text_content.strip():
-                    # fold_turkish import/redeclare if needed, but it's defined globally above? No, it's inside the migration block context.
-                    # Let's define it globally or as a static method. Wait, I'll just write the mapping here.
-                    mapping = {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'i̇': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u'}
-                    folded = text_content.lower()
-                    for k, v in mapping.items():
-                        folded = folded.replace(k, v)
-                        
-                    self.db.execute(
-                        _text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"),
-                        {"sid": target_id, "content": folded}
-                    )
+                if not _is_encryption_enabled():
+                    text_content = " ".join(m.get("content", "") for m in messages if m.get("content") and isinstance(m.get("content"), str))
+                    if text_content.strip():
+                        mapping = {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'i̇': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u'}
+                        folded = text_content.lower()
+                        for k, v in mapping.items():
+                            folded = folded.replace(k, v)
+                            
+                        self.db.execute(
+                            _text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"),
+                            {"sid": target_id, "content": folded}
+                        )
                 self.db.commit()
             except Exception as e:
                 log.error(f"FTS update failed: {e}")
@@ -306,10 +327,10 @@ class SessionManager:
                 self.current_id = session_id
             return {
                 "id": session.id,
-                "title": session.title,
+                "title": _decrypt_text(session.title),
                 "created_at": session.created_at.isoformat() if session.created_at else "",
                 "updated_at": session.updated_at.isoformat() if session.updated_at else "",
-                "summary": session.summary,
+                "summary": _decrypt_text(session.summary),
                 "messages": json.loads(_decrypt(session.messages)),
                 "model": session.model,
             }
@@ -345,10 +366,10 @@ class SessionManager:
                     pass
             result.append({
                 "id": s.id,
-                "title": s.title,
+                "title": _decrypt_text(s.title),
                 "created_at": s.created_at.isoformat() if s.created_at else "",
                 "updated_at": s.updated_at.isoformat() if s.updated_at else "",
-                "summary": s.summary,
+                "summary": _decrypt_text(s.summary),
                 "model": s.model,
                 "token_count": s.token_count,
                 "message_count": s.message_count,
@@ -358,6 +379,29 @@ class SessionManager:
 
     def search(self, query: str) -> list[dict]:
         """Search sessions."""
+        if _is_encryption_enabled():
+            sessions = (
+                self.db.query(SessionModel)
+                .order_by(SessionModel.updated_at.desc())
+                .limit(100)
+                .all()
+            )
+            q = query.lower()
+            results = []
+            for s in sessions:
+                dec_title = _decrypt_text(s.title)
+                dec_summary = _decrypt_text(s.summary)
+                if q in dec_title.lower() or q in dec_summary.lower():
+                    results.append({
+                        "id": s.id,
+                        "title": dec_title,
+                        "created_at": s.created_at.isoformat() if s.created_at else "",
+                        "summary": dec_summary[:200] if dec_summary else "",
+                    })
+                    if len(results) >= 10:
+                        break
+            return results
+
         sessions = (
             self.db.query(SessionModel)
             .filter(
@@ -371,21 +415,60 @@ class SessionManager:
         return [
             {
                 "id": s.id,
-                "title": s.title,
+                "title": _decrypt_text(s.title),
                 "created_at": s.created_at.isoformat() if s.created_at else "",
-                "summary": s.summary[:200] if s.summary else "",
+                "summary": _decrypt_text(s.summary)[:200] if s.summary else "",
             }
             for s in sessions
         ]
 
     def search_content(self, query: str, limit: int = 5, max_sessions: int = 20) -> list[dict]:
-        """Mesaj gövdesi içeriğinde ara. FTS5 kullanır."""
+        """Mesaj gövdesi içeriğinde ara. FTS5 kullanır (şifreleme açıksa bellek içi arama yapar)."""
+        clean_query = query.strip()
+        if not clean_query:
+            return []
+
+        if _is_encryption_enabled():
+            sessions = (
+                self.db.query(SessionModel)
+                .order_by(SessionModel.updated_at.desc())
+                .limit(max_sessions)
+                .all()
+            )
+            q_lower = clean_query.lower()
+            results = []
+            for s in sessions:
+                if s.id == self.current_id or not s.messages:
+                    continue
+                try:
+                    dec = _decrypt(s.messages)
+                    if q_lower in dec.lower():
+                        idx = dec.lower().find(q_lower)
+                        start = max(0, idx - 40)
+                        end = min(len(dec), idx + len(clean_query) + 40)
+                        snip = f"...{dec[start:end]}..."
+                        ts = s.created_at.strftime("%Y-%m-%d %H:%M") if isinstance(s.created_at, datetime) else str(s.created_at)[:16]
+                        results.append({
+                            "session_id": s.id,
+                            "title": _decrypt_text(s.title) or "Untitled",
+                            "timestamp": ts,
+                            "snippet": snip.replace("\n", " "),
+                            "score": 5.0,
+                            "role": "user",
+                            "content": snip,
+                        })
+                        if len(results) >= limit:
+                            break
+                except Exception:
+                    continue
+            return results
+
         from sqlalchemy import text as _text
         import re
         
         # Sadece harf ve rakam olan kelimeleri al (noktalama MATCH syntax hatasi verir)
-        clean_query = re.sub(r'[^\w\s]', ' ', query)
-        words = [w for w in clean_query.split() if len(w) >= 4]
+        clean_query_words = re.sub(r'[^\w\s]', ' ', clean_query)
+        words = [w for w in clean_query_words.split() if len(w) >= 4]
         if not words:
             return []
 
@@ -431,7 +514,7 @@ class SessionManager:
                     # Snippet icinden noktalama kaldirma yuzunden rol bilemiyoruz, varsayilan user
                     final_results.append({
                         "session_id": sid,
-                        "title": title or "Untitled",
+                        "title": _decrypt_text(title) or "Untitled",
                         "timestamp": ts,
                         "snippet": snip.replace("\n", " "),
                         "score": 5.0,  # FTS handles ranking, give baseline score
@@ -464,7 +547,7 @@ class SessionManager:
         """Rename a session."""
         session = self.db.query(SessionModel).filter_by(id=session_id).first()
         if session:
-            session.title = title
+            session.title = _encrypt(title) if title else ""
             self.db.commit()
 
     def cleanup_old(self, keep_last: int = 10):
@@ -709,16 +792,17 @@ class SessionManager:
         # FTS index'ini budanmış içerikle eşitle (stale recall olmasın)
         try:
             from sqlalchemy import text as _text
-            text_content = " ".join(
-                m.get("content", "") for m in messages
-                if m.get("content") and isinstance(m.get("content"), str)
-            )
             self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": session_id})
-            if text_content.strip():
-                self.db.execute(
-                    _text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"),
-                    {"sid": session_id, "content": text_content},
+            if not _is_encryption_enabled():
+                text_content = " ".join(
+                    m.get("content", "") for m in messages
+                    if m.get("content") and isinstance(m.get("content"), str)
                 )
+                if text_content.strip():
+                    self.db.execute(
+                        _text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"),
+                        {"sid": session_id, "content": text_content},
+                    )
             self.db.commit()
         except Exception as e:
             log.debug(f"FTS prune sync failed: {e}")

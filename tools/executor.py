@@ -1,6 +1,7 @@
 """Tool execution engine — parameter validation + execution + hook pipeline."""
 
 from __future__ import annotations
+from typing import Container, Optional
 import json
 import asyncio
 import traceback
@@ -125,14 +126,17 @@ _RECOVERY_HINTS: dict[str, dict] = {
 class ToolExecutor:
     """Calls tools and collects results."""
 
-    def __init__(self):
+    def __init__(self, registry: Optional[ToolRegistry] = None):
+        self._registry = registry
         self.call_count = 0
         self._graph_data_available = False  # graphify_query basarili oldu mu?
         self._ALIASES = {"bash": "terminal", "sh": "terminal", "shell": "terminal",
                          "python": "terminal", "cmd": "terminal"}
 
     # ── Shared setup (used by both sync execute and async_execute) ───────────
-    def _setup(self, tool_name: str, arguments: dict) -> tuple[str, ToolDef | None, dict | None, str | None]:
+    def _setup(self, tool_name: str, arguments: dict,
+               allowed_tools: Optional[Container[str]] = None,
+               allowed_toolsets: Optional[Container[str]] = None) -> tuple[str, ToolDef | None, dict | None, str | None]:
         """Common pre-execution setup.
 
         Returns (tool_name, tool, resolved_args, error_result).
@@ -141,9 +145,23 @@ class ToolExecutor:
         # Tool name aliases
         tool_name = self._ALIASES.get(tool_name, tool_name)
 
-        tool = registry.get(tool_name)
+        active_reg = self._registry if self._registry is not None else registry
+        tool = active_reg.get(tool_name)
         if not tool:
             return tool_name, None, None, json.dumps({"error": f"Tool not found: {tool_name}"})
+
+        # ── Permission / Allowlist enforcement ──
+        if allowed_tools is not None and tool_name not in allowed_tools:
+            perm_msg = f"Permission denied: Tool '{tool_name}' is not permitted in this context"
+            log.warning(perm_msg)
+            bus.publish("tool:aborted", name=tool_name, reason="permission_denied")
+            return tool_name, None, None, json.dumps({"error": perm_msg, "permission_denied": True})
+
+        if allowed_toolsets is not None and tool.toolset not in allowed_toolsets:
+            perm_msg = f"Permission denied: Toolset '{tool.toolset}' (tool '{tool_name}') is not permitted in this context"
+            log.warning(perm_msg)
+            bus.publish("tool:aborted", name=tool_name, reason="permission_denied")
+            return tool_name, None, None, json.dumps({"error": perm_msg, "permission_denied": True})
 
         # ── Block batch_python when graph data exists ────────────────────
         if self._graph_data_available and tool_name in ("batch_python",):
@@ -236,11 +254,15 @@ class ToolExecutor:
 
     # ── Public API ─────────────────────────────────────────────────────────
 
-    def execute(self, tool_name: str, arguments: dict, timeout: int = 30) -> str:
+    def execute(self, tool_name: str, arguments: dict, timeout: int = 30,
+                allowed_tools: Optional[Container[str]] = None,
+                allowed_toolsets: Optional[Container[str]] = None) -> str:
         """Call a tool synchronously. Returns JSON string result.
         arguments must be a dict.
         """
-        tool_name, tool, resolved_args, err = self._setup(tool_name, arguments)
+        tool_name, tool, resolved_args, err = self._setup(
+            tool_name, arguments, allowed_tools=allowed_tools, allowed_toolsets=allowed_toolsets
+        )
         if err:
             return err
 
@@ -252,7 +274,6 @@ class ToolExecutor:
         for attempt in (1, 2):
             try:
                 if tool.is_async:
-                    import asyncio
                     try:
                         loop = asyncio.get_running_loop()
                         fut = asyncio.run_coroutine_threadsafe(tool.handler(**resolved_args), loop)
@@ -261,25 +282,25 @@ class ToolExecutor:
                         # No running event loop
                         result = asyncio.run(tool.handler(**resolved_args))
                 else:
-                    import asyncio as _aio
                     import inspect as _ins
                     if _ins.iscoroutinefunction(tool.handler):
                         try:
-                            loop = _aio.get_running_loop()
-                            fut = _SYNC_TOOL_POOL.submit(_aio.run, tool.handler(**resolved_args))
+                            loop = asyncio.get_running_loop()
+                            fut = _SYNC_TOOL_POOL.submit(asyncio.run, tool.handler(**resolved_args))
                             result = fut.result(timeout=timeout)
                         except RuntimeError:
-                            result = _aio.run(tool.handler(**resolved_args))
+                            result = asyncio.run(tool.handler(**resolved_args))
                     else:
-                        result = tool.handler(**resolved_args)
+                        fut = _SYNC_TOOL_POOL.submit(tool.handler, **resolved_args)
+                        result = fut.result(timeout=timeout)
                         if type(result).__name__ == "coroutine":
                             try:
                                 try:
-                                    loop = _aio.get_running_loop()
-                                    fut = _SYNC_TOOL_POOL.submit(_aio.run, result)
+                                    loop = asyncio.get_running_loop()
+                                    fut = _SYNC_TOOL_POOL.submit(asyncio.run, result)
                                     result = fut.result(timeout=timeout)
                                 except RuntimeError:
-                                    result = _aio.run(result)
+                                    result = asyncio.run(result)
                             except TypeError:
                                 return json.dumps({"error": f"Async tool '{tool_name}' returned coroutine"})
 
@@ -287,6 +308,9 @@ class ToolExecutor:
                     result = json.dumps(result, ensure_ascii=False)
                 return self._finish(tool_name, resolved_args, result)
 
+            except (TimeoutError, asyncio.TimeoutError):
+                log.warning(f"Tool '{tool_name}' timed out after {timeout}s")
+                return json.dumps({"error": f"Tool '{tool_name}' timed out ({timeout}s)", "timeout": True})
             except ImportError as e:
                 if attempt == 2:
                     return self._handle_error(tool_name, e)
@@ -302,7 +326,9 @@ class ToolExecutor:
             except Exception as e:
                 return self._handle_error(tool_name, e)
 
-    def execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30) -> str:
+    def execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30,
+                     allowed_tools: Optional[Container[str]] = None,
+                     allowed_toolsets: Optional[Container[str]] = None) -> str:
         """Call a tool with string JSON arguments. Parses first, then delegates to execute()."""
         try:
             import re as _re
@@ -317,7 +343,7 @@ class ToolExecutor:
                 log.debug(f"execute_json: repaired JSON for '{tool_name}'")
             except json.JSONDecodeError:
                 args = {"input": arguments_str}
-        return self.execute(tool_name, args, timeout=timeout)
+        return self.execute(tool_name, args, timeout=timeout, allowed_tools=allowed_tools, allowed_toolsets=allowed_toolsets)
 
     def execute_multi(self, calls: list[dict]) -> list[dict]:
         """Call multiple tools sequentially.
@@ -346,27 +372,43 @@ class ToolExecutor:
         """Reset tool call counter (new turn)."""
         self.call_count = 0
 
-    async def async_execute(self, tool_name: str, arguments: dict, timeout: int = 30) -> str:
+    async def async_execute(self, tool_name: str, arguments: dict, timeout: int = 30,
+                            allowed_tools: Optional[Container[str]] = None,
+                            allowed_toolsets: Optional[Container[str]] = None) -> str:
         """Call a tool asynchronously. Returns JSON string result.
         arguments must be a dict.
         """
-        tool_name, tool, resolved_args, err = self._setup(tool_name, arguments)
+        tool_name, tool, resolved_args, err = self._setup(
+            tool_name, arguments, allowed_tools=allowed_tools, allowed_toolsets=allowed_toolsets
+        )
         if err:
             return err
 
         for attempt in (1, 2):
             try:
                 if tool.is_async:
-                    result = await tool.handler(**resolved_args)
+                    coro = tool.handler(**resolved_args)
                 else:
-                    result = await asyncio.to_thread(tool.handler, **resolved_args)
-                    if type(result).__name__ == "coroutine":
+                    coro = asyncio.to_thread(tool.handler, **resolved_args)
+
+                if timeout and timeout > 0:
+                    result = await asyncio.wait_for(coro, timeout=timeout)
+                else:
+                    result = await coro
+
+                if type(result).__name__ == "coroutine":
+                    if timeout and timeout > 0:
+                        result = await asyncio.wait_for(result, timeout=timeout)
+                    else:
                         result = await result
 
                 if not isinstance(result, str):
                     result = json.dumps(result, ensure_ascii=False)
                 return self._finish(tool_name, resolved_args, result)
 
+            except (asyncio.TimeoutError, TimeoutError):
+                log.warning(f"Tool '{tool_name}' async execution timed out after {timeout}s")
+                return json.dumps({"error": f"Tool '{tool_name}' timed out ({timeout}s)", "timeout": True})
             except ImportError as e:
                 if attempt == 2:
                     return self._handle_error(tool_name, e)
@@ -382,7 +424,9 @@ class ToolExecutor:
             except Exception as e:
                 return self._handle_error(tool_name, e)
 
-    async def async_execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30) -> str:
+    async def async_execute_json(self, tool_name: str, arguments_str: str, timeout: int = 30,
+                                 allowed_tools: Optional[Container[str]] = None,
+                                 allowed_toolsets: Optional[Container[str]] = None) -> str:
         """Call a tool asynchronously with string JSON arguments. Parses first, then delegates to async_execute()."""
         try:
             import re as _re
@@ -397,7 +441,7 @@ class ToolExecutor:
                 log.debug(f"async_execute_json: repaired JSON for '{tool_name}'")
             except json.JSONDecodeError:
                 args = {"input": arguments_str}
-        return await self.async_execute(tool_name, args, timeout=timeout)
+        return await self.async_execute(tool_name, args, timeout=timeout, allowed_tools=allowed_tools, allowed_toolsets=allowed_toolsets)
 
     async def async_execute_multi(self, calls: list[dict]) -> list[dict]:
         """Call multiple tools asynchronously in sequence.

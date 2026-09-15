@@ -96,49 +96,50 @@ def task_create_bash(command: str, label: str = "", notify_on_complete: bool = F
 
     log.info(f"BG task started (PID={proc.pid}): {name} ({task_id})")
 
-    # Notification: komut bittiginde veya hata alirsa
-    if notify_on_complete:
-        _notif_lock = threading.Lock()
+    # Process reaper and lifecycle completion (always runs to prevent zombies)
+    _notif_lock = threading.Lock()
 
-        def _notify(msg: str):
-            with _notif_lock:
-                task_manager._pending_notifications.append(msg)
+    def _notify(msg: str):
+        if not notify_on_complete:
+            return
+        with _notif_lock:
+            task_manager._pending_notifications.append(msg)
 
-        def _wait_and_notify():
-            try:
-                stdout, stderr = proc.communicate(timeout=300)
-                _out = stdout.decode("utf-8", errors="replace")[:2000]
-                _err = stderr.decode("utf-8", errors="replace")[:500]
-                # Show output after timeout (code 124) or normal completion
-                if proc.returncode in (0, 124):
-                    task.status = "done"
-                    task.result = _out
-                    task.finished_at = time.time()
-                    _preview = _out[:80] if _out.strip() else _err[:80]
-                    _notify(f"✓ [{name}] completed ({task.elapsed}s): {_preview}")
-                else:
-                    task.status = "failed"
-                    task.error = _err or _out[:500]
-                    task.finished_at = time.time()
-                    _preview = (_err or _out)[:80]
-                    _notify(f"⚠ [{name}] exit: {_preview}")
-                # Auto-clean failed tasks
-                if task.status == "failed":
-                    task_manager.clear_failed()
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout, stderr = proc.communicate()  # reap
-                task.status = "failed"
-                task.error = "timeout (300s)"
+    def _wait_and_reap():
+        try:
+            stdout, stderr = proc.communicate(timeout=300)
+            _out = stdout.decode("utf-8", errors="replace")[:2000]
+            _err = stderr.decode("utf-8", errors="replace")[:500]
+            # Show output after timeout (code 124) or normal completion
+            if proc.returncode in (0, 124):
+                task.status = "done"
+                task.result = _out
                 task.finished_at = time.time()
-                _notify(f"⏱ [{name}] timeout (300s)")
-            except (OSError, ValueError) as e:
+                _preview = _out[:80] if _out.strip() else _err[:80]
+                _notify(f"✓ [{name}] completed ({task.elapsed}s): {_preview}")
+            else:
                 task.status = "failed"
-                task.error = str(e)[:200]
+                task.error = _err or _out[:500]
                 task.finished_at = time.time()
-                _notify(f"✗ [{name}] error: {str(e)[:80]}")
+                _preview = (_err or _out)[:80]
+                _notify(f"⚠ [{name}] exit: {_preview}")
+            # Auto-clean failed tasks
+            if task.status == "failed":
+                task_manager.clear_failed()
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()  # reap
+            task.status = "failed"
+            task.error = "timeout (300s)"
+            task.finished_at = time.time()
+            _notify(f"⏱ [{name}] timeout (300s)")
+        except (OSError, ValueError) as e:
+            task.status = "failed"
+            task.error = str(e)[:200]
+            task.finished_at = time.time()
+            _notify(f"✗ [{name}] error: {str(e)[:80]}")
 
-        threading.Thread(target=_wait_and_notify, daemon=True).start()
+    threading.Thread(target=_wait_and_reap, daemon=True).start()
 
     return json.dumps({
         "status": "success",

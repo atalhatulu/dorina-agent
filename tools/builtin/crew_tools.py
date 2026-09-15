@@ -54,17 +54,19 @@ def _role_fmt(roles: list[str]) -> str:
 )
 def crew_run_tool(task: str, roles: list[str] | None = None, parallel: bool = True) -> str:
     """Run a crew of SubAgents on a shared task and return aggregated JSON."""
+    if not task or not task.strip():
+        return json.dumps({"status": "empty", "error": "task cannot be empty", "members": []})
     import asyncio
     try:
         crew_inst = AgentCrew()
         role_list = roles or ["planner", "researcher", "writer", "reviewer"]
         for r in role_list:
-            crew_inst.add_agent(r, task)
+            crew_inst.add_agent(r, f"{r.capitalize()} role for task: {task.strip()}")
         if parallel:
-            return asyncio.run(crew_inst.run_crew_parallel(task))
-        return asyncio.run(crew_inst.run_crew(task))
+            return asyncio.run(crew_inst.run_crew_parallel(task.strip()))
+        return asyncio.run(crew_inst.run_crew(task.strip()))
     except (ImportError, AttributeError, OSError) as e:
-        return json.dumps({"error": str(e)})
+        return json.dumps({"error": str(e), "status": "error", "members": []})
 
 
 @register_tool(

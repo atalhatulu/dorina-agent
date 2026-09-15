@@ -51,6 +51,24 @@ class Approval:
         if tool_name in ("delete_file", "rm"):
             return True
 
+        # MCP target tools
+        if tool_name.startswith("mcp:"):
+            sub_name = tool_name.split(":", 1)[1]
+            if sub_name in self.always_allow:
+                return False
+            if sub_name in self.ask_always:
+                return True
+            if self.mode == self.MODE_MANUAL:
+                return True
+            # Check destructive keywords or args
+            if is_destructive(str(arguments)):
+                return True
+            if any(k in sub_name.lower() for k in ("delete", "remove", "drop", "destroy", "execute", "shell", "bash", "run")):
+                return True
+            if self.mode == self.MODE_SMART:
+                return False
+            return True
+
         # Smart mode: fewer approvals
         if self.mode == self.MODE_SMART:
             return False  # Only the most risky operations require approval
@@ -82,17 +100,9 @@ approval = Approval()
 
 
 def _approval_hook(tool_name: str, arguments: dict) -> bool:
-    """Pre-execution hook: get approval before tool is called."""
+    """Validation hook for approval.
+
+    Note: Approval is centrally enforced once in ToolExecutor._setup
+    after parameter validation and parameter transformations.
+    """
     return approval.approve(tool_name, arguments)
-
-
-# Register itself with the pipeline (lazy import)
-def _register_approval_hook():
-    try:
-        from hooks.lifecycle import pipeline
-        pipeline.register("pre_execution", _approval_hook)
-    except ImportError:
-        pass  # Silently skip if pipeline isn't ready yet
-
-
-_register_approval_hook()

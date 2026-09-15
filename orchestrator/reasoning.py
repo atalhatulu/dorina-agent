@@ -420,8 +420,11 @@ class ReasoningEngine:
 
     def _parse_response(self, response) -> dict:
         """Parse LLM response + token budget check."""
-        if not response.choices:
-            log.warning(f"LLM response has no choices for model {response.model}")
+        if isinstance(response, dict):
+            return response
+
+        if not getattr(response, "choices", None):
+            log.warning(f"LLM response has no choices for model {getattr(response, 'model', 'unknown')}")
             return {"content": "", "tool_calls": [], "finish_reason": "no_choices", "usage": {"prompt_tokens": 0, "completion_tokens": 0}, "cost": 0}
 
         choice = response.choices[0]

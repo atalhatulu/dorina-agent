@@ -77,12 +77,14 @@ class AgentCrew:
         """Build the SubAgent goal for one member given the shared task."""
         role = member.get("role", "worker")
         focused = member.get("goal", "").strip()
-        base = (
-            f"As the '{role}' of a crew, complete this task: {task}"
-            if not focused
-            else f"As the '{role}' of a crew, complete this task: {task}. Focus: {focused}"
-        )
-        return base
+        task_clean = (task or "").strip()
+        if focused and task_clean and focused != task_clean:
+            return f"As the '{role}' of a crew, complete this task: {task_clean}. Focus: {focused}"
+        if focused:
+            return f"As the '{role}' of a crew, complete this task: {focused}"
+        if task_clean:
+            return f"As the '{role}' of a crew, complete this task: {task_clean}"
+        return f"As the '{role}' of a crew, complete the requested work."
 
     # ── Real execution ───────────────────────────────────────────────
 
@@ -123,7 +125,7 @@ class AgentCrew:
         results = []
         for member in self.members:
             results.append(await self.run_member(member, task))
-        return _summary_payload("completed", results)
+        return _summary_payload(_calculate_crew_status(results), results)
 
     async def run_crew_parallel(self, task: str) -> str:
         """Run all members in parallel as independent SubAgents."""
@@ -143,7 +145,7 @@ class AgentCrew:
                 cleaned.append({"status": "error", "error": str(r)})
             else:
                 cleaned.append(r)
-        return _summary_payload("completed", cleaned)
+        return _summary_payload(_calculate_crew_status(cleaned), cleaned)
 
     # ── Real fork subagent ───────────────────────────────────────────
 
@@ -222,6 +224,22 @@ class AgentCrew:
     @property
     def active_forks(self) -> list[dict]:
         return [f for f in self._forks.values() if f.get("status") in ("running", "pending")]
+
+
+def _calculate_crew_status(results: list[dict]) -> str:
+    """Calculate overall crew status based on member results."""
+    if not results:
+        return "empty"
+    statuses = [r.get("status") for r in results]
+    if all(s == "completed" for s in statuses):
+        return "completed"
+    if all(s in ("error", "failed") for s in statuses):
+        return "failed"
+    if any(s == "cancelled" for s in statuses):
+        return "cancelled"
+    if any(s == "completed" for s in statuses):
+        return "partial"
+    return "failed"
 
 
 def _summary_payload(status: str, results: list[dict]) -> str:
