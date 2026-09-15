@@ -63,8 +63,10 @@ async def handle_a2a_rpc(request: Request):
                 
             task_id = f"task_{uuid.uuid4().hex[:12]}"
             
-            # Run loop_v2
-            reply = await loop_v2.process(text)
+            # Run loop_v2 with execution lock
+            from gateway.app import _loop_lock
+            async with _loop_lock:
+                reply = await loop_v2.process(text)
             
             return {
                 "jsonrpc": "2.0",

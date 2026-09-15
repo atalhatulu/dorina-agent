@@ -84,6 +84,20 @@ class SoulConfig(BaseSettings):
     language: str = "tr"
 
 
+class DashboardConfig(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    token: str = ""
+    port: int = 5792
+    host: str = "127.0.0.1"
+    allowed_origins: list[str] = [
+        "http://localhost:5792",
+        "http://127.0.0.1:5792",
+        "http://localhost",
+        "http://127.0.0.1",
+    ]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         yaml_file=str(DORINA_HOME / "config.yaml"),
@@ -116,6 +130,7 @@ class Settings(BaseSettings):
     skills: SkillsConfig = SkillsConfig()
     security: SecurityConfig = SecurityConfig()
     soul: SoulConfig = SoulConfig()
+    dashboard: DashboardConfig = DashboardConfig()
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "Settings":

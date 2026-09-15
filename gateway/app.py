@@ -21,12 +21,35 @@ import uvicorn
 from core.logger import log
 from core.constants import NAME, VERSION
 from session.manager import manager as session_manager
-from gateway.auth import verify_token, is_auth_enabled
+from gateway.auth import verify_token, is_auth_enabled, is_origin_allowed
+from fastapi.middleware.cors import CORSMiddleware
+from core.config import settings
 
 # Register all tools at startup
 import tools.builtin  # noqa: F401
 
 app = FastAPI(title=f"{NAME} Dashboard", version=VERSION)
+
+# Global execution lock for shared loop instance
+_loop_lock = asyncio.Lock()
+
+# CORS configuration
+_allowed_origins = [
+    "http://localhost:5792",
+    "http://127.0.0.1:5792",
+    "http://localhost",
+    "http://127.0.0.1",
+]
+if hasattr(settings, "dashboard") and getattr(settings.dashboard, "allowed_origins", None):
+    _allowed_origins = list(settings.dashboard.allowed_origins)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Wire the runtime registry to the event bus (tool/task/worker telemetry)
 import gateway.runtime as runtime  # noqa: E402
@@ -46,7 +69,7 @@ async def _check_auth(request: Request):
     """REST dependency: 401 if auth enabled and token missing/invalid."""
     if not is_auth_enabled():
         return
-    token = request.headers.get("X-Dashboard-Token", "")
+    token = request.headers.get("X-Dashboard-Token", "") or request.query_params.get("token", "")
     if not verify_token(token):
         raise HTTPException(401, "Unauthorized — X-Dashboard-Token header gerekli")
 
@@ -335,9 +358,18 @@ async def _tool_step_callback(ws: WebSocket, state: ConnectionState, step_type: 
 
 @app.websocket("/ws/chat")
 async def websocket_chat(ws: WebSocket, token: str = Query("")):
+    origin = ws.headers.get("origin")
+    host = ws.headers.get("host")
+    if not is_origin_allowed(origin, host):
+        await ws.accept()
+        await ws.send_json({"type": "error", "content": "Forbidden origin"})
+        await ws.close(code=4403)
+        return
+
+    resolved_token = token or ws.headers.get("x-dashboard-token", "")
     await ws.accept()
-    # Auth check: token query param must match (if auth enabled)
-    if not verify_token(token):
+    # Auth check: token query param or header must match (if auth enabled)
+    if not verify_token(resolved_token):
         await ws.send_json({"type": "error", "content": "Unauthorized — geçersiz token"})
         await ws.close(code=4401)
         return
@@ -441,39 +473,41 @@ async def websocket_chat(ws: WebSocket, token: str = Query("")):
                 async def _on_step(st, nm, dd):
                     await _tool_step_callback(ws, state, st, nm, dd)
 
-                result = await loop.process(query, on_step=_on_step)
-                final_text = str(result) if result else ""
+                async with _loop_lock:
+                    session_manager.current_id = state.session_id
+                    result = await loop.process(query, on_step=_on_step, session_id=state.session_id)
+                    final_text = str(result) if result else ""
 
-                # Calculate usage — only count LAST LLM call's context size
-                # (cumulative add inflates it due to tool loop iterations)
-                last_prompt = status.get_last_prompt_tokens()
-                last_completion = status.get_last_completion_tokens()
-                cumulative_in = status.tokens_in
-                cumulative_out = status.tokens_out
-                usage = {
-                    "prompt_tokens": last_prompt,
-                    "completion_tokens": last_completion,
-                    "total_tokens": last_prompt + last_completion,
-                    "total_in": cumulative_in,
-                    "total_out": cumulative_out,
-                    "cumulative_tokens": max(0, cumulative_in + cumulative_out - state.tokens_before),
-                    "cost": max(0, status.cost - state.cost_before),
-                    "total_cost": status.cost,
-                }
+                    # Calculate usage — only count LAST LLM call's context size
+                    # (cumulative add inflates it due to tool loop iterations)
+                    last_prompt = status.get_last_prompt_tokens()
+                    last_completion = status.get_last_completion_tokens()
+                    cumulative_in = status.tokens_in
+                    cumulative_out = status.tokens_out
+                    usage = {
+                        "prompt_tokens": last_prompt,
+                        "completion_tokens": last_completion,
+                        "total_tokens": last_prompt + last_completion,
+                        "total_in": cumulative_in,
+                        "total_out": cumulative_out,
+                        "cumulative_tokens": max(0, cumulative_in + cumulative_out - state.tokens_before),
+                        "cost": max(0, status.cost - state.cost_before),
+                        "total_cost": status.cost,
+                    }
 
-                # Extract tool steps from context
-                tool_steps = _extract_tool_calls(loop.context.get_messages())
+                    # Extract tool steps from context
+                    tool_steps = _extract_tool_calls(loop.context.get_messages())
 
-                await ws.send_json({
-                    "type": "assistant",
-                    "content": final_text,
-                    "tools": tool_steps[-15:] if tool_steps else [],
-                    "usage": usage,
-                    "done": True,
-                })
+                    await ws.send_json({
+                        "type": "assistant",
+                        "content": final_text,
+                        "tools": tool_steps[-15:] if tool_steps else [],
+                        "usage": usage,
+                        "done": True,
+                    })
 
-                # Auto-save
-                session_manager.save(loop.context.get_messages())
+                    # Auto-save explicitly to this connection's session
+                    session_manager.save(loop.context.get_messages(), session_id=state.session_id)
 
             except Exception as e:
                 await ws.send_json({"type": "error", "content": str(e), "done": True})
@@ -518,8 +552,17 @@ async def websocket_events(ws: WebSocket, token: str = Query("")):
 
     Independent of any session: broadcasts runtime-wide orchestration state.
     """
+    origin = ws.headers.get("origin")
+    host = ws.headers.get("host")
+    if not is_origin_allowed(origin, host):
+        await ws.accept()
+        await ws.send_json({"type": "error", "content": "Forbidden origin"})
+        await ws.close(code=4403)
+        return
+
+    resolved_token = token or ws.headers.get("x-dashboard-token", "")
     await ws.accept()
-    if not verify_token(token):
+    if not verify_token(resolved_token):
         await ws.send_json({"type": "error", "content": "Unauthorized — geçersiz token"})
         await ws.close(code=4401)
         return

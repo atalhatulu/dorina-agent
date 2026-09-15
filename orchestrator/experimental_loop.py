@@ -105,7 +105,7 @@ class AgentLoopV2:
     # PUBLIC API
     # ────────────────────────────────────────────────────────────────
 
-    async def process(self, user_input: str, on_step: Optional[callable] = None) -> str:
+    async def process(self, user_input: str, on_step: Optional[callable] = None, session_id: Optional[str] = None) -> str:
         """Think → act dongusu.
 
         1. Greeting kontrolu (LLM cagrisi yok)
@@ -115,8 +115,10 @@ class AgentLoopV2:
         Args:
             user_input: Kullanici mesaji.
             on_step: Varsa, her tool call/result icin cagrilir (web UI streaming).
+            session_id: Opsiyonel oturum kimligi. Belirtilmezse session_manager.current_id kullanilir.
         """
         self._on_step = on_step
+        self._active_session_id = session_id or session_manager.current_id
         # ── 0. GIRIS KONTROLLERI ───────────────────────────────────
 
         if is_greeting(user_input):
@@ -139,7 +141,7 @@ class AgentLoopV2:
 
         # ── 1. PREPARE (ilk tur): title + system prompt ────────────
         if self.turn == 1 and not self._session_titled:
-            title = autotitle(user_input, session_id=session_manager.current_id)
+            title = autotitle(user_input, session_id=self._active_session_id)
             self._session_titled = bool(title)
 
         if not self._skills_injected:
@@ -801,7 +803,7 @@ class AgentLoopV2:
             max_ctx = 128000  # DeepSeek default context window
             _status.context_pct = min(total / max_ctx, 1.0)
 
-    def _schedule_save(self, summary: str = "", quick: bool = False):
+    def _schedule_save(self, summary: str = "", quick: bool = False, session_id: Optional[str] = None):
         """Session save'i background task olarak baslat."""
         if self._temp_mode:
             return
@@ -816,9 +818,12 @@ class AgentLoopV2:
         _MIN_SAVE = 5
         if len(messages) < _MIN_SAVE:
             return
+        target_sid = session_id or getattr(self, "_active_session_id", None) or session_manager.current_id
+        # Snapshot messages to prevent concurrent mutation during background save
+        messages_snapshot = [dict(m) for m in messages]
         # Fire-and-forget with exception safety — avoid "Task destroyed" warnings
         try:
-            _task = asyncio.create_task(self._do_save(messages, summary, quick))
+            _task = asyncio.create_task(self._do_save(messages_snapshot, summary, quick, session_id=target_sid))
             _task.add_done_callback(
                 lambda t: t.exception() and log.warning(
                     "session save failed: %s", t.exception()
@@ -827,17 +832,18 @@ class AgentLoopV2:
         except RuntimeError:
             # No running event loop — save synchronously
             try:
-                session_manager.save(messages, summary=summary)
+                session_manager.save(messages_snapshot, summary=summary, session_id=target_sid)
             except Exception as e:
                 log.warning("session save (sync fallback) failed: %s", e)
 
-    async def _do_save(self, messages: list[dict], summary: str = "", quick: bool = False):
+    async def _do_save(self, messages: list[dict], summary: str = "", quick: bool = False, session_id: Optional[str] = None):
         try:
             if quick:
-                session_manager.save(messages, summary=summary)
+                session_manager.save(messages, summary=summary, session_id=session_id)
             else:
                 session_manager.save(messages, summary=summary,
-                                     token_total=count_messages_tokens(messages))
+                                     token_total=count_messages_tokens(messages),
+                                     session_id=session_id)
         except (ImportError, OSError, KeyError, AttributeError) as e:
             log.warning("Session save failed: %s", e)
 

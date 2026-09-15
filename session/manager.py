@@ -236,10 +236,15 @@ class SessionManager:
 
     def save(self, messages: list[dict], summary: str = "", title: str = "",
              tool_calls_data: list[dict] = None,
-             token_total: int = 0, cost: int = 0, tags: list[str] = None):
-        """Persist the current session, including repeated payloads and retries."""
-        if not self.current_id:
-            self.create(title=title)
+             token_total: int = 0, cost: int = 0, tags: list[str] = None,
+             session_id: Optional[str] = None):
+        """Persist a session, writing either to the specified session_id or active current_id."""
+        target_id = session_id or self.current_id
+        if not target_id:
+            target_id = self.create(title=title)
+        elif not session_id and not self.current_id:
+            self.current_id = target_id
+
         # Auto-preview from first user message
         if not summary:
             for m in messages:
@@ -254,7 +259,7 @@ class SessionManager:
         # Do not deduplicate against global last-save state: the active session
         # may have changed, or a previous transaction may have failed.
         
-        session = self.db.query(SessionModel).filter_by(id=self.current_id).first()
+        session = self.db.query(SessionModel).filter_by(id=target_id).first()
         if session:
             session.messages = _encrypt(json.dumps(messages, ensure_ascii=False))
             session.summary = summary
@@ -275,7 +280,7 @@ class SessionManager:
             try:
                 from sqlalchemy import text as _text
                 text_content = " ".join(m.get("content", "") for m in messages if m.get("content") and isinstance(m.get("content"), str))
-                self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": self.current_id})
+                self.db.execute(_text("DELETE FROM session_fts WHERE session_id = :sid"), {"sid": target_id})
                 if text_content.strip():
                     # fold_turkish import/redeclare if needed, but it's defined globally above? No, it's inside the migration block context.
                     # Let's define it globally or as a static method. Wait, I'll just write the mapping here.
@@ -286,18 +291,19 @@ class SessionManager:
                         
                     self.db.execute(
                         _text("INSERT INTO session_fts(session_id, content) VALUES (:sid, :content)"),
-                        {"sid": self.current_id, "content": folded}
+                        {"sid": target_id, "content": folded}
                     )
                 self.db.commit()
             except Exception as e:
                 log.error(f"FTS update failed: {e}")
                 self.db.rollback()
 
-    def load(self, session_id: str) -> Optional[dict]:
-        """Load a session."""
+    def load(self, session_id: str, set_current: bool = False) -> Optional[dict]:
+        """Load a session. By default read-only; does not mutate current_id unless set_current=True."""
         session = self.db.query(SessionModel).filter_by(id=session_id).first()
         if session:
-            self.current_id = session_id
+            if set_current:
+                self.current_id = session_id
             return {
                 "id": session.id,
                 "title": session.title,
@@ -308,6 +314,14 @@ class SessionManager:
                 "model": session.model,
             }
         return None
+
+    def activate(self, session_id: str) -> bool:
+        """Explicitly switch current_id to session_id if it exists."""
+        session = self.db.query(SessionModel).filter_by(id=session_id).first()
+        if session:
+            self.current_id = session_id
+            return True
+        return False
 
     def list_sessions(self, limit: int = 20) -> list[dict]:
         """List sessions."""
