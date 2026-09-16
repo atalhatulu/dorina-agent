@@ -49,8 +49,9 @@ async def main():
     app = DorinaApp()
     await app.startup()
 
+    exit_code = 0
     if args.query:
-        await app.run_single_query(args.query)
+        exit_code = await app.run_single_query(args.query)
     else:
         try:
             await app.run_interactive()
@@ -90,6 +91,9 @@ async def main():
         msg_count = s.get("message_count", 0)
         if msg_count <= 1:
             _mgr.delete(s["id"])
+
+    if exit_code != 0:
+        sys.exit(exit_code)
 
 
 def entry():

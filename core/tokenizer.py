@@ -93,11 +93,12 @@ def count_tokens(text: str, model: str = "") -> int:
                 _encoding_cache[encoding_name] = tiktoken.get_encoding(encoding_name)
             encoding = _encoding_cache[encoding_name]
             return len(encoding.encode(text))
-        except (KeyError, ValueError, TypeError):
+        except Exception:
+            # Catch network errors (URLError/OSError on cold cache download) and encoding errors
             pass
 
-    # Fallback: character / 4 (rough estimate)
-    return len(text) // 4
+    # Fallback: character / 4 (rough estimate), guaranteed at least 1 token for non-empty text
+    return max(1, len(text) // 4)
 
 
 def count_messages_tokens(messages: list[dict], model: str = "") -> int:

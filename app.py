@@ -29,14 +29,22 @@ class DorinaApp:
             self.session_id = session_manager.current_id
         print_startup_banner(session_id=self.session_id)
 
-    async def run_single_query(self, query: str):
-        """Execute a single query and exit."""
+    async def run_single_query(self, query: str) -> int:
+        """Execute a single query and exit. Returns 0 for success, 1 on failure or budget exceed."""
         if not query:
-            return
+            return 0
         log.info(f"Single query execution: {query}")
         result = await loop.process(query)
         if result and isinstance(result, str):
             print_info(result)
+
+        from orchestrator.contract import RunStatus
+        last_res = getattr(loop, "last_run_result", None)
+        if last_res and getattr(last_res, "status", None) in (RunStatus.FAILED, RunStatus.BUDGET_EXCEEDED):
+            return 1
+        if isinstance(result, str) and ("LLM failed" in result or "Token budget exceeded" in result):
+            return 1
+        return 0
 
     async def run_interactive(self):
         """Run interactive REPL loop."""

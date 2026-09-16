@@ -475,8 +475,10 @@ async def websocket_chat(ws: WebSocket, token: str = Query("")):
 
                 async with _loop_lock:
                     session_manager.current_id = state.session_id
-                    result = await loop.process(query, on_step=_on_step, session_id=state.session_id)
-                    final_text = str(result) if result else ""
+                    from orchestrator.contract import RunRequest, RunResult, RunStatus
+                    run_req = RunRequest(input=query, on_step=_on_step, session_id=state.session_id)
+                    run_res = await loop.run(run_req)
+                    final_text = str(run_res.output) if run_res.output else ""
 
                     # Calculate usage — only count LAST LLM call's context size
                     # (cumulative add inflates it due to tool loop iterations)
@@ -498,13 +500,19 @@ async def websocket_chat(ws: WebSocket, token: str = Query("")):
                     # Extract tool steps from context
                     tool_steps = _extract_tool_calls(loop.context.get_messages())
 
-                    await ws.send_json({
+                    resp_payload = {
                         "type": "assistant",
                         "content": final_text,
+                        "status": run_res.status.value,
+                        "run_id": run_res.run_id,
                         "tools": tool_steps[-15:] if tool_steps else [],
                         "usage": usage,
                         "done": True,
-                    })
+                    }
+                    if run_res.error:
+                        resp_payload["error"] = run_res.error
+
+                    await ws.send_json(resp_payload)
 
                     # Auto-save explicitly to this connection's session
                     session_manager.save(loop.context.get_messages(), session_id=state.session_id)

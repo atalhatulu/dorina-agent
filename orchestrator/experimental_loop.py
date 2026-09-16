@@ -103,6 +103,7 @@ class AgentLoopV2:
         self._turn_term_calls = 0  # terminal calls in current turn
         self._turn_tool_calls = 0  # total tool calls in current turn
         self._consolidation_sent = False  # consolidation warning already sent this turn
+        self.last_run_result: Optional[RunResult] = None
 
     # ────────────────────────────────────────────────────────────────
     # PUBLIC API
@@ -112,10 +113,18 @@ class AgentLoopV2:
         """Think → act dongusu (backward compatibility wrapper around run)."""
         req = RunRequest(input=user_input, on_step=on_step, session_id=session_id)
         result = await self.run(req)
-        return result.output
+        if isinstance(result, RunResult):
+            self.last_run_result = result
+            return result.output
+        return str(result)
 
     async def run(self, request: RunRequest) -> RunResult:
         """ADR-001 unified task entrypoint with explicit identity, limits, and result contract."""
+        res = await self._run_internal(request)
+        self.last_run_result = res
+        return res
+
+    async def _run_internal(self, request: RunRequest) -> RunResult:
         user_input = request.input
         self._on_step = request.on_step
         run_id = request.run_id or uuid.uuid4().hex[:12]
