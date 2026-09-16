@@ -42,6 +42,7 @@ class ModeManager:
         self._budget: int = 0  # token budget (0 = unlimited)
         self._budget_used: int = 0
         self._budget_warned: bool = False  # one warning per budget period
+        self._budget_hard_limit: bool = True  # whether budget breach halts execution
 
     # ── Core API ─────────────────────────────────────────────
 
@@ -131,6 +132,23 @@ class ModeManager:
             self._budget_warned = True
             return True
         return False
+
+    @property
+    def budget_hard_limit(self) -> bool:
+        return self._budget_hard_limit
+
+    @budget_hard_limit.setter
+    def budget_hard_limit(self, value: bool):
+        self._budget_hard_limit = bool(value)
+
+    def is_budget_exhausted(self) -> bool:
+        """Return True if budget is active (>0) and token usage reached or exceeded it."""
+        return self._budget > 0 and self._budget_used >= self._budget
+
+    def reset_budget_usage(self):
+        """Reset accumulated budget usage and warning state."""
+        self._budget_used = 0
+        self._budget_warned = False
 
     @property
     def budget_used(self) -> int:

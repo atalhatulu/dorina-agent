@@ -22,6 +22,9 @@ import asyncio
 import hashlib
 import json
 import inspect
+import uuid
+
+from orchestrator.contract import RunRequest, RunResult, RunStatus, RunLimits
 
 from core.logger import log
 from core.constants import MAX_TURNS
@@ -106,29 +109,59 @@ class AgentLoopV2:
     # ────────────────────────────────────────────────────────────────
 
     async def process(self, user_input: str, on_step: Optional[callable] = None, session_id: Optional[str] = None) -> str:
-        """Think → act dongusu.
+        """Think → act dongusu (backward compatibility wrapper around run)."""
+        req = RunRequest(input=user_input, on_step=on_step, session_id=session_id)
+        result = await self.run(req)
+        return result.output
 
-        1. Greeting kontrolu (LLM cagrisi yok)
-        2. System prompt hazirlik (ilk tur: title, skill, RAG)
-        3. Think → Act loop
+    async def run(self, request: RunRequest) -> RunResult:
+        """ADR-001 unified task entrypoint with explicit identity, limits, and result contract."""
+        user_input = request.input
+        self._on_step = request.on_step
+        run_id = request.run_id or uuid.uuid4().hex[:12]
+        self._active_session_id = request.session_id or session_manager.current_id
 
-        Args:
-            user_input: Kullanici mesaji.
-            on_step: Varsa, her tool call/result icin cagrilir (web UI streaming).
-            session_id: Opsiyonel oturum kimligi. Belirtilmezse session_manager.current_id kullanilir.
-        """
-        self._on_step = on_step
-        self._active_session_id = session_id or session_manager.current_id
         # ── 0. GIRIS KONTROLLERI ───────────────────────────────────
 
         if is_greeting(user_input):
-            return self._handle_greeting(user_input)
+            greeting_res = self._handle_greeting(user_input)
+            return RunResult(
+                status=RunStatus.COMPLETED,
+                output=greeting_res,
+                run_id=run_id,
+                session_id=self._active_session_id or "",
+                iterations=0,
+            )
 
         user_input = self._sanitize(user_input)
 
         if self.turn >= MAX_TURNS:
             _status.set_status("idle")
-            return "Maximum turns reached. Use /new to reset."
+            max_turn_msg = "Maximum turns reached. Use /new to reset."
+            return RunResult(
+                status=RunStatus.EXHAUSTED,
+                output=max_turn_msg,
+                error=max_turn_msg,
+                run_id=run_id,
+                session_id=self._active_session_id or "",
+                iterations=0,
+            )
+
+        # Budget hard limit check at start of turn
+        if modes.is_budget_exhausted() and modes.budget_hard_limit:
+            log.warning("AgentLoopV2: token budget exhausted (%d/%d), halting execution", modes.budget_used, modes.budget)
+            _display.print_error(f"Token butcesi tukendi ({modes.budget_used}/{modes.budget}). Islem durduruldu.")
+            budget_msg = f"Token budget exceeded ({modes.budget_used}/{modes.budget}). Execution halted."
+            self.context.add_assistant_message(budget_msg)
+            self._schedule_save(budget_msg)
+            return RunResult(
+                status=RunStatus.BUDGET_EXCEEDED,
+                output=budget_msg,
+                error="Token budget exceeded",
+                run_id=run_id,
+                session_id=self._active_session_id or "",
+                iterations=0,
+            )
 
         self.turn += 1
         self._loop_iterations = 0
@@ -153,9 +186,27 @@ class AgentLoopV2:
         tool_schemas = get_active_schemas(user_input)
 
         # ── 2. THINK → ACT LOOP ────────────────────────────────────
-        _max_iter = modes.get("auto")["max_iterations"] if modes.is_on("auto") else _MAX_LOOP_ITERATIONS
+        _max_iter = request.limits.max_iterations if (request.limits and request.limits.max_iterations) else (
+            modes.get("auto")["max_iterations"] if modes.is_on("auto") else _MAX_LOOP_ITERATIONS
+        )
         while self._loop_iterations < _max_iter:
             self._loop_iterations += 1
+
+            # Budget hard limit check inside loop iterations
+            if modes.is_budget_exhausted() and modes.budget_hard_limit:
+                log.warning("AgentLoopV2: token budget exhausted (%d/%d), halting loop", modes.budget_used, modes.budget)
+                _display.print_error(f"Token butcesi tukendi ({modes.budget_used}/{modes.budget}). Islem durduruldu.")
+                budget_msg = f"Token budget exceeded ({modes.budget_used}/{modes.budget}). Execution halted."
+                self.context.add_assistant_message(budget_msg)
+                self._schedule_save(budget_msg)
+                return RunResult(
+                    status=RunStatus.BUDGET_EXCEEDED,
+                    output=budget_msg,
+                    error="Token budget exceeded",
+                    run_id=run_id,
+                    session_id=self._active_session_id or "",
+                    iterations=self._loop_iterations,
+                )
 
             # Context compression — Tier 1 (fast) by default, Tier 2 (LLM) for long convos
             if self.compressor.should_compress(self.context.get_messages(), self.turn):
@@ -196,7 +247,14 @@ class AgentLoopV2:
                 error_message = "LLM failed after 3 consecutive errors. Change provider or try again."
                 self.context.add_assistant_message(error_message)
                 self._schedule_save(error_message)
-                return error_message
+                return RunResult(
+                    status=RunStatus.FAILED,
+                    output=error_message,
+                    error=error_message,
+                    run_id=run_id,
+                    session_id=self._active_session_id or "",
+                    iterations=self._loop_iterations,
+                )
             if response.get("finish_reason") == "retry":
                 if self._loop_iterations < _max_iter:
                     delay = min(0.5 * (2 ** (self._consecutive_llm_errors - 1)), 30)
@@ -204,17 +262,30 @@ class AgentLoopV2:
                     await asyncio.sleep(delay)
                 continue
 
-            # Budget asimi → force Tier 2 compression + retry
+            # Budget asimi
             if response.get("_budget_breached"):
-                _display.print_warning("Token budget asildi! Compression basliyor...")
-                compressed = await self.compressor.compress(
-                    self.context.get_messages(),
-                    llm_callback=self._summarize,
-                    force_tier2=True,
-                    turn_count=self.turn,
-                )
-                self.context.messages = compressed
-                continue
+                if modes.budget_hard_limit:
+                    budget_msg = f"Token budget exceeded ({modes.budget_used}/{modes.budget}). Execution halted."
+                    self.context.add_assistant_message(budget_msg)
+                    self._schedule_save(budget_msg)
+                    return RunResult(
+                        status=RunStatus.BUDGET_EXCEEDED,
+                        output=budget_msg,
+                        error="Token budget exceeded",
+                        run_id=run_id,
+                        session_id=self._active_session_id or "",
+                        iterations=self._loop_iterations,
+                    )
+                else:
+                    _display.print_warning("Token budget asildi! Compression basliyor...")
+                    compressed = await self.compressor.compress(
+                        self.context.get_messages(),
+                        llm_callback=self._summarize,
+                        force_tier2=True,
+                        turn_count=self.turn,
+                    )
+                    self.context.messages = compressed
+                    continue
 
             tool_calls = response.get("tool_calls", [])
             content = response.get("content", "")
@@ -304,14 +375,27 @@ class AgentLoopV2:
 
             self._schedule_save(content)
             self._consecutive_llm_errors = 0
-            return content
+            return RunResult(
+                status=RunStatus.COMPLETED,
+                output=content,
+                run_id=run_id,
+                session_id=self._active_session_id or "",
+                iterations=self._loop_iterations,
+            )
 
         log.warning("AgentLoopV2: iteration budget exhausted (%d)", _max_iter)
         _display.print_error("Maksimum islem butcesi doldu.")
         exhausted_message = "Maximum iterations reached."
         self.context.add_assistant_message(exhausted_message)
         self._schedule_save(exhausted_message)
-        return exhausted_message
+        return RunResult(
+            status=RunStatus.EXHAUSTED,
+            output=exhausted_message,
+            error=exhausted_message,
+            run_id=run_id,
+            session_id=self._active_session_id or "",
+            iterations=self._loop_iterations,
+        )
 
     # ────────────────────────────────────────────────────────────────
     # SYSTEM PROMPT HAZIRLIGI (ilk tur)

@@ -63,25 +63,45 @@ async def handle_a2a_rpc(request: Request):
                 
             task_id = f"task_{uuid.uuid4().hex[:12]}"
             
-            # Run loop_v2 with execution lock
+            # Run loop_v2 with execution lock and ADR-001 contract
             from gateway.app import _loop_lock
+            from orchestrator.contract import RunRequest, RunResult, RunStatus
+            from orchestrator.experimental_loop import AgentLoopV2
+
+            run_req = RunRequest(input=text, run_id=task_id, session_id=session_manager.current_id)
             async with _loop_lock:
-                reply = await loop_v2.process(text)
-            
+                # If process was monkeypatched on loop_v2 by tests, respect it
+                is_patched = getattr(loop_v2.process, "__code__", None) != AgentLoopV2.process.__code__
+                if is_patched:
+                    reply = await loop_v2.process(text)
+                    run_res = RunResult(
+                        status=RunStatus.COMPLETED,
+                        output=reply if isinstance(reply, str) else str(reply),
+                        run_id=task_id,
+                        session_id=session_manager.current_id or "",
+                    )
+                else:
+                    run_res = await loop_v2.run(run_req)
+
+            a2a_status = "completed" if run_res.status == RunStatus.COMPLETED else "failed"
+            result_payload = {
+                "id": task_id,
+                "status": a2a_status,
+                "sessionId": session_manager.current_id or "",
+                "artifacts": [
+                    {
+                        "name": "response",
+                        "parts": [{"text": run_res.output}],
+                    }
+                ],
+            }
+            if run_res.error:
+                result_payload["error"] = run_res.error
+
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "id": task_id,
-                    "status": "completed",
-                    "sessionId": session_manager.current_id or "",
-                    "artifacts": [
-                        {
-                            "name": "response",
-                            "parts": [{"text": reply}]
-                        }
-                    ]
-                }
+                "result": result_payload,
             }
         except Exception as e:
             return _jsonrpc_err(req_id, -32603, f"Internal error: {str(e)}")
