@@ -32,6 +32,19 @@ class MCPToolDef:
     server_name: str
 
 
+class MCPError(Exception):
+    """MCP JSON-RPC protocol error."""
+    def __init__(self, error_data: Any):
+        self.data = error_data
+        if isinstance(error_data, dict):
+            self.code = error_data.get("code", -1)
+            self.message = error_data.get("message", "Unknown MCP error")
+        else:
+            self.code = -1
+            self.message = str(error_data)
+        super().__init__(f"[MCP Error {self.code}] {self.message}")
+
+
 @dataclass
 class MCPServerConfig:
     """MCP server configuration."""
@@ -200,6 +213,10 @@ class MCPClient:
                 "arguments": arguments,
             })
             data = json.loads(result)
+            if "error" in data and data["error"]:
+                err = data["error"]
+                msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                return json.dumps({"error": f"MCP error: {msg}"})
 
             # Convert content to plain text
             content_parts = []
@@ -212,6 +229,8 @@ class MCPClient:
 
             return "\n".join(content_parts) if content_parts else json.dumps(data)
 
+        except MCPError as e:
+            return json.dumps({"error": f"MCP protocol error: {e.message}", "code": e.code})
         except (json.JSONDecodeError, KeyError, TypeError, OSError) as e:
             return json.dumps({"error": str(e)})
 
@@ -225,8 +244,8 @@ class MCPClient:
         except (OSError, asyncio.TimeoutError, AttributeError):
             return False
 
-    async def _request(self, method: str, params: dict) -> str:
-        """Send a JSON-RPC request."""
+    async def _request(self, method: str, params: dict, timeout: float = 60.0) -> str:
+        """Send a JSON-RPC request with guaranteed pending cleanup."""
         self._request_id += 1
         req_id = str(self._request_id)
 
@@ -240,15 +259,15 @@ class MCPClient:
         future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = future
 
-        line = json.dumps(request, ensure_ascii=False) + "\n"
-        self.writer.write(line.encode("utf-8"))
-        await self.writer.drain()
-
         try:
-            return await asyncio.wait_for(future, timeout=60)
+            line = json.dumps(request, ensure_ascii=False) + "\n"
+            self.writer.write(line.encode("utf-8"))
+            await self.writer.drain()
+            return await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
-            self._pending.pop(req_id, None)
             raise TimeoutError(f"MCP request timeout: {method}")
+        finally:
+            self._pending.pop(req_id, None)
 
     async def _log_stderr(self):
         """Log MCP server stderr output."""
@@ -277,11 +296,12 @@ class MCPClient:
         await self.writer.drain()
 
     async def _read_loop(self):
-        """Read JSON-RPC responses line by line (readline-based)."""
+        """Read JSON-RPC responses line by line with EOF cleanup."""
         try:
             while self._connected and self.reader:
                 line = await asyncio.wait_for(self.reader.readline(), timeout=120)
                 if not line:
+                    log.debug(f"MCP [{self.config.name}] reached EOF")
                     break
                 text = line.decode("utf-8", errors="replace").strip()
                 if not text:
@@ -292,25 +312,33 @@ class MCPClient:
                 except json.JSONDecodeError:
                     log.debug(f"MCP parse error: {text[:100]}")
         except asyncio.TimeoutError:
-            log.debug("MCP read timeout (120s) — disconnecting")
-            self._connected = False
+            log.debug(f"MCP [{self.config.name}] read timeout (120s) — disconnecting")
         except asyncio.CancelledError:
             pass
         except (OSError, UnicodeDecodeError) as e:
             log.debug(f"MCP read loop ended: {e}")
+        finally:
+            self._connected = False
+            for req_id, fut in list(self._pending.items()):
+                if not fut.done():
+                    fut.set_exception(ConnectionError(f"MCP connection closed for {self.config.name}"))
+            self._pending.clear()
 
     def _handle_message(self, message: dict):
         """Handle an incoming JSON-RPC message."""
-        # Response?
-        if "id" in message:
+        # Response or Error with ID
+        if "id" in message and message["id"] is not None:
             req_id = str(message["id"])
             future = self._pending.pop(req_id, None)
             if future and not future.done():
-                future.set_result(json.dumps(message, ensure_ascii=False))
+                if "error" in message and message["error"]:
+                    future.set_exception(MCPError(message["error"]))
+                else:
+                    future.set_result(json.dumps(message, ensure_ascii=False))
 
-        # Error?
+        # Unsolicited error?
         elif "error" in message:
-            log.error(f"MCP error: {message['error']}")
+            log.error(f"MCP unsolicited error: {message['error']}")
 
         # Notification?
         elif "method" in message:
@@ -362,7 +390,15 @@ class MCPManager:
         return all_tools
 
     async def call_tool(self, tool_name: str, arguments: dict) -> str:
-        """Find and call the tool on the correct server."""
+        """Find and call the tool on the correct server with server qualification support."""
+        # Support server-qualified syntax: "servername:tool_name"
+        if ":" in tool_name:
+            server_name, actual_tool = tool_name.split(":", 1)
+            client = self.servers.get(server_name)
+            if client and client._connected:
+                return await client.call_tool(actual_tool, arguments)
+            return json.dumps({"error": f"MCP server '{server_name}' not found or disconnected"})
+
         for client in self.servers.values():
             if not client._connected:
                 continue

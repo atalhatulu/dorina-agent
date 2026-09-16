@@ -122,6 +122,17 @@ class _Broadcaster:
     def __init__(self):
         self._clients: set = set()
         self._lock = threading.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_loop(self, loop: Optional[asyncio.AbstractEventLoop] = None):
+        """Set or capture the main asyncio event loop for threadsafe dispatch."""
+        if loop is not None:
+            self._loop = loop
+        elif self._loop is None or self._loop.is_closed():
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
 
     def add(self, ws):
         with self._lock:
@@ -136,20 +147,45 @@ class _Broadcaster:
             return len(self._clients)
 
     def broadcast(self, payload: dict):
-        """Schedule a send to every connected /ws/events client. Never raises."""
+        """Schedule a send to every connected /ws/events client. Never raises.
+        
+        Thread-safe: supports calls from background worker threads via call_soon_threadsafe.
+        """
         if not payload:
             return
         with self._lock:
             clients = list(self._clients)
         if not clients:
             return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        for ws in clients:
+
+        # Determine target loop
+        target_loop = self._loop
+        if target_loop is None or target_loop.is_closed():
             try:
-                loop.create_task(self._safe_send(ws, payload))
+                target_loop = asyncio.get_running_loop()
+                self._loop = target_loop
+            except RuntimeError:
+                return
+
+        # Check if caller is already running in target_loop
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if current_loop is target_loop and not target_loop.is_closed():
+            for ws in clients:
+                try:
+                    target_loop.create_task(self._safe_send(ws, payload))
+                except Exception:  # noqa: BLE001
+                    pass
+        else:
+            # Caller is in another thread or no loop running; dispatch thread-safely
+            try:
+                for ws in clients:
+                    target_loop.call_soon_threadsafe(
+                        lambda w=ws: not target_loop.is_closed() and target_loop.create_task(self._safe_send(w, payload))
+                    )
             except Exception:  # noqa: BLE001
                 pass
 
@@ -215,17 +251,24 @@ def telegram_status() -> str:
 
 
 def _runtime_label(state: dict) -> dict:
-    running = [w for w in state.get("workers", []) if w.get("status") in ("running", "pending", "waiting")]
+    running = [w for w in state.get("workers", []) if isinstance(w, dict) and w.get("status") in ("running", "pending", "waiting")]
     workers = len(running)
     if workers:
         return {"label": f"RUNNING · {workers} WORKER(S)", "level": "running"}
-    if state.get("forks"):
+    running_forks = [f for f in state.get("forks", []) if isinstance(f, dict) and f.get("status") in ("running", "pending", "waiting")]
+    if running_forks:
         return {"label": "RUNNING · SUBAGENT", "level": "running"}
     return {"label": "IDLE", "level": "idle"}
 
 
+def set_loop(loop: Optional[asyncio.AbstractEventLoop] = None):
+    """Explicitly set the asyncio event loop for broadcaster threadsafe dispatch."""
+    _broadcast.set_loop(loop)
+
+
 def subscribe(ws):
     _broadcast.add(ws)
+    _broadcast.set_loop()
     # Send the starting snapshot immediately so the UI can paint state.
     try:
         loop = asyncio.get_running_loop()

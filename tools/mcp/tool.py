@@ -119,6 +119,12 @@ def _mcp_enabled() -> bool:
 
 # ── Tool'lar ──────────────────────────────────────────────────
 
+def mcp_invalidate_cache():
+    """Invalidate MCP tool cache when servers connect, disconnect, or reconnect."""
+    if hasattr(mcp_call_tool, "_tool_cache"):
+        delattr(mcp_call_tool, "_tool_cache")
+
+
 @register_tool(
     name="mcp_call",
     description="MCP (Model Context Protocol) uzerinden harici bir araci cagir. "
@@ -156,20 +162,27 @@ async def mcp_call_tool(tool_name: str, arguments: dict = None) -> str:
         })
 
     try:
-        # Ilk seferde tool cache'ini olustur
-        if not hasattr(mcp_call_tool, "_tool_cache"):
+        # Ilk seferde veya cache bos ise tool cache'ini olustur
+        if not hasattr(mcp_call_tool, "_tool_cache") or not mcp_call_tool._tool_cache:
             mcp_call_tool._tool_cache = {}
             all_tools = await mcp_manager.list_all_tools()
             for t in all_tools:
                 mcp_call_tool._tool_cache[t.name] = t
+                if t.server_name:
+                    mcp_call_tool._tool_cache[f"{t.server_name}:{t.name}"] = t
 
         # Tool cache'de var mi?
         mcp_tool = mcp_call_tool._tool_cache.get(tool_name)
+        if not mcp_tool and ":" in tool_name:
+            actual_tool = tool_name.split(":", 1)[1]
+            mcp_tool = mcp_call_tool._tool_cache.get(actual_tool)
+
         if not mcp_tool:
+            avail = sorted([k for k in mcp_call_tool._tool_cache.keys() if ":" not in k])
             return json.dumps({
                 "error": f"MCP araci bulunamadi: '{tool_name}'. "
-                         f"Kullanilabilir: {', '.join(sorted(mcp_call_tool._tool_cache.keys()))}",
-                "available_tools": list(mcp_call_tool._tool_cache.keys()),
+                         f"Kullanilabilir: {', '.join(avail)}",
+                "available_tools": avail,
             })
 
         # Guvenlik onayi kontrolu (F07)

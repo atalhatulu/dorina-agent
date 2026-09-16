@@ -38,6 +38,7 @@ class ContextCompressor:
         self.compression_count = 0
         self._previous_summaries: list[str] = []  # Accumulated summaries
         self._last_turns_len = 0                   # Previous compress_fast turn count
+        self._last_compressed_turn = -1            # Prevent multiple compressions in same turn
 
     def estimate_tokens(self, messages: list[dict]) -> int:
         return count_messages_tokens(messages)
@@ -93,15 +94,18 @@ class ContextCompressor:
         if not messages:
             return False
         
-        # Smart: compress every 4 turns to keep context lean
-        # This is proactive instead of reactive (waiting for 64K)
-        if turn_count > 0 and turn_count % 4 == 0:
-            return True
-        
         # Also compress if over threshold (safety net)
         estimated = self.estimate_tokens(messages)
         ratio = estimated / self.max_tokens
-        return ratio > COMPRESSION_THRESHOLD
+        if ratio > COMPRESSION_THRESHOLD:
+            return True
+
+        # Smart: compress every 4 turns to keep context lean, but only ONCE per turn.
+        # Prevents compression storms when multiple tool calls run inside the same turn.
+        if turn_count > 0 and turn_count % 4 == 0 and self._last_compressed_turn != turn_count:
+            return True
+
+        return False
 
     async def compress(
         self,
@@ -123,6 +127,9 @@ class ContextCompressor:
         """
         if len(messages) < 6:
             return messages
+
+        if turn_count > 0:
+            self._last_compressed_turn = turn_count
 
         use_tier2 = force_tier2 or (turn_count >= TIER2_TURN_THRESHOLD and llm_callback is not None)
 
@@ -301,3 +308,6 @@ class ContextCompressor:
     def reset(self):
         self.compression_count = 0
         self._previous_summaries = []
+        self._last_compressed_turn = -1
+        self._last_turns_len = 0
+
